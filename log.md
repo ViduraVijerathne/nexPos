@@ -48,3 +48,16 @@
 - Added a first-launch activation flow with device ID display, copy action, activation key input, and persisted activation state before login.
 - Added a debug delete action on the login page to clear stored activation data and return the app to the activation screen.
 - Added a first-run setup wizard after activation with version selection, admin account creation, PIN setup, default login method selection, shop information capture, setup resume logic, and login integration with stored credentials/PIN.
+- Added a reusable local Isar database bootstrap and a new `CategoryEntity` collection for product categories.
+- Connected the products module to real local Isar storage with a dedicated product repository and initial seed data for development.
+- Reworked the add/edit product flow to persist products locally, validate duplicate barcodes, and support live category autosuggest limited to 3 results.
+- Added real category creation from the add/edit product dialog so missing categories can be created immediately and selected in place.
+- Connected product table search to local Isar-backed data for name, category, and barcode filtering.
+- Completed real product pagination with a maximum of 10 products per page.
+- Regenerated Isar files after adding the category collection and verified the updated products flow with `flutter test` and `flutter build macos --debug`.
+- Connected the suppliers module to local Isar storage with a dedicated supplier repository and development seed data, including supplier-linked GRNs.
+- Completed add supplier with real local persistence and duplicate email validation.
+- Connected the supplier table to local Isar data with search and pagination limited to 10 suppliers per page.
+- Completed supplier details loading from Isar and wired the supplier GRN table to sort newest GRNs first.
+- Added supplier GRN status filtering in the details dialog for `All Status`, `Paid`, `Partial`, and `Due`.
+- Verified the supplier backend integration with `flutter test` and `flutter build macos --debug`.

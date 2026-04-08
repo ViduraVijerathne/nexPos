@@ -1,9 +1,10 @@
-import 'dart:math' as math;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/product_local_repository.dart';
 import '../../models/models.dart';
 
 class ProductPage extends StatefulWidget {
@@ -15,140 +16,94 @@ class ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<ProductPage> {
   final TextEditingController _searchController = TextEditingController();
+  final ProductLocalRepository _repository = const ProductLocalRepository();
 
   ProductFilter _selectedFilter = ProductFilter.name;
-  final List<String> _categories = [
-    '55',
-    '444',
-    'busicuts',
-    '44',
-    'd',
-    '4',
-    'cat1',
-    'fruits',
-  ];
+  List<ProductRecord> _products = <ProductRecord>[];
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _searchDebounce;
 
-  late final List<ProductRecord> _products = [
-    ProductRecord(
-      name: '555',
-      barcode: '8908077319466',
-      category: '55',
-      unit: 'ITEMS',
-      lowStock: 555,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: '444',
-      barcode: '8909131772822',
-      category: '444',
-      unit: 'ITEMS',
-      lowStock: 44,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: 'product5',
-      barcode: '40440444',
-      category: 'busicuts',
-      unit: 'ITEMS',
-      lowStock: 22,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: '444',
-      barcode: '8903332598783',
-      category: '44',
-      unit: 'ITEMS',
-      lowStock: 44,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: 'manchee super cream cracker',
-      barcode: '40440444',
-      category: 'busicuts',
-      unit: 'PACKETS',
-      lowStock: 20,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: 'dodam',
-      barcode: '8907916638112',
-      category: 'd',
-      unit: 'ITEMS',
-      lowStock: 2,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: '444',
-      barcode: '8900439305666',
-      category: '4',
-      unit: 'ITEMS',
-      lowStock: 44,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: '44',
-      barcode: '8903800200289',
-      category: '444',
-      unit: 'ITEMS',
-      lowStock: 44,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: '5555',
-      barcode: '8907366713413',
-      category: '55',
-      unit: 'ITEMS',
-      lowStock: 55,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: 'product1',
-      barcode: '1992222',
-      category: 'cat1',
-      unit: 'ITEMS',
-      lowStock: 22,
-      status: ProductStatus.active,
-    ),
-    ProductRecord(
-      name: 'apple',
-      barcode: '8902723378806',
-      category: 'fruits',
-      unit: 'KG',
-      lowStock: 10,
-      status: ProductStatus.active,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  List<ProductRecord> get _filteredProducts {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _products;
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _loadProducts();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load products: $error');
     }
-
-    return _products.where((product) {
-      final value = switch (_selectedFilter) {
-        ProductFilter.name => product.name,
-        ProductFilter.category => product.category,
-        ProductFilter.barcode => product.barcode,
-      }.toLowerCase();
-
-      return value.contains(query);
-    }).toList();
   }
 
-  Future<void> _openProductDialog({ProductRecord? product, int? index}) async {
+  Future<void> _loadProducts({int? targetPage}) async {
+    setState(() => _isLoading = true);
+
+    final query = _searchController.text.trim();
+    try {
+      final result = await _repository.fetchProducts(
+        page: targetPage ?? _currentPage,
+        nameQuery: _selectedFilter == ProductFilter.name ? query : null,
+        categoryQuery: _selectedFilter == ProductFilter.category ? query : null,
+        barcodeQuery: _selectedFilter == ProductFilter.barcode ? query : null,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _products = result.products;
+        _totalCount = result.totalCount;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load products: $error');
+    }
+  }
+
+  void _handleSearchChanged(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+
+      _loadProducts(targetPage: 1);
+    });
+  }
+
+  Future<void> _openProductDialog({ProductRecord? product}) async {
     final result = await showDialog<ProductDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return ProductFormDialog(
-          existingCategories: _categories,
+          repository: _repository,
           initialProduct: product,
         );
       },
@@ -158,42 +113,38 @@ class _ProductPageState extends State<ProductPage> {
       return;
     }
 
-    setState(() {
-      if (!_categories.any(
-        (category) =>
-            category.toLowerCase() == result.product.category.toLowerCase(),
-      )) {
-        _categories.add(result.product.category);
-        _categories.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    try {
+      await _repository.saveProduct(result.product);
+      await _loadProducts(targetPage: product == null ? 1 : _currentPage);
+
+      if (result.createdCategory) {
+        AppToast.success('New category "${result.product.category}" created');
       }
 
-      if (index == null) {
-        _products.insert(0, result.product);
-      } else {
-        _products[index] = result.product;
-      }
-    });
-
-    if (result.createdCategory) {
-      AppToast.success('New category "${result.product.category}" created');
+      AppToast.success(
+        product == null
+            ? 'Product added successfully'
+            : 'Product updated successfully',
+      );
+    } on ProductLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+    } catch (error) {
+      AppToast.error('Failed to save product: $error');
     }
-
-    AppToast.success(
-      index == null
-          ? 'Product added successfully'
-          : 'Product updated successfully',
-    );
   }
 
   String get _footerText {
-    final count = math.min(_filteredProducts.length, 10);
-    return 'Showing 1 to $count of ${_filteredProducts.length} products';
+    if (_totalCount == 0) {
+      return 'Showing 0 to 0 of 0 products';
+    }
+
+    final start = ((_currentPage - 1) * ProductLocalRepository.pageSize) + 1;
+    final end = (start + _products.length) - 1;
+    return 'Showing $start to $end of $_totalCount products';
   }
 
   @override
   Widget build(BuildContext context) {
-    final products = _filteredProducts;
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -238,6 +189,7 @@ class _ProductPageState extends State<ProductPage> {
                           isSelected: _selectedFilter == filter,
                           onTap: () {
                             setState(() => _selectedFilter = filter);
+                            _loadProducts(targetPage: 1);
                           },
                         ),
                         if (filter != ProductFilter.values.last)
@@ -250,7 +202,7 @@ class _ProductPageState extends State<ProductPage> {
                     height: 38,
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: _handleSearchChanged,
                       decoration: InputDecoration(
                         hintText: switch (_selectedFilter) {
                           ProductFilter.name => 'Search by name...',
@@ -292,24 +244,40 @@ class _ProductPageState extends State<ProductPage> {
                   _ProductTableHeader(),
                   const SizedBox(height: 4),
                   Expanded(
-                    child: ListView.separated(
-                      itemCount: products.length,
-                      separatorBuilder: (_, _) =>
-                          const Divider(height: 1, color: Color(0xFFF0F4F8)),
-                      itemBuilder: (context, index) {
-                        final product = products[index];
-                        final actualIndex = _products.indexOf(product);
+                    child: _isLoading
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF36B4AE),
+                            ),
+                          )
+                        : _products.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No products found',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF8492A6),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: _products.length,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              color: Color(0xFFF0F4F8),
+                            ),
+                            itemBuilder: (context, index) {
+                              final product = _products[index];
 
-                        return _ProductTableRow(
-                          product: product,
-                          isHighlighted: product.name == 'dodam',
-                          onEdit: () => _openProductDialog(
-                            product: product,
-                            index: actualIndex,
+                              return _ProductTableRow(
+                                product: product,
+                                isHighlighted: index.isEven,
+                                onEdit: () =>
+                                    _openProductDialog(product: product),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -325,8 +293,9 @@ class _ProductPageState extends State<ProductPage> {
                       const Spacer(),
                       _PaginationButton(
                         icon: Icons.chevron_left_rounded,
-                        enabled: false,
-                        onTap: null,
+                        enabled: _currentPage > 1,
+                        onTap: () =>
+                            _loadProducts(targetPage: _currentPage - 1),
                       ),
                       const SizedBox(width: 8),
                       Container(
@@ -337,9 +306,9 @@ class _ProductPageState extends State<ProductPage> {
                           border: Border.all(color: const Color(0xFFE4EAF2)),
                         ),
                         alignment: Alignment.center,
-                        child: const Text(
-                          'Page 1 of 2',
-                          style: TextStyle(
+                        child: Text(
+                          'Page $_currentPage of $_totalPages',
+                          style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: Color(0xFF526177),
@@ -349,12 +318,9 @@ class _ProductPageState extends State<ProductPage> {
                       const SizedBox(width: 8),
                       _PaginationButton(
                         icon: Icons.chevron_right_rounded,
-                        enabled: true,
-                        onTap: () {
-                          AppToast.info(
-                            'Pagination will be wired to data next',
-                          );
-                        },
+                        enabled: _currentPage < _totalPages,
+                        onTap: () =>
+                            _loadProducts(targetPage: _currentPage + 1),
                       ),
                     ],
                   ),
@@ -371,11 +337,11 @@ class _ProductPageState extends State<ProductPage> {
 class ProductFormDialog extends StatefulWidget {
   const ProductFormDialog({
     super.key,
-    required this.existingCategories,
+    required this.repository,
     this.initialProduct,
   });
 
-  final List<String> existingCategories;
+  final ProductLocalRepository repository;
   final ProductRecord? initialProduct;
 
   @override
@@ -384,6 +350,7 @@ class ProductFormDialog extends StatefulWidget {
 
 class _ProductFormDialogState extends State<ProductFormDialog> {
   final _formKey = GlobalKey<FormState>();
+  final FocusNode _categoryFocusNode = FocusNode();
 
   late final TextEditingController _nameController;
   late final TextEditingController _barcodeController;
@@ -392,20 +359,13 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
   late String _selectedUnit;
   late ProductStatus _selectedStatus;
+
+  List<String> _categorySuggestions = <String>[];
   bool _showCategorySuggestions = false;
+  bool _isCreatingCategory = false;
+  bool _createdCategory = false;
 
   bool get _isEditing => widget.initialProduct != null;
-
-  List<String> get _matchingCategories {
-    final query = _categoryController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return widget.existingCategories.take(6).toList();
-    }
-
-    return widget.existingCategories
-        .where((category) => category.toLowerCase().contains(query))
-        .toList();
-  }
 
   bool get _shouldOfferCreateCategory {
     final value = _categoryController.text.trim();
@@ -413,7 +373,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       return false;
     }
 
-    return !widget.existingCategories.any(
+    return !_categorySuggestions.any(
       (category) => category.toLowerCase() == value.toLowerCase(),
     );
   }
@@ -430,10 +390,19 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     );
     _selectedUnit = initial?.unit ?? 'ITEMS';
     _selectedStatus = initial?.status ?? ProductStatus.active;
+
+    _categoryFocusNode.addListener(() {
+      if (!_categoryFocusNode.hasFocus && mounted) {
+        setState(() => _showCategorySuggestions = false);
+      }
+    });
+
+    _loadCategorySuggestions(_categoryController.text);
   }
 
   @override
   void dispose() {
+    _categoryFocusNode.dispose();
     _nameController.dispose();
     _barcodeController.dispose();
     _categoryController.dispose();
@@ -441,40 +410,103 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     super.dispose();
   }
 
-  void _generateBarcode() {
-    final random = DateTime.now().microsecondsSinceEpoch.toString();
+  Future<void> _loadCategorySuggestions(String query) async {
+    final suggestions = await widget.repository.fetchCategorySuggestions(query);
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
-      _barcodeController.text = '890${random.substring(random.length - 10)}';
+      _categorySuggestions = suggestions;
     });
   }
 
-  void _submit() {
+  void _generateBarcode() {
+    final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
+    setState(() {
+      _barcodeController.text =
+          '890${timestamp.substring(timestamp.length - 10)}';
+    });
+  }
+
+  Future<void> _createCategory() async {
+    final categoryName = _categoryController.text.trim();
+    if (categoryName.isEmpty || _isCreatingCategory) {
+      return;
+    }
+
+    setState(() => _isCreatingCategory = true);
+    try {
+      final savedCategory = await widget.repository.createCategory(
+        categoryName,
+      );
+      final suggestions = await widget.repository.fetchCategorySuggestions(
+        savedCategory,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _createdCategory = true;
+        _categoryController.text = savedCategory;
+        _categorySuggestions = suggestions;
+        _showCategorySuggestions = false;
+      });
+    } on ProductLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+    } catch (error) {
+      AppToast.error('Failed to create category: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isCreatingCategory = false);
+      }
+    }
+  }
+
+  Future<void> _submit() async {
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
     }
 
+    final categoryName = _categoryController.text.trim();
+    final categoryExists = await widget.repository.categoryExists(categoryName);
+    if (!categoryExists) {
+      try {
+        await widget.repository.createCategory(categoryName);
+        _createdCategory = true;
+      } on ProductLocalRepositoryException catch (error) {
+        AppToast.error(error.message);
+        return;
+      } catch (error) {
+        AppToast.error('Failed to create category: $error');
+        return;
+      }
+    }
+
     final product = ProductRecord(
+      id: widget.initialProduct?.id,
       name: _nameController.text.trim(),
       barcode: _barcodeController.text.trim(),
-      category: _categoryController.text.trim(),
+      category: categoryName,
       unit: _selectedUnit,
       lowStock: int.parse(_lowStockController.text.trim()),
       status: _selectedStatus,
     );
 
+    if (!mounted) {
+      return;
+    }
+
     Navigator.of(context).pop(
-      ProductDialogResult(
-        product: product,
-        createdCategory: _shouldOfferCreateCategory,
-      ),
+      ProductDialogResult(product: product, createdCategory: _createdCategory),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final suggestions = _matchingCategories;
-
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -590,18 +622,20 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                     const SizedBox(height: 8),
                     _CategoryAutocompleteField(
                       controller: _categoryController,
-                      suggestions: suggestions,
+                      focusNode: _categoryFocusNode,
+                      suggestions: _categorySuggestions,
                       showSuggestions: _showCategorySuggestions,
                       shouldOfferCreate: _shouldOfferCreateCategory,
-                      onChanged: (_) {
-                        setState(() {
-                          _showCategorySuggestions = true;
-                        });
+                      isCreatingCategory: _isCreatingCategory,
+                      onChanged: (value) async {
+                        setState(() => _showCategorySuggestions = true);
+                        await _loadCategorySuggestions(value);
                       },
-                      onTap: () {
-                        setState(() {
-                          _showCategorySuggestions = true;
-                        });
+                      onTap: () async {
+                        setState(() => _showCategorySuggestions = true);
+                        await _loadCategorySuggestions(
+                          _categoryController.text,
+                        );
                       },
                       onSelectSuggestion: (category) {
                         setState(() {
@@ -609,11 +643,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                           _showCategorySuggestions = false;
                         });
                       },
-                      onCreateCategory: () {
-                        setState(() {
-                          _showCategorySuggestions = false;
-                        });
-                      },
+                      onCreateCategory: _createCategory,
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
                           return 'Category is required';
@@ -848,6 +878,8 @@ class _ProductTableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isActive = product.status == ProductStatus.active;
+
     return Container(
       color: isHighlighted ? const Color(0xFFF7FAFC) : Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -960,15 +992,19 @@ class _ProductTableRow extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE7FBF7),
+                  color: isActive
+                      ? const Color(0xFFE7FBF7)
+                      : const Color(0xFFFCE8E8),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   product.status.label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF36B4AE),
+                    color: isActive
+                        ? const Color(0xFF36B4AE)
+                        : const Color(0xFFF56565),
                   ),
                 ),
               ),
@@ -1003,9 +1039,11 @@ class _ProductTableRow extends StatelessWidget {
 class _CategoryAutocompleteField extends StatelessWidget {
   const _CategoryAutocompleteField({
     required this.controller,
+    required this.focusNode,
     required this.suggestions,
     required this.showSuggestions,
     required this.shouldOfferCreate,
+    required this.isCreatingCategory,
     required this.onChanged,
     required this.onTap,
     required this.onSelectSuggestion,
@@ -1014,13 +1052,15 @@ class _CategoryAutocompleteField extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final List<String> suggestions;
   final bool showSuggestions;
   final bool shouldOfferCreate;
+  final bool isCreatingCategory;
   final ValueChanged<String> onChanged;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
   final ValueChanged<String> onSelectSuggestion;
-  final VoidCallback onCreateCategory;
+  final Future<void> Function() onCreateCategory;
   final String? Function(String?) validator;
 
   @override
@@ -1032,6 +1072,7 @@ class _CategoryAutocompleteField extends StatelessWidget {
       children: [
         _DialogTextField(
           controller: controller,
+          focusNode: focusNode,
           hintText: 'Select or create category',
           prefixIcon: Icons.label_outline_rounded,
           onChanged: onChanged,
@@ -1091,11 +1132,13 @@ class _CategoryAutocompleteField extends StatelessWidget {
                     ),
                   ),
                   InkWell(
-                    onTap: onCreateCategory,
+                    onTap: isCreatingCategory ? null : onCreateCategory,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
                       child: Text(
-                        '+ Create "$trimmedValue"',
+                        isCreatingCategory
+                            ? 'Creating category...'
+                            : '+ Create "$trimmedValue"',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -1118,6 +1161,7 @@ class _DialogTextField extends StatelessWidget {
   const _DialogTextField({
     required this.controller,
     required this.hintText,
+    this.focusNode,
     this.prefixIcon,
     this.validator,
     this.onChanged,
@@ -1127,19 +1171,21 @@ class _DialogTextField extends StatelessWidget {
 
   final TextEditingController controller;
   final String hintText;
+  final FocusNode? focusNode;
   final IconData? prefixIcon;
   final String? Function(String?)? validator;
   final ValueChanged<String>? onChanged;
-  final VoidCallback? onTap;
+  final Future<void> Function()? onTap;
   final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
+      focusNode: focusNode,
       validator: validator,
       onChanged: onChanged,
-      onTap: onTap,
+      onTap: onTap == null ? null : () => onTap!.call(),
       keyboardType: keyboardType,
       decoration: InputDecoration(
         hintText: hintText,

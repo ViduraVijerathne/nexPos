@@ -19,6 +19,7 @@ enum ProductStatus {
 
 class ProductRecord {
   const ProductRecord({
+    this.id,
     required this.name,
     required this.barcode,
     required this.category,
@@ -27,12 +28,55 @@ class ProductRecord {
     required this.status,
   });
 
+  final int? id;
   final String name;
   final String barcode;
   final String category;
   final String unit;
   final int lowStock;
   final ProductStatus status;
+
+  ProductRecord copyWith({
+    int? id,
+    String? name,
+    String? barcode,
+    String? category,
+    String? unit,
+    int? lowStock,
+    ProductStatus? status,
+  }) {
+    return ProductRecord(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      barcode: barcode ?? this.barcode,
+      category: category ?? this.category,
+      unit: unit ?? this.unit,
+      lowStock: lowStock ?? this.lowStock,
+      status: status ?? this.status,
+    );
+  }
+}
+
+class ProductPageResult {
+  const ProductPageResult({
+    required this.products,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<ProductRecord> products;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
 }
 
 enum StockStatus {
@@ -170,7 +214,7 @@ class SupplierRecord {
     required this.grns,
   });
 
-  final String id;
+  final int id;
   final String supplierName;
   final String companyName;
   final String contactNumber;
@@ -184,7 +228,7 @@ class SupplierRecord {
   double get totalDue => grns.fold(0, (sum, item) => sum + item.due);
 
   SupplierRecord copyWith({
-    String? id,
+    int? id,
     String? supplierName,
     String? companyName,
     String? contactNumber,
@@ -205,6 +249,28 @@ class SupplierRecord {
       isActive: isActive ?? this.isActive,
       grns: grns ?? this.grns,
     );
+  }
+}
+
+class SupplierPageResult {
+  const SupplierPageResult({
+    required this.suppliers,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<SupplierRecord> suppliers;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
   }
 }
 

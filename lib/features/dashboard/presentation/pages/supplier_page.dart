@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/supplier_local_repository.dart';
 import '../../models/models.dart';
 
 class SupplierPage extends StatefulWidget {
@@ -13,84 +16,84 @@ class SupplierPage extends StatefulWidget {
 
 class _SupplierPageState extends State<SupplierPage> {
   final TextEditingController _searchController = TextEditingController();
+  final SupplierLocalRepository _repository = const SupplierLocalRepository();
 
-  late final List<SupplierRecord> _suppliers = [
-    SupplierRecord(
-      id: 'sup-1',
-      supplierName: 'apple',
-      companyName: 'Uva wellassa university Sri lanka',
-      contactNumber: '0733',
-      companyContact: '29922',
-      email: 'bet23058@std.uwu.ac.lk',
-      address: 'moroththa,madahapola',
-      isActive: true,
-      grns: [
-        SupplierGrnRecord(
-          grnId: '5r4MH2V6SVrTcnQM73vY',
-          date: 'N/A',
-          itemsCount: 0,
-          total: 0,
-          paid: 59829,
-          due: 0,
-          status: SupplierGrnStatus.paid,
-        ),
-        SupplierGrnRecord(
-          grnId: 'EblchgQGfpvBfWjY4hrO',
-          date: 'N/A',
-          itemsCount: 0,
-          total: 0,
-          paid: 0,
-          due: 693,
-          status: SupplierGrnStatus.paid,
-        ),
-        SupplierGrnRecord(
-          grnId: 'ya5Rw466RR08',
-          date: '4/6/2026',
-          itemsCount: 1,
-          total: 5929,
-          paid: 333,
-          due: 5596,
-          status: SupplierGrnStatus.partial,
-        ),
-      ],
-    ),
-    SupplierRecord(
-      id: 'sup-2',
-      supplierName: 'sahan',
-      companyName: 'unilever',
-      contactNumber: '07667668',
-      companyContact: '+1 234 567 8900',
-      email: 'sahan@gmail.com',
-      address: 'abc',
-      isActive: true,
-      grns: const [],
-    ),
-  ];
+  List<SupplierRecord> _suppliers = <SupplierRecord>[];
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  List<SupplierRecord> get _filteredSuppliers {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _suppliers;
-    }
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _loadSuppliers();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    return _suppliers.where((supplier) {
-      return supplier.supplierName.toLowerCase().contains(query) ||
-          supplier.companyName.toLowerCase().contains(query) ||
-          supplier.email.toLowerCase().contains(query) ||
-          supplier.contactNumber.toLowerCase().contains(query);
-    }).toList();
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load suppliers: $error');
+    }
   }
 
-  Future<void> _openSupplierDialog({
-    SupplierRecord? supplier,
-    int? index,
-  }) async {
+  Future<void> _loadSuppliers({int? targetPage}) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _repository.fetchSuppliers(
+        page: targetPage ?? _currentPage,
+        searchQuery: _searchController.text.trim(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _suppliers = result.suppliers;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _totalCount = result.totalCount;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load suppliers: $error');
+    }
+  }
+
+  void _handleSearchChanged(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+
+      _loadSuppliers(targetPage: 1);
+    });
+  }
+
+  Future<void> _openSupplierDialog({SupplierRecord? supplier}) async {
     final result = await showDialog<SupplierRecord>(
       context: context,
       barrierDismissible: false,
@@ -101,52 +104,55 @@ class _SupplierPageState extends State<SupplierPage> {
       return;
     }
 
-    setState(() {
-      if (index == null) {
-        _suppliers.insert(0, result);
-      } else {
-        _suppliers[index] = result;
-      }
-    });
+    try {
+      await _repository.saveSupplier(result);
+      await _loadSuppliers(targetPage: supplier == null ? 1 : _currentPage);
+    } on SupplierLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+      return;
+    } catch (error) {
+      AppToast.error('Failed to save supplier: $error');
+      return;
+    }
 
     AppToast.success(
-      index == null
+      supplier == null
           ? 'Supplier added successfully'
           : 'Supplier updated successfully',
     );
   }
 
-  void _openSupplierDetails(SupplierRecord supplier) {
+  Future<void> _openSupplierDetails(SupplierRecord supplier) async {
+    final record = await _repository.fetchSupplierById(supplier.id);
+    if (!mounted || record == null) {
+      AppToast.error('Supplier details not found');
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => SupplierDetailsDialog(
-        supplier: supplier,
-        onToggleStatus: () {
-          final supplierIndex = _suppliers.indexWhere(
-            (item) => item.id == supplier.id,
-          );
-          if (supplierIndex == -1) {
+        supplier: record,
+        onToggleStatus: () async {
+          final updated = await _repository.toggleSupplierStatus(record.id);
+          Navigator.of(context).pop();
+          await _loadSuppliers(targetPage: _currentPage);
+
+          if (updated == null || !mounted) {
+            AppToast.error('Failed to update supplier status');
             return;
           }
 
-          setState(() {
-            _suppliers[supplierIndex] = _suppliers[supplierIndex].copyWith(
-              isActive: !_suppliers[supplierIndex].isActive,
-            );
-          });
-
-          Navigator.of(context).pop();
-
           AppToast.success(
-            _suppliers[supplierIndex].isActive
+            updated.isActive
                 ? 'Supplier activated successfully'
                 : 'Supplier deactivated successfully',
           );
 
-          _openSupplierDetails(_suppliers[supplierIndex]);
+          _openSupplierDetails(updated);
         },
-        onPayDue: (grn) => _openPayDueDialog(supplier, grn),
+        onPayDue: (grn) => _openPayDueDialog(record, grn),
       ),
     );
   }
@@ -156,59 +162,47 @@ class _SupplierPageState extends State<SupplierPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => SupplierPayDueDialog(grn: grn),
-    ).then((result) {
+    ).then((result) async {
       if (result == null) {
         return;
       }
 
-      final supplierIndex = _suppliers.indexWhere(
-        (item) => item.id == supplier.id,
-      );
-      if (supplierIndex == -1) {
-        return;
-      }
-
-      final grnIndex = _suppliers[supplierIndex].grns.indexWhere(
-        (item) => item.grnId == grn.grnId,
-      );
-      if (grnIndex == -1) {
-        return;
-      }
-
-      final currentGrn = _suppliers[supplierIndex].grns[grnIndex];
-      final updatedPaid = currentGrn.paid + result.amount;
-      final updatedDue = (currentGrn.due - result.amount).clamp(
-        0,
-        double.infinity,
-      );
-
-      final updatedGrn = currentGrn.copyWith(
-        paid: updatedPaid,
-        due: updatedDue.toDouble(),
-        status: updatedDue <= 0
-            ? SupplierGrnStatus.paid
-            : SupplierGrnStatus.partial,
-      );
-
-      final updatedGrns = List<SupplierGrnRecord>.from(
-        _suppliers[supplierIndex].grns,
-      )..[grnIndex] = updatedGrn;
-
-      setState(() {
-        _suppliers[supplierIndex] = _suppliers[supplierIndex].copyWith(
-          grns: updatedGrns,
+      try {
+        final updated = await _repository.recordDuePayment(
+          supplierId: supplier.id,
+          grnId: grn.grnId,
+          amount: result.amount,
+          method: result.method,
         );
-      });
+        await _loadSuppliers(targetPage: _currentPage);
 
-      AppToast.success('Supplier payment recorded successfully');
-      _openSupplierDetails(_suppliers[supplierIndex]);
+        if (!mounted || updated == null) {
+          AppToast.error('Failed to record supplier payment');
+          return;
+        }
+
+        AppToast.success('Supplier payment recorded successfully');
+        _openSupplierDetails(updated);
+      } on SupplierLocalRepositoryException catch (error) {
+        AppToast.error(error.message);
+      } catch (error) {
+        AppToast.error('Failed to record supplier payment: $error');
+      }
     });
+  }
+
+  String get _footerText {
+    if (_totalCount == 0) {
+      return 'Showing 0 to 0 of 0 suppliers';
+    }
+
+    final start = ((_currentPage - 1) * SupplierLocalRepository.pageSize) + 1;
+    final end = (start + _suppliers.length) - 1;
+    return 'Showing $start to $end of $_totalCount suppliers';
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredSuppliers = _filteredSuppliers;
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -222,22 +216,37 @@ class _SupplierPageState extends State<SupplierPage> {
               _SupplierActionButton(
                 label: 'Add Supplier',
                 icon: Icons.add,
-                onPressed: _openSupplierDialog,
+                onPressed: () => _openSupplierDialog(),
               ),
             ],
           ),
           const SizedBox(height: 18),
           _SupplierSearchCard(
             controller: _searchController,
-            onChanged: (_) => setState(() {}),
+            onChanged: _handleSearchChanged,
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: filteredSuppliers.isEmpty
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryTeal,
+                    ),
+                  )
+                : _suppliers.isEmpty
                 ? const _SupplierEmptyState()
                 : _SupplierTableCard(
-                    suppliers: filteredSuppliers,
+                    suppliers: _suppliers,
                     onViewDetails: _openSupplierDetails,
+                    footerText: _footerText,
+                    currentPage: _currentPage,
+                    totalPages: _totalPages,
+                    onPreviousPage: _currentPage > 1
+                        ? () => _loadSuppliers(targetPage: _currentPage - 1)
+                        : null,
+                    onNextPage: _currentPage < _totalPages
+                        ? () => _loadSuppliers(targetPage: _currentPage + 1)
+                        : null,
                   ),
           ),
         ],
@@ -448,10 +457,20 @@ class _SupplierTableCard extends StatelessWidget {
   const _SupplierTableCard({
     required this.suppliers,
     required this.onViewDetails,
+    required this.footerText,
+    required this.currentPage,
+    required this.totalPages,
+    required this.onPreviousPage,
+    required this.onNextPage,
   });
 
   final List<SupplierRecord> suppliers;
-  final ValueChanged<SupplierRecord> onViewDetails;
+  final Future<void> Function(SupplierRecord) onViewDetails;
+  final String footerText;
+  final int currentPage;
+  final int totalPages;
+  final VoidCallback? onPreviousPage;
+  final VoidCallback? onNextPage;
 
   @override
   Widget build(BuildContext context) {
@@ -596,7 +615,9 @@ class _SupplierTableCard extends StatelessWidget {
                       Expanded(
                         flex: 12,
                         child: OutlinedButton.icon(
-                          onPressed: () => onViewDetails(supplier),
+                          onPressed: () {
+                            onViewDetails(supplier);
+                          },
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(92, 38),
                             padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -623,6 +644,54 @@ class _SupplierTableCard extends StatelessWidget {
                   ),
                 );
               },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0xFFF0F4F8))),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  footerText,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF8492A6),
+                  ),
+                ),
+                const Spacer(),
+                _SupplierPaginationButton(
+                  icon: Icons.chevron_left_rounded,
+                  enabled: onPreviousPage != null,
+                  onTap: onPreviousPage,
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE4EAF2)),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    'Page $currentPage of $totalPages',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF526177),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _SupplierPaginationButton(
+                  icon: Icons.chevron_right_rounded,
+                  enabled: onNextPage != null,
+                  onTap: onNextPage,
+                ),
+              ],
             ),
           ),
         ],
@@ -696,9 +765,7 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
 
     Navigator.of(context).pop(
       SupplierRecord(
-        id:
-            widget.initialSupplier?.id ??
-            'sup-${DateTime.now().millisecondsSinceEpoch}',
+        id: widget.initialSupplier?.id ?? 0,
         supplierName: _supplierNameController.text.trim(),
         companyName: _companyNameController.text.trim(),
         contactNumber: _contactNumberController.text.trim(),
@@ -856,7 +923,7 @@ class SupplierDetailsDialog extends StatefulWidget {
   });
 
   final SupplierRecord supplier;
-  final VoidCallback onToggleStatus;
+  final Future<void> Function() onToggleStatus;
   final ValueChanged<SupplierGrnRecord> onPayDue;
 
   @override
@@ -871,9 +938,18 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
       return widget.supplier.grns;
     }
     if (_statusFilter == 'Paid') {
-      return widget.supplier.grns.where((grn) => grn.due <= 0).toList();
+      return widget.supplier.grns
+          .where((grn) => grn.status == SupplierGrnStatus.paid)
+          .toList();
     }
-    return widget.supplier.grns.where((grn) => grn.due > 0).toList();
+    if (_statusFilter == 'Partial') {
+      return widget.supplier.grns
+          .where((grn) => grn.status == SupplierGrnStatus.partial)
+          .toList();
+    }
+    return widget.supplier.grns
+        .where((grn) => grn.status == SupplierGrnStatus.due)
+        .toList();
   }
 
   @override
@@ -982,7 +1058,9 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                             ),
                           ),
                           ElevatedButton(
-                            onPressed: widget.onToggleStatus,
+                            onPressed: () {
+                              widget.onToggleStatus();
+                            },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: widget.supplier.isActive
                                   ? const Color(0xFFF45050)
@@ -1083,14 +1161,15 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                           child: DropdownButtonFormField<String>(
                             value: _statusFilter,
                             decoration: _fieldDecoration(),
-                            items: const ['All Status', 'Paid', 'Due']
-                                .map(
-                                  (status) => DropdownMenuItem<String>(
-                                    value: status,
-                                    child: Text(status),
-                                  ),
-                                )
-                                .toList(),
+                            items:
+                                const ['All Status', 'Paid', 'Partial', 'Due']
+                                    .map(
+                                      (status) => DropdownMenuItem<String>(
+                                        value: status,
+                                        child: Text(status),
+                                      ),
+                                    )
+                                    .toList(),
                             onChanged: (value) {
                               if (value != null) {
                                 setState(() => _statusFilter = value);
@@ -1576,6 +1655,39 @@ class _SupplierActionButton extends StatelessWidget {
       ),
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _SupplierPaginationButton extends StatelessWidget {
+  const _SupplierPaginationButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE4EAF2)),
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+        ),
+      ),
     );
   }
 }

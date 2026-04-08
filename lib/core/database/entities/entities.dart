@@ -1,3 +1,4 @@
+export 'category_entity.dart';
 export 'customer_entity.dart';
 export 'grn_entity.dart';
 export 'invoice_entity.dart';

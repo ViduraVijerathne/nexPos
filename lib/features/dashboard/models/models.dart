@@ -90,6 +90,7 @@ enum StockStatus {
 
 class StockRecord {
   const StockRecord({
+    this.id,
     required this.barcode,
     required this.product,
     required this.initialQty,
@@ -102,6 +103,7 @@ class StockRecord {
     this.expiryDate,
   });
 
+  final int? id;
   final String barcode;
   final String product;
   final int initialQty;
@@ -112,6 +114,178 @@ class StockRecord {
   final StockStatus status;
   final String grnId;
   final String? expiryDate;
+
+  StockRecord copyWith({
+    int? id,
+    String? barcode,
+    String? product,
+    int? initialQty,
+    int? availableQty,
+    double? buyingPrice,
+    double? sellingPrice,
+    double? maxDiscount,
+    StockStatus? status,
+    String? grnId,
+    String? expiryDate,
+  }) {
+    return StockRecord(
+      id: id ?? this.id,
+      barcode: barcode ?? this.barcode,
+      product: product ?? this.product,
+      initialQty: initialQty ?? this.initialQty,
+      availableQty: availableQty ?? this.availableQty,
+      buyingPrice: buyingPrice ?? this.buyingPrice,
+      sellingPrice: sellingPrice ?? this.sellingPrice,
+      maxDiscount: maxDiscount ?? this.maxDiscount,
+      status: status ?? this.status,
+      grnId: grnId ?? this.grnId,
+      expiryDate: expiryDate ?? this.expiryDate,
+    );
+  }
+}
+
+class StockSummary {
+  const StockSummary({
+    required this.totalStockItems,
+    required this.activeStocks,
+    required this.lowStockItems,
+    required this.inactiveStocks,
+  });
+
+  final int totalStockItems;
+  final int activeStocks;
+  final int lowStockItems;
+  final int inactiveStocks;
+}
+
+class StockPageResult {
+  const StockPageResult({
+    required this.stocks,
+    required this.summary,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<StockRecord> stocks;
+  final StockSummary summary;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
+class PosCatalogItem {
+  const PosCatalogItem({
+    required this.stockId,
+    required this.stockBarcode,
+    required this.productName,
+    required this.productBarcode,
+    required this.category,
+    required this.availableQty,
+    required this.sellingPrice,
+  });
+
+  final int stockId;
+  final String stockBarcode;
+  final String productName;
+  final String productBarcode;
+  final String category;
+  final int availableQty;
+  final double sellingPrice;
+}
+
+class PosCatalogResult {
+  const PosCatalogResult({required this.items, required this.categories});
+
+  final List<PosCatalogItem> items;
+  final List<String> categories;
+}
+
+class PosCartItem {
+  const PosCartItem({
+    required this.stockId,
+    required this.stockBarcode,
+    required this.productBarcode,
+    required this.productName,
+    required this.category,
+    required this.unitPrice,
+    required this.availableQty,
+    required this.quantity,
+  });
+
+  final int stockId;
+  final String stockBarcode;
+  final String productBarcode;
+  final String productName;
+  final String category;
+  final double unitPrice;
+  final int availableQty;
+  final int quantity;
+
+  double get subtotal => unitPrice * quantity;
+
+  PosCartItem copyWith({
+    int? stockId,
+    String? stockBarcode,
+    String? productBarcode,
+    String? productName,
+    String? category,
+    double? unitPrice,
+    int? availableQty,
+    int? quantity,
+  }) {
+    return PosCartItem(
+      stockId: stockId ?? this.stockId,
+      stockBarcode: stockBarcode ?? this.stockBarcode,
+      productBarcode: productBarcode ?? this.productBarcode,
+      productName: productName ?? this.productName,
+      category: category ?? this.category,
+      unitPrice: unitPrice ?? this.unitPrice,
+      availableQty: availableQty ?? this.availableQty,
+      quantity: quantity ?? this.quantity,
+    );
+  }
+}
+
+class PosCustomerOption {
+  const PosCustomerOption({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.email,
+    this.isWalkIn = false,
+  });
+
+  final int? id;
+  final String name;
+  final String phone;
+  final String email;
+  final bool isWalkIn;
+
+  String get searchLabel {
+    if (phone.trim().isEmpty) {
+      return name;
+    }
+    return '$name (${phone.trim()})';
+  }
+}
+
+class PosCheckoutResult {
+  const PosCheckoutResult({
+    required this.invoiceNumber,
+    required this.changeAmount,
+  });
+
+  final String invoiceNumber;
+  final double changeAmount;
 }
 
 class GrnRecord {

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/stock_local_repository.dart';
 import '../../models/models.dart';
 
 class StockPage extends StatefulWidget {
@@ -21,143 +23,34 @@ class _StockPageState extends State<StockPage> {
   final TextEditingController _grnSearchController = TextEditingController();
   final TextEditingController _qtyLessController = TextEditingController();
   final TextEditingController _qtyGreaterController = TextEditingController();
+  final StockLocalRepository _repository = const StockLocalRepository();
 
   String _selectedStatusFilter = 'All';
   bool _isFilterExpanded = true;
+  List<String> _productSuggestions = <String>[];
+  List<String> _grnSuggestions = <String>[];
+  List<StockRecord> _stocks = <StockRecord>[];
+  StockSummary _summary = const StockSummary(
+    totalStockItems: 0,
+    activeStocks: 0,
+    lowStockItems: 0,
+    inactiveStocks: 0,
+  );
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _filterDebounce;
 
-  final List<String> _productSuggestions = [
-    '444',
-    'manchee super cream cracker',
-    'apple',
-    'dodam',
-    'product5',
-    'v',
-  ];
-
-  final List<String> _grnSuggestions = [
-    'GRN-1001',
-    'GRN-1002',
-    'GRN-1003',
-    'GRN-APPLE-24',
-    'GRN-CRACKER-10',
-  ];
-
-  late final List<StockRecord> _stocks = [
-    StockRecord(
-      barcode: '120339',
-      product: '444',
-      initialQty: 10,
-      availableQty: 4,
-      buyingPrice: 4,
-      sellingPrice: 55,
-      maxDiscount: 1,
-      status: StockStatus.inactive,
-      grnId: 'Not Assigned',
-    ),
-    StockRecord(
-      barcode: '120339',
-      product: '444',
-      initialQty: 10,
-      availableQty: 0,
-      buyingPrice: 4,
-      sellingPrice: 55,
-      maxDiscount: 1,
-      status: StockStatus.active,
-      grnId: 'GRN-1001',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491845683-pbfer7c31',
-      product: 'manchee super cream cracker',
-      initialQty: 7,
-      availableQty: 7,
-      buyingPrice: 99,
-      sellingPrice: 88,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-CRACKER-10',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491815059-tj65mad17',
-      product: 'manchee super cream cracker',
-      initialQty: 8,
-      availableQty: 5,
-      buyingPrice: 88,
-      sellingPrice: 99,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-1002',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491789360-ebphsyxbu',
-      product: 'manchee super cream cracker',
-      initialQty: 7,
-      availableQty: 7,
-      buyingPrice: 99,
-      sellingPrice: 7,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-1003',
-    ),
-    StockRecord(
-      barcode: 'v',
-      product: 'manchee super cream cracker',
-      initialQty: 8,
-      availableQty: 3,
-      buyingPrice: 8,
-      sellingPrice: 88,
-      maxDiscount: 88,
-      status: StockStatus.active,
-      grnId: 'GRN-CRACKER-10',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491714698-m3ffqvb3m',
-      product: 'apple',
-      initialQty: 99,
-      availableQty: 95,
-      buyingPrice: 77,
-      sellingPrice: 888,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-APPLE-24',
-      expiryDate: '2026-12-31',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491682558-3o5mmmzrt',
-      product: 'dodam',
-      initialQty: 77,
-      availableQty: 60,
-      buyingPrice: 77,
-      sellingPrice: 88,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-1002',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491653682-qzy1v8xvu',
-      product: 'product5',
-      initialQty: 77,
-      availableQty: 71,
-      buyingPrice: 777,
-      sellingPrice: 99,
-      maxDiscount: 66,
-      status: StockStatus.active,
-      grnId: 'GRN-1003',
-    ),
-    StockRecord(
-      barcode: 'STK-1775491617229-kdoqdami3',
-      product: 'manchee super cream cracker',
-      initialQty: 9,
-      availableQty: 9,
-      buyingPrice: 8,
-      sellingPrice: 77,
-      maxDiscount: 0,
-      status: StockStatus.active,
-      grnId: 'GRN-1001',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
+  }
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
     _barcodeSearchController.dispose();
     _productSearchController.dispose();
     _grnSearchController.dispose();
@@ -166,41 +59,83 @@ class _StockPageState extends State<StockPage> {
     super.dispose();
   }
 
-  List<StockRecord> get _filteredStocks {
-    return _stocks.where((stock) {
-      final barcodeQuery = _barcodeSearchController.text.trim().toLowerCase();
-      final productQuery = _productSearchController.text.trim().toLowerCase();
-      final grnQuery = _grnSearchController.text.trim().toLowerCase();
-      final lessQty = int.tryParse(_qtyLessController.text.trim());
-      final greaterQty = int.tryParse(_qtyGreaterController.text.trim());
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _reloadSuggestions();
+      await _loadStocks();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-      if (barcodeQuery.isNotEmpty &&
-          !stock.barcode.toLowerCase().contains(barcodeQuery)) {
-        return false;
-      }
-      if (productQuery.isNotEmpty &&
-          !stock.product.toLowerCase().contains(productQuery)) {
-        return false;
-      }
-      if (grnQuery.isNotEmpty &&
-          !stock.grnId.toLowerCase().contains(grnQuery)) {
-        return false;
-      }
-      if (_selectedStatusFilter != 'All' &&
-          stock.status.label != _selectedStatusFilter) {
-        return false;
-      }
-      if (lessQty != null && stock.availableQty >= lessQty) {
-        return false;
-      }
-      if (greaterQty != null && stock.availableQty <= greaterQty) {
-        return false;
-      }
-      return true;
-    }).toList();
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load stocks: $error');
+    }
   }
 
-  Future<void> _openStockDialog({StockRecord? stock, int? index}) async {
+  Future<void> _reloadSuggestions() async {
+    final products = await _repository.fetchProductSuggestions();
+    final grns = await _repository.fetchGrnSuggestions();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _productSuggestions = products;
+      _grnSuggestions = grns;
+    });
+  }
+
+  Future<void> _loadStocks({int? targetPage}) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _repository.fetchStocks(
+        page: targetPage ?? _currentPage,
+        barcodeQuery: _barcodeSearchController.text.trim(),
+        productQuery: _productSearchController.text.trim(),
+        grnQuery: _grnSearchController.text.trim(),
+        statusFilter: _selectedStatusFilter,
+        qtyLessThan: int.tryParse(_qtyLessController.text.trim()),
+        qtyGreaterThan: int.tryParse(_qtyGreaterController.text.trim()),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _stocks = result.stocks;
+        _summary = result.summary;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _totalCount = result.totalCount;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load stocks: $error');
+    }
+  }
+
+  void _applyFiltersDebounced() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+
+      _loadStocks(targetPage: 1);
+    });
+  }
+
+  Future<void> _openStockDialog({StockRecord? stock}) async {
     final result = await showDialog<StockRecord>(
       context: context,
       barrierDismissible: false,
@@ -217,40 +152,61 @@ class _StockPageState extends State<StockPage> {
       return;
     }
 
-    setState(() {
-      if (!_productSuggestions.contains(result.product)) {
-        _productSuggestions.add(result.product);
-        _productSuggestions.sort();
-      }
-      if (result.grnId != 'Not Assigned' &&
-          !_grnSuggestions.contains(result.grnId)) {
-        _grnSuggestions.add(result.grnId);
-        _grnSuggestions.sort();
-      }
+    try {
+      await _repository.saveStock(result);
+      await _reloadSuggestions();
+      await _loadStocks(targetPage: stock == null ? 1 : _currentPage);
 
-      if (index == null) {
-        _stocks.insert(0, result);
-      } else {
-        _stocks[index] = result;
-      }
-    });
+      AppToast.success(
+        stock == null
+            ? 'Stock added successfully'
+            : 'Stock updated successfully',
+      );
+    } on StockLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+    } catch (error) {
+      AppToast.error('Failed to save stock: $error');
+    }
+  }
 
-    AppToast.success(
-      index == null ? 'Stock added successfully' : 'Stock updated successfully',
+  Future<void> _showStockDetails(StockRecord stock) async {
+    final record = stock.id == null
+        ? null
+        : await _repository.fetchStockById(stock.id!);
+    if (!mounted || record == null) {
+      AppToast.error('Stock details not found');
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => StockDetailsDialog(stock: record),
     );
   }
 
-  void _showStockDetails(StockRecord stock) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => StockDetailsDialog(stock: stock),
-    );
+  Future<void> _deactivateStock(StockRecord stock) async {
+    if (stock.id == null) {
+      AppToast.error('Stock record not found');
+      return;
+    }
+
+    await _repository.deactivateStock(stock.id!);
+    await _loadStocks(targetPage: _currentPage);
+    AppToast.success('Stock deactivated successfully');
+  }
+
+  String get _footerText {
+    if (_totalCount == 0) {
+      return 'Showing 0 to 0 of 0 stocks';
+    }
+
+    final start = ((_currentPage - 1) * StockLocalRepository.pageSize) + 1;
+    final end = (start + _stocks.length) - 1;
+    return 'Showing $start to $end of $_totalCount stocks';
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredStocks = _filteredStocks;
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -264,12 +220,12 @@ class _StockPageState extends State<StockPage> {
               _ActionButton(
                 label: 'Add New Stock',
                 icon: Icons.add,
-                onPressed: _openStockDialog,
+                onPressed: () => _openStockDialog(),
               ),
             ],
           ),
           const SizedBox(height: 18),
-          const _StockSummaryCards(),
+          _StockSummaryCards(summary: _summary),
           const SizedBox(height: 18),
           _StockFilterCard(
             barcodeController: _barcodeSearchController,
@@ -284,23 +240,34 @@ class _StockPageState extends State<StockPage> {
             },
             onStatusChanged: (value) {
               setState(() => _selectedStatusFilter = value ?? 'All');
+              _applyFiltersDebounced();
             },
-            onApply: () => setState(() {}),
+            onApply: () => _loadStocks(targetPage: 1),
+            onChanged: _applyFiltersDebounced,
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: _StockTableCard(
-              stocks: filteredStocks,
-              onView: _showStockDetails,
-              onEdit: (stock) {
-                final index = _stocks.indexOf(stock);
-                _openStockDialog(stock: stock, index: index);
-              },
-              onDelete: (stock) {
-                setState(() => _stocks.remove(stock));
-                AppToast.success('Stock deleted successfully');
-              },
-            ),
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryTeal,
+                    ),
+                  )
+                : _StockTableCard(
+                    stocks: _stocks,
+                    footerText: _footerText,
+                    currentPage: _currentPage,
+                    totalPages: _totalPages,
+                    onView: _showStockDetails,
+                    onEdit: (stock) => _openStockDialog(stock: stock),
+                    onDelete: _deactivateStock,
+                    onPreviousPage: _currentPage > 1
+                        ? () => _loadStocks(targetPage: _currentPage - 1)
+                        : null,
+                    onNextPage: _currentPage < _totalPages
+                        ? () => _loadStocks(targetPage: _currentPage + 1)
+                        : null,
+                  ),
           ),
         ],
       ),
@@ -350,6 +317,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
     }
     return widget.products
         .where((product) => product.toLowerCase().contains(query))
+        .take(6)
         .toList();
   }
 
@@ -360,6 +328,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
     }
     return widget.grns
         .where((grn) => grn.toLowerCase().contains(query))
+        .take(6)
         .toList();
   }
 
@@ -369,19 +338,19 @@ class _StockFormDialogState extends State<StockFormDialog> {
     final stock = widget.initialStock;
     _barcodeController = TextEditingController(text: stock?.barcode ?? '');
     _initialQtyController = TextEditingController(
-      text: stock?.initialQty.toString() ?? '0.00',
+      text: stock?.initialQty.toString() ?? '0',
     );
     _availableQtyController = TextEditingController(
-      text: stock?.availableQty.toString() ?? '0.00',
+      text: stock?.availableQty.toString() ?? '0',
     );
     _buyingPriceController = TextEditingController(
-      text: stock?.buyingPrice.toStringAsFixed(0) ?? '0.00',
+      text: stock?.buyingPrice.toStringAsFixed(2) ?? '0.00',
     );
     _sellingPriceController = TextEditingController(
-      text: stock?.sellingPrice.toStringAsFixed(0) ?? '0.00',
+      text: stock?.sellingPrice.toStringAsFixed(2) ?? '0.00',
     );
     _maxDiscountController = TextEditingController(
-      text: stock?.maxDiscount.toStringAsFixed(0) ?? '0.00',
+      text: stock?.maxDiscount.toStringAsFixed(2) ?? '0.00',
     );
     _productController = TextEditingController(text: stock?.product ?? '');
     _grnController = TextEditingController(
@@ -423,6 +392,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
 
     Navigator.of(context).pop(
       StockRecord(
+        id: widget.initialStock?.id,
         barcode: _barcodeController.text.trim(),
         product: _productController.text.trim(),
         initialQty: int.tryParse(_initialQtyController.text.trim()) ?? 0,
@@ -546,7 +516,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
                             label: 'Initial Quantity *',
                             child: _DialogTextField(
                               controller: _initialQtyController,
-                              hintText: '0.00',
+                              hintText: '0',
                               keyboardType: TextInputType.number,
                               validator: _requiredNumberValidator,
                             ),
@@ -558,7 +528,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
                             label: 'Available Quantity *',
                             child: _DialogTextField(
                               controller: _availableQtyController,
-                              hintText: '0.00',
+                              hintText: '0',
                               keyboardType: TextInputType.number,
                               validator: _requiredNumberValidator,
                             ),
@@ -893,6 +863,20 @@ class StockDetailsDialog extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (stock.expiryDate != null) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _DetailMetric(
+                            label: 'Expiry Date',
+                            value: stock.expiryDate!,
+                          ),
+                        ),
+                        const Expanded(child: SizedBox.shrink()),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -999,49 +983,51 @@ class _StockHeader extends StatelessWidget {
 }
 
 class _StockSummaryCards extends StatelessWidget {
-  const _StockSummaryCards();
+  const _StockSummaryCards({required this.summary});
+
+  final StockSummary summary;
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       children: [
         Expanded(
           child: _SummaryCard(
             title: 'Total Stock Items',
-            value: '12',
+            value: '${summary.totalStockItems}',
             icon: Icons.inventory_2_outlined,
-            accent: Color(0xFF36B4AE),
-            tint: Color(0xFFE8FBF7),
+            accent: const Color(0xFF36B4AE),
+            tint: const Color(0xFFE8FBF7),
           ),
         ),
-        SizedBox(width: 16),
+        const SizedBox(width: 16),
         Expanded(
           child: _SummaryCard(
             title: 'Active Stocks',
-            value: '11',
+            value: '${summary.activeStocks}',
             icon: Icons.check_circle_outline_rounded,
-            accent: Color(0xFF36B4AE),
-            tint: Color(0xFFE8FBF7),
+            accent: const Color(0xFF36B4AE),
+            tint: const Color(0xFFE8FBF7),
           ),
         ),
-        SizedBox(width: 16),
+        const SizedBox(width: 16),
         Expanded(
           child: _SummaryCard(
             title: 'Low Stock Items',
-            value: '8',
+            value: '${summary.lowStockItems}',
             icon: Icons.warning_amber_rounded,
-            accent: Color(0xFFF0AE42),
-            tint: Color(0xFFFFF3DE),
+            accent: const Color(0xFFF0AE42),
+            tint: const Color(0xFFFFF3DE),
           ),
         ),
-        SizedBox(width: 16),
+        const SizedBox(width: 16),
         Expanded(
           child: _SummaryCard(
             title: 'Inactive Stocks',
-            value: '1',
+            value: '${summary.inactiveStocks}',
             icon: Icons.cancel_outlined,
-            accent: Color(0xFFA4AEC0),
-            tint: Color(0xFFFFF1F1),
+            accent: const Color(0xFFA4AEC0),
+            tint: const Color(0xFFFFF1F1),
           ),
         ),
       ],
@@ -1061,6 +1047,7 @@ class _StockFilterCard extends StatelessWidget {
     required this.onToggleExpanded,
     required this.onStatusChanged,
     required this.onApply,
+    required this.onChanged,
   });
 
   final TextEditingController barcodeController;
@@ -1073,6 +1060,7 @@ class _StockFilterCard extends StatelessWidget {
   final VoidCallback onToggleExpanded;
   final ValueChanged<String?> onStatusChanged;
   final VoidCallback onApply;
+  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1131,6 +1119,7 @@ class _StockFilterCard extends StatelessWidget {
                         child: _FilterTextField(
                           controller: barcodeController,
                           hintText: 'Search by barcode...',
+                          onChanged: (_) => onChanged(),
                         ),
                       ),
                     ),
@@ -1141,6 +1130,7 @@ class _StockFilterCard extends StatelessWidget {
                         child: _FilterTextField(
                           controller: productController,
                           hintText: 'Search by product...',
+                          onChanged: (_) => onChanged(),
                         ),
                       ),
                     ),
@@ -1151,6 +1141,7 @@ class _StockFilterCard extends StatelessWidget {
                         child: _FilterTextField(
                           controller: grnController,
                           hintText: 'Search by GRN...',
+                          onChanged: (_) => onChanged(),
                         ),
                       ),
                     ),
@@ -1184,6 +1175,7 @@ class _StockFilterCard extends StatelessWidget {
                         child: _FilterTextField(
                           controller: qtyLessController,
                           hintText: 'e.g. 50',
+                          onChanged: (_) => onChanged(),
                         ),
                       ),
                     ),
@@ -1194,6 +1186,7 @@ class _StockFilterCard extends StatelessWidget {
                         child: _FilterTextField(
                           controller: qtyGreaterController,
                           hintText: 'e.g. 100',
+                          onChanged: (_) => onChanged(),
                         ),
                       ),
                     ),
@@ -1230,15 +1223,25 @@ class _StockFilterCard extends StatelessWidget {
 class _StockTableCard extends StatelessWidget {
   const _StockTableCard({
     required this.stocks,
+    required this.footerText,
+    required this.currentPage,
+    required this.totalPages,
     required this.onView,
     required this.onEdit,
     required this.onDelete,
+    required this.onPreviousPage,
+    required this.onNextPage,
   });
 
   final List<StockRecord> stocks;
-  final ValueChanged<StockRecord> onView;
-  final ValueChanged<StockRecord> onEdit;
-  final ValueChanged<StockRecord> onDelete;
+  final String footerText;
+  final int currentPage;
+  final int totalPages;
+  final Future<void> Function(StockRecord) onView;
+  final Future<void> Function(StockRecord) onEdit;
+  final Future<void> Function(StockRecord) onDelete;
+  final VoidCallback? onPreviousPage;
+  final VoidCallback? onNextPage;
 
   @override
   Widget build(BuildContext context) {
@@ -1260,7 +1263,7 @@ class _StockTableCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                'Page 1 · Showing ${math.min(10, stocks.length)} items',
+                'Page $currentPage · Showing ${stocks.length} items',
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -1273,34 +1276,53 @@ class _StockTableCard extends StatelessWidget {
           const _StockTableHeader(),
           const SizedBox(height: 4),
           Expanded(
-            child: ListView.separated(
-              itemCount: stocks.length,
-              separatorBuilder: (_, _) =>
-                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
-              itemBuilder: (context, index) {
-                final stock = stocks[index];
-                return _StockTableRow(
-                  stock: stock,
-                  onView: () => onView(stock),
-                  onEdit: () => onEdit(stock),
-                  onDelete: () => onDelete(stock),
-                );
-              },
-            ),
+            child: stocks.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No stocks found',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8492A6),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: stocks.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                    itemBuilder: (context, index) {
+                      final stock = stocks[index];
+                      return _StockTableRow(
+                        stock: stock,
+                        onView: () => onView(stock),
+                        onEdit: () => onEdit(stock),
+                        onDelete: () => onDelete(stock),
+                      );
+                    },
+                  ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
+              Text(
+                footerText,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8492A6),
+                ),
+              ),
+              const Spacer(),
               _PagerButton(
                 label: 'Previous',
                 icon: Icons.chevron_left_rounded,
-                enabled: false,
-                onTap: null,
+                enabled: onPreviousPage != null,
+                onTap: onPreviousPage,
               ),
               const Spacer(),
-              const Text(
-                'Page 1',
-                style: TextStyle(
+              Text(
+                'Page $currentPage of $totalPages',
+                style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF6D7C92),
@@ -1310,10 +1332,8 @@ class _StockTableCard extends StatelessWidget {
               _PagerButton(
                 label: 'Next',
                 icon: Icons.chevron_right_rounded,
-                enabled: true,
-                onTap: () {
-                  AppToast.info('Pagination will be wired to data next');
-                },
+                enabled: onNextPage != null,
+                onTap: onNextPage,
               ),
             ],
           ),
@@ -1648,15 +1668,21 @@ class _DialogTextField extends StatelessWidget {
 }
 
 class _FilterTextField extends StatelessWidget {
-  const _FilterTextField({required this.controller, required this.hintText});
+  const _FilterTextField({
+    required this.controller,
+    required this.hintText,
+    this.onChanged,
+  });
 
   final TextEditingController controller;
   final String hintText;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      onChanged: onChanged,
       decoration: _filterDecoration(hintText: hintText),
     );
   }
@@ -1765,65 +1791,14 @@ class _DetailMetric extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
               color: highlight
                   ? const Color(0xFF36B4AE)
-                  : const Color(0xFF445166),
+                  : const Color(0xFF334156),
             ),
           ),
       ],
-    );
-  }
-}
-
-class _LabeledField extends StatelessWidget {
-  const _LabeledField({required this.label, required this.child});
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [_FormLabel(label), const SizedBox(height: 8), child],
-    );
-  }
-}
-
-class _FormLabel extends StatelessWidget {
-  const _FormLabel(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 13.5,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF445166),
-      ),
-    );
-  }
-}
-
-class _HeaderText extends StatelessWidget {
-  const _HeaderText(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF8694A7),
-      ),
     );
   }
 }
@@ -1900,11 +1875,56 @@ class _PagerButton extends StatelessWidget {
       onPressed: enabled ? onTap : null,
       icon: Icon(icon, size: 16),
       label: Text(label),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: enabled
-            ? const Color(0xFF526177)
-            : const Color(0xFFC1CAD6),
-        side: const BorderSide(color: Color(0xFFE4EAF2)),
+    );
+  }
+}
+
+class _LabeledField extends StatelessWidget {
+  const _LabeledField({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [_FormLabel(label), const SizedBox(height: 8), child],
+    );
+  }
+}
+
+class _FormLabel extends StatelessWidget {
+  const _FormLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF8B98AB),
+      ),
+    );
+  }
+}
+
+class _HeaderText extends StatelessWidget {
+  const _HeaderText(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF8B98AB),
       ),
     );
   }
@@ -1918,18 +1938,18 @@ InputDecoration _filterDecoration({String? hintText}) {
       fontSize: 13.5,
       fontWeight: FontWeight.w500,
     ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-      borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
     ),
   );
 }

@@ -73,3 +73,15 @@
 - Completed GRN details loading from Isar, including payment history and GRN item status display.
 - Completed due payment recording against local Isar data and kept the payment history table updated from persisted payment records.
 - Verified the GRN backend integration with `flutter test` and `flutter build macos --debug`.
+- Added a dedicated local Isar stock repository to move the stock module off mock data.
+- Connected the stock page to local Isar data for summary cards, stock listing, add/edit, details view, and stock filters.
+- Completed stock pagination with a maximum of 10 records per page and footer/page controls driven by persisted data.
+- Completed stock search filters for barcode, product, GRN, status, quantity less than, and quantity greater than.
+- Updated the stock delete action to perform a soft deactivate instead of removing records from the database.
+- Seeded local stock, product, and GRN data when needed for stock-page development and verification.
+- Added a dedicated local POS repository to support fast cashier billing on top of Isar-backed stock, customer, and invoice data.
+- Connected the POS page to load all active available stock into the product card grid and added search by product name, product barcode, and stock barcode.
+- Implemented fast add-to-cart flow so clicking a card or scanning/submitting an exact barcode match adds the item and increments quantity on repeated scans.
+- Added customer autosuggest in POS for name/mobile search with `Walk-in Customer` selected by default.
+- Added live subtotal, tax, total, paid amount, and balance/change calculation on the POS order panel.
+- Completed local sale processing to create paid invoices in Isar and decrement stock quantities after checkout.

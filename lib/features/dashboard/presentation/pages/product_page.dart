@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class ProductPage extends StatefulWidget {
   const ProductPage({super.key});
@@ -1322,41 +1323,4 @@ enum ProductFilter {
 
   final String label;
   final IconData icon;
-}
-
-enum ProductStatus {
-  active('Active'),
-  inactive('Inactive');
-
-  const ProductStatus(this.label);
-
-  final String label;
-}
-
-class ProductRecord {
-  const ProductRecord({
-    required this.name,
-    required this.barcode,
-    required this.category,
-    required this.unit,
-    required this.lowStock,
-    required this.status,
-  });
-
-  final String name;
-  final String barcode;
-  final String category;
-  final String unit;
-  final int lowStock;
-  final ProductStatus status;
-}
-
-class ProductDialogResult {
-  const ProductDialogResult({
-    required this.product,
-    required this.createdCategory,
-  });
-
-  final ProductRecord product;
-  final bool createdCategory;
 }

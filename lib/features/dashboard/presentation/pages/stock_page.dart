@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class StockPage extends StatefulWidget {
   const StockPage({super.key});
@@ -1942,36 +1943,4 @@ BoxDecoration _panelDecoration() {
       BoxShadow(color: Color(0x120F172A), blurRadius: 16, offset: Offset(0, 6)),
     ],
   );
-}
-
-enum StockStatus { active, inactive }
-
-extension on StockStatus {
-  String get label => this == StockStatus.active ? 'Active' : 'Inactive';
-}
-
-class StockRecord {
-  const StockRecord({
-    required this.barcode,
-    required this.product,
-    required this.initialQty,
-    required this.availableQty,
-    required this.buyingPrice,
-    required this.sellingPrice,
-    required this.maxDiscount,
-    required this.status,
-    required this.grnId,
-    this.expiryDate,
-  });
-
-  final String barcode;
-  final String product;
-  final int initialQty;
-  final int availableQty;
-  final double buyingPrice;
-  final double sellingPrice;
-  final double maxDiscount;
-  final StockStatus status;
-  final String grnId;
-  final String? expiryDate;
 }

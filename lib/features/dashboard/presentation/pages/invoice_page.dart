@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class InvoicePage extends StatefulWidget {
   const InvoicePage({super.key});
@@ -1501,84 +1502,4 @@ BoxDecoration _dialogDecoration() {
       ),
     ],
   );
-}
-
-class InvoiceSummary {
-  const InvoiceSummary({
-    required this.totalInvoices,
-    required this.paidInvoices,
-    required this.pendingInvoices,
-    required this.overdueInvoices,
-  });
-
-  final int totalInvoices;
-  final int paidInvoices;
-  final int pendingInvoices;
-  final int overdueInvoices;
-
-  factory InvoiceSummary.fromInvoices(List<InvoiceRecord> invoices) {
-    return InvoiceSummary(
-      totalInvoices: invoices.length,
-      paidInvoices: invoices
-          .where((invoice) => invoice.status == InvoiceStatus.paid)
-          .length,
-      pendingInvoices: invoices
-          .where((invoice) => invoice.status == InvoiceStatus.pending)
-          .length,
-      overdueInvoices: invoices
-          .where((invoice) => invoice.status == InvoiceStatus.overdue)
-          .length,
-    );
-  }
-}
-
-class InvoiceRecord {
-  const InvoiceRecord({
-    required this.invoiceId,
-    required this.customerName,
-    required this.customerCode,
-    required this.date,
-    required this.amount,
-    required this.status,
-    required this.items,
-    required this.paymentMethod,
-    required this.cashierName,
-  });
-
-  final String invoiceId;
-  final String customerName;
-  final String customerCode;
-  final String date;
-  final double amount;
-  final InvoiceStatus status;
-  final List<InvoiceLineItem> items;
-  final String paymentMethod;
-  final String cashierName;
-
-  double get subtotal => amount / 1.10;
-  double get tax => amount - subtotal;
-}
-
-class InvoiceLineItem {
-  const InvoiceLineItem({
-    required this.name,
-    required this.quantity,
-    required this.unitPrice,
-  });
-
-  final String name;
-  final int quantity;
-  final double unitPrice;
-
-  double get subtotal => quantity * unitPrice;
-}
-
-enum InvoiceStatus {
-  paid('Paid'),
-  pending('Pending'),
-  overdue('Overdue');
-
-  const InvoiceStatus(this.label);
-
-  final String label;
 }

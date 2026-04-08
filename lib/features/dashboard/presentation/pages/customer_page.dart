@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class CustomerPage extends StatefulWidget {
   const CustomerPage({super.key});
@@ -1514,49 +1515,3 @@ BoxDecoration _dialogDecoration() {
 }
 
 String _currency(double value) => '\$${value.toStringAsFixed(2)}';
-
-class CustomerRecord {
-  const CustomerRecord({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.phone,
-    required this.address,
-    required this.joinDate,
-    required this.invoices,
-  });
-
-  final String id;
-  final String name;
-  final String email;
-  final String phone;
-  final String address;
-  final String joinDate;
-  final List<CustomerInvoice> invoices;
-
-  int get ordersCount => invoices.length;
-  double get totalSpent =>
-      invoices.fold(0, (sum, invoice) => sum + invoice.total);
-
-  String get avatarText {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) {
-      return '?';
-    }
-    return trimmed.substring(0, 1).toUpperCase();
-  }
-}
-
-class CustomerInvoice {
-  const CustomerInvoice({
-    required this.invoiceNumber,
-    required this.date,
-    required this.itemsCount,
-    required this.total,
-  });
-
-  final String invoiceNumber;
-  final String date;
-  final int itemsCount;
-  final double total;
-}

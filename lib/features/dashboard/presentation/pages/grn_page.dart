@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class GrnPage extends StatefulWidget {
   const GrnPage({super.key});
@@ -2199,91 +2200,4 @@ BoxDecoration _dialogDecoration() {
       ),
     ],
   );
-}
-
-class GrnRecord {
-  const GrnRecord({
-    required this.id,
-    required this.supplier,
-    required this.date,
-    required this.subTotal,
-    required this.discount,
-    required this.paidAmount,
-    required this.items,
-    required this.paymentHistory,
-    this.paymentMethod = 'Cash',
-  });
-
-  final String id;
-  final String supplier;
-  final String date;
-  final double subTotal;
-  final double discount;
-  final double paidAmount;
-  final List<GrnItem> items;
-  final List<PaymentHistory> paymentHistory;
-  final String paymentMethod;
-
-  double get total => subTotal - discount;
-  double get dueAmount => total - paidAmount;
-
-  GrnRecord copyWith({
-    double? paidAmount,
-    List<PaymentHistory>? paymentHistory,
-  }) {
-    return GrnRecord(
-      id: id,
-      supplier: supplier,
-      date: date,
-      subTotal: subTotal,
-      discount: discount,
-      paidAmount: paidAmount ?? this.paidAmount,
-      items: items,
-      paymentHistory: paymentHistory ?? this.paymentHistory,
-      paymentMethod: paymentMethod,
-    );
-  }
-}
-
-class GrnItem {
-  const GrnItem({
-    required this.product,
-    required this.stockBarcode,
-    required this.quantity,
-    required this.buyingPrice,
-    required this.sellingPrice,
-    this.maxDiscount = 0,
-    required this.inStock,
-  });
-
-  final String product;
-  final String stockBarcode;
-  final int quantity;
-  final double buyingPrice;
-  final double sellingPrice;
-  final double maxDiscount;
-  final bool inStock;
-
-  double get subtotal => quantity * buyingPrice;
-}
-
-class PaymentHistory {
-  const PaymentHistory({
-    required this.dateTime,
-    required this.amount,
-    required this.method,
-    required this.remainingBalance,
-  });
-
-  final String dateTime;
-  final double amount;
-  final String method;
-  final double remainingBalance;
-}
-
-class PayDueResult {
-  const PayDueResult({required this.amount, required this.method});
-
-  final double amount;
-  final String method;
 }

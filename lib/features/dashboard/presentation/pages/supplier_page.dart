@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../models/models.dart';
 
 class SupplierPage extends StatefulWidget {
   const SupplierPage({super.key});
@@ -1968,111 +1969,3 @@ BoxDecoration _panelDecoration() {
 }
 
 String _formatCurrency(double value) => '\$${value.toStringAsFixed(2)}';
-
-class SupplierRecord {
-  const SupplierRecord({
-    required this.id,
-    required this.supplierName,
-    required this.companyName,
-    required this.contactNumber,
-    required this.companyContact,
-    required this.email,
-    required this.address,
-    required this.isActive,
-    required this.grns,
-  });
-
-  final String id;
-  final String supplierName;
-  final String companyName;
-  final String contactNumber;
-  final String companyContact;
-  final String email;
-  final String address;
-  final bool isActive;
-  final List<SupplierGrnRecord> grns;
-
-  double get totalPaid => grns.fold(0, (sum, item) => sum + item.paid);
-  double get totalDue => grns.fold(0, (sum, item) => sum + item.due);
-
-  SupplierRecord copyWith({
-    String? id,
-    String? supplierName,
-    String? companyName,
-    String? contactNumber,
-    String? companyContact,
-    String? email,
-    String? address,
-    bool? isActive,
-    List<SupplierGrnRecord>? grns,
-  }) {
-    return SupplierRecord(
-      id: id ?? this.id,
-      supplierName: supplierName ?? this.supplierName,
-      companyName: companyName ?? this.companyName,
-      contactNumber: contactNumber ?? this.contactNumber,
-      companyContact: companyContact ?? this.companyContact,
-      email: email ?? this.email,
-      address: address ?? this.address,
-      isActive: isActive ?? this.isActive,
-      grns: grns ?? this.grns,
-    );
-  }
-}
-
-class SupplierGrnRecord {
-  const SupplierGrnRecord({
-    required this.grnId,
-    required this.date,
-    required this.itemsCount,
-    required this.total,
-    required this.paid,
-    required this.due,
-    required this.status,
-  });
-
-  final String grnId;
-  final String date;
-  final int itemsCount;
-  final double total;
-  final double paid;
-  final double due;
-  final SupplierGrnStatus status;
-
-  SupplierGrnRecord copyWith({
-    String? grnId,
-    String? date,
-    int? itemsCount,
-    double? total,
-    double? paid,
-    double? due,
-    SupplierGrnStatus? status,
-  }) {
-    return SupplierGrnRecord(
-      grnId: grnId ?? this.grnId,
-      date: date ?? this.date,
-      itemsCount: itemsCount ?? this.itemsCount,
-      total: total ?? this.total,
-      paid: paid ?? this.paid,
-      due: due ?? this.due,
-      status: status ?? this.status,
-    );
-  }
-}
-
-enum SupplierGrnStatus {
-  paid('Paid'),
-  partial('Partial'),
-  due('Due');
-
-  const SupplierGrnStatus(this.label);
-
-  final String label;
-}
-
-class PaySupplierDueResult {
-  const PaySupplierDueResult({required this.amount, required this.method});
-
-  final double amount;
-  final String method;
-}

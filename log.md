@@ -43,3 +43,6 @@
 - Changed the supplier listing from card view to a table view for better desktop readability.
 - Replaced the Customers placeholder with a full customer management page including filters, customer table, add/edit dialog, and customer details modal with invoice history.
 - Replaced the Invoice placeholder with a full invoice management page including summary cards, filters, paginated invoice table, invoice details dialog, and print actions.
+- Extracted shared dashboard data models into `lib/features/dashboard/models/models.dart` and updated the product, stock, GRN, supplier, customer, and invoice UIs to use the shared model layer.
+- Added Isar entity classes and schema exports for products, stocks, GRNs, suppliers, customers, and invoices in `lib/core/database/entities`.
+- Added a first-launch activation flow with device ID display, copy action, activation key input, and persisted activation state before login.

@@ -342,7 +342,7 @@ class CustomerRecord {
     required this.invoices,
   });
 
-  final String id;
+  final int id;
   final String name;
   final String email;
   final String phone;
@@ -361,6 +361,26 @@ class CustomerRecord {
     }
     return trimmed.substring(0, 1).toUpperCase();
   }
+
+  CustomerRecord copyWith({
+    int? id,
+    String? name,
+    String? email,
+    String? phone,
+    String? address,
+    String? joinDate,
+    List<CustomerInvoice>? invoices,
+  }) {
+    return CustomerRecord(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      phone: phone ?? this.phone,
+      address: address ?? this.address,
+      joinDate: joinDate ?? this.joinDate,
+      invoices: invoices ?? this.invoices,
+    );
+  }
 }
 
 class CustomerInvoice {
@@ -375,6 +395,28 @@ class CustomerInvoice {
   final String date;
   final int itemsCount;
   final double total;
+}
+
+class CustomerPageResult {
+  const CustomerPageResult({
+    required this.customers,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<CustomerRecord> customers;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
 }
 
 class InvoiceSummary {

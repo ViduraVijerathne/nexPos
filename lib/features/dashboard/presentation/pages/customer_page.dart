@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/customer_local_repository.dart';
 import '../../models/models.dart';
 
 class CustomerPage extends StatefulWidget {
@@ -15,183 +18,88 @@ class _CustomerPageState extends State<CustomerPage> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _spentLessController = TextEditingController();
   final TextEditingController _spentGreaterController = TextEditingController();
+  final CustomerLocalRepository _repository = const CustomerLocalRepository();
 
-  late final List<CustomerRecord> _customers = [
-    CustomerRecord(
-      id: 'FYhsrpa7LdHq6LCzYHsx',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: 'ff',
-      address: 'ff',
-      joinDate: '4/6/2026',
-      invoices: const [
-        CustomerInvoice(
-          invoiceNumber: 'INV-000002',
-          date: '2026-04-06T16:59:46.437Z',
-          itemsCount: 3,
-          total: 2399.70,
-        ),
-        CustomerInvoice(
-          invoiceNumber: 'INV-000001',
-          date: '2026-04-06T16:59:43.617Z',
-          itemsCount: 3,
-          total: 2399.70,
-        ),
-      ],
-    ),
-    CustomerRecord(
-      id: 'cus-002',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: '9i98',
-      address: '9i98',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-003',
-      name: '444',
-      email: '444rr',
-      phone: '44',
-      address: '44',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-004',
-      name: '44',
-      email: '44',
-      phone: '44',
-      address: '44',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-005',
-      name: '44',
-      email: '444',
-      phone: '44',
-      address: '44',
-      joinDate: '4/6/2026',
-      invoices: const [
-        CustomerInvoice(
-          invoiceNumber: 'INV-000101',
-          date: '2026-04-06T10:20:12.000Z',
-          itemsCount: 1,
-          total: 4465.00,
-        ),
-      ],
-    ),
-    CustomerRecord(
-      id: 'cus-006',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: '444',
-      address: '444',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-007',
-      name: '44',
-      email: '44',
-      phone: '44',
-      address: '44',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-008',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: '44',
-      address: '44',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-009',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: '444',
-      address: '444',
-      joinDate: '4/6/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-010',
-      name: 'BET23085 S.G.N.N.Bandara',
-      email: 'bet23085@std.uwu.ac.lk',
-      phone: '444',
-      address: '444',
-      joinDate: '4/6/2026',
-      invoices: const [
-        CustomerInvoice(
-          invoiceNumber: 'INV-000222',
-          date: '2026-04-06T08:05:00.000Z',
-          itemsCount: 2,
-          total: 4799.40,
-        ),
-        CustomerInvoice(
-          invoiceNumber: 'INV-000221',
-          date: '2026-04-06T08:03:00.000Z',
-          itemsCount: 1,
-          total: 0,
-        ),
-      ],
-    ),
-    CustomerRecord(
-      id: 'cus-011',
-      name: 'Kasun Perera',
-      email: 'kasun@gmail.com',
-      phone: '0711234567',
-      address: 'Kandy',
-      joinDate: '4/7/2026',
-      invoices: const [],
-    ),
-    CustomerRecord(
-      id: 'cus-012',
-      name: 'Nadee Silva',
-      email: 'nadee@gmail.com',
-      phone: '0779876543',
-      address: 'Colombo',
-      joinDate: '4/8/2026',
-      invoices: const [],
-    ),
-  ];
+  List<CustomerRecord> _customers = <CustomerRecord>[];
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _searchDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _spentLessController.dispose();
     _spentGreaterController.dispose();
     super.dispose();
   }
 
-  List<CustomerRecord> get _filteredCustomers {
-    final query = _searchController.text.trim().toLowerCase();
-    final spentLess = double.tryParse(_spentLessController.text.trim());
-    final spentGreater = double.tryParse(_spentGreaterController.text.trim());
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _loadCustomers();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    return _customers.where((customer) {
-      final matchesQuery =
-          query.isEmpty ||
-          customer.name.toLowerCase().contains(query) ||
-          customer.phone.toLowerCase().contains(query) ||
-          customer.email.toLowerCase().contains(query);
-
-      final totalSpent = customer.totalSpent;
-      final matchesLess = spentLess == null || totalSpent < spentLess;
-      final matchesGreater = spentGreater == null || totalSpent > spentGreater;
-
-      return matchesQuery && matchesLess && matchesGreater;
-    }).toList();
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load customers: $error');
+    }
   }
 
-  Future<void> _openCustomerDialog({
-    CustomerRecord? customer,
-    int? index,
-  }) async {
+  Future<void> _loadCustomers({int? targetPage}) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _repository.fetchCustomers(
+        page: targetPage ?? _currentPage,
+        searchQuery: _searchController.text.trim(),
+        spentLessThan: double.tryParse(_spentLessController.text.trim()),
+        spentGreaterThan: double.tryParse(_spentGreaterController.text.trim()),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _customers = result.customers;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _totalCount = result.totalCount;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load customers: $error');
+    }
+  }
+
+  void _handleFiltersChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+
+      _loadCustomers(targetPage: 1);
+    });
+  }
+
+  Future<void> _openCustomerDialog({CustomerRecord? customer}) async {
     final result = await showDialog<CustomerRecord>(
       context: context,
       barrierDismissible: false,
@@ -202,42 +110,56 @@ class _CustomerPageState extends State<CustomerPage> {
       return;
     }
 
-    setState(() {
-      if (index == null) {
-        _customers.insert(0, result);
-      } else {
-        _customers[index] = result;
-      }
-    });
+    try {
+      await _repository.saveCustomer(result);
+      await _loadCustomers(targetPage: customer == null ? 1 : _currentPage);
+    } on CustomerLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+      return;
+    } catch (error) {
+      AppToast.error('Failed to save customer: $error');
+      return;
+    }
 
     AppToast.success(
-      index == null
+      customer == null
           ? 'Customer added successfully'
           : 'Customer updated successfully',
     );
   }
 
-  void _openCustomerDetails(CustomerRecord customer) {
+  Future<void> _openCustomerDetails(CustomerRecord customer) async {
+    final record = await _repository.fetchCustomerById(customer.id);
+    if (!mounted || record == null) {
+      AppToast.error('Customer details not found');
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => CustomerDetailsDialog(
-        customer: customer,
+        customer: record,
         onEdit: () {
           Navigator.of(context).pop();
-          final index = _customers.indexWhere((item) => item.id == customer.id);
-          if (index != -1) {
-            _openCustomerDialog(customer: _customers[index], index: index);
-          }
+          _openCustomerDialog(customer: record);
         },
       ),
     );
   }
 
+  String get _footerText {
+    if (_totalCount == 0) {
+      return 'Showing 0 to 0 of 0 customers';
+    }
+
+    final start = ((_currentPage - 1) * CustomerLocalRepository.pageSize) + 1;
+    final end = (start + _customers.length) - 1;
+    return 'Showing $start to $end of $_totalCount customers';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final filteredCustomers = _filteredCustomers;
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -251,7 +173,7 @@ class _CustomerPageState extends State<CustomerPage> {
               _PageActionButton(
                 label: 'Add Customer',
                 icon: Icons.add,
-                onPressed: _openCustomerDialog,
+                onPressed: () => _openCustomerDialog(),
               ),
             ],
           ),
@@ -260,11 +182,17 @@ class _CustomerPageState extends State<CustomerPage> {
             searchController: _searchController,
             spentLessController: _spentLessController,
             spentGreaterController: _spentGreaterController,
-            onChanged: () => setState(() {}),
+            onChanged: _handleFiltersChanged,
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: filteredCustomers.isEmpty
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryTeal,
+                    ),
+                  )
+                : _customers.isEmpty
                 ? const _EmptyState(
                     icon: Icons.people_outline_rounded,
                     title: 'No customers found',
@@ -272,19 +200,19 @@ class _CustomerPageState extends State<CustomerPage> {
                         'Try changing the filters or add a new customer.',
                   )
                 : _CustomerTableCard(
-                    customers: filteredCustomers,
+                    customers: _customers,
+                    footerText: _footerText,
+                    currentPage: _currentPage,
+                    totalPages: _totalPages,
                     onView: _openCustomerDetails,
-                    onEdit: (customer) {
-                      final index = _customers.indexWhere(
-                        (item) => item.id == customer.id,
-                      );
-                      if (index != -1) {
-                        _openCustomerDialog(
-                          customer: _customers[index],
-                          index: index,
-                        );
-                      }
-                    },
+                    onEdit: (customer) =>
+                        _openCustomerDialog(customer: customer),
+                    onPreviousPage: _currentPage > 1
+                        ? () => _loadCustomers(targetPage: _currentPage - 1)
+                        : null,
+                    onNextPage: _currentPage < _totalPages
+                        ? () => _loadCustomers(targetPage: _currentPage + 1)
+                        : null,
                   ),
           ),
         ],
@@ -409,18 +337,26 @@ class _CustomerFilterCard extends StatelessWidget {
 class _CustomerTableCard extends StatelessWidget {
   const _CustomerTableCard({
     required this.customers,
+    required this.footerText,
+    required this.currentPage,
+    required this.totalPages,
     required this.onView,
     required this.onEdit,
+    required this.onPreviousPage,
+    required this.onNextPage,
   });
 
   final List<CustomerRecord> customers;
-  final ValueChanged<CustomerRecord> onView;
-  final ValueChanged<CustomerRecord> onEdit;
+  final String footerText;
+  final int currentPage;
+  final int totalPages;
+  final Future<void> Function(CustomerRecord) onView;
+  final Future<void> Function(CustomerRecord) onEdit;
+  final VoidCallback? onPreviousPage;
+  final VoidCallback? onNextPage;
 
   @override
   Widget build(BuildContext context) {
-    final visibleCustomers = customers.take(10).toList();
-
     return Container(
       decoration: _panelDecoration(),
       child: Column(
@@ -444,11 +380,11 @@ class _CustomerTableCard extends StatelessWidget {
           ),
           Expanded(
             child: ListView.separated(
-              itemCount: visibleCustomers.length,
+              itemCount: customers.length,
               separatorBuilder: (_, _) =>
                   const Divider(height: 1, color: Color(0xFFF0F4F8)),
               itemBuilder: (context, index) {
-                final customer = visibleCustomers[index];
+                final customer = customers[index];
 
                 return Container(
                   color: index == 2 ? const Color(0xFFF8FBFF) : null,
@@ -539,7 +475,9 @@ class _CustomerTableCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () => onView(customer),
+                                onPressed: () {
+                                  onView(customer);
+                                },
                                 style: _tableActionStyle(),
                                 icon: const Icon(
                                   Icons.visibility_outlined,
@@ -552,7 +490,9 @@ class _CustomerTableCard extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () => onEdit(customer),
+                                onPressed: () {
+                                  onEdit(customer);
+                                },
                                 style: _tableActionStyle(),
                                 icon: const Icon(
                                   Icons.edit_outlined,
@@ -579,19 +519,17 @@ class _CustomerTableCard extends StatelessWidget {
             child: Row(
               children: [
                 Text(
-                  'Showing 1 to ${visibleCustomers.length} of ${customers.length} customers',
+                  footerText,
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF8B99AD),
                   ),
                 ),
                 const Spacer(),
-                IconButton(
-                  onPressed: null,
-                  style: IconButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFE5EAF2)),
-                  ),
-                  icon: const Icon(Icons.chevron_left_rounded),
+                _PaginationButton(
+                  icon: Icons.chevron_left_rounded,
+                  enabled: onPreviousPage != null,
+                  onTap: onPreviousPage,
                 ),
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 10),
@@ -603,20 +541,18 @@ class _CustomerTableCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: const Color(0xFFE5EAF2)),
                   ),
-                  child: const Text(
-                    'Page 1 of 2',
-                    style: TextStyle(
+                  child: Text(
+                    'Page $currentPage of $totalPages',
+                    style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF566376),
                     ),
                   ),
                 ),
-                IconButton(
-                  onPressed: () {},
-                  style: IconButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFE5EAF2)),
-                  ),
-                  icon: const Icon(Icons.chevron_right_rounded),
+                _PaginationButton(
+                  icon: Icons.chevron_right_rounded,
+                  enabled: onNextPage != null,
+                  onTap: onNextPage,
                 ),
               ],
             ),
@@ -674,14 +610,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
     Navigator.of(context).pop(
       CustomerRecord(
-        id:
-            widget.initialCustomer?.id ??
-            'cus-${DateTime.now().millisecondsSinceEpoch}',
+        id: widget.initialCustomer?.id ?? 0,
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
         phone: _phoneController.text.trim(),
         address: _addressController.text.trim(),
-        joinDate: widget.initialCustomer?.joinDate ?? '4/8/2026',
+        joinDate: widget.initialCustomer?.joinDate ?? '',
         invoices: widget.initialCustomer?.invoices ?? const [],
       ),
     );
@@ -792,9 +726,13 @@ class CustomerDetailsDialog extends StatefulWidget {
 }
 
 class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
+  static const int _invoicePageSize = 5;
+
   final TextEditingController _invoiceSearchController =
       TextEditingController();
   final TextEditingController _invoiceDateController = TextEditingController();
+
+  int _invoicePage = 1;
 
   List<CustomerInvoice> get _filteredInvoices {
     final query = _invoiceSearchController.text.trim().toLowerCase();
@@ -809,6 +747,24 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
     }).toList();
   }
 
+  List<CustomerInvoice> get _visibleInvoices {
+    final filtered = _filteredInvoices;
+    final start = (_invoicePage - 1) * _invoicePageSize;
+    final end = (start + _invoicePageSize).clamp(0, filtered.length);
+    if (start >= filtered.length) {
+      return <CustomerInvoice>[];
+    }
+    return filtered.sublist(start, end);
+  }
+
+  int get _invoiceTotalPages {
+    final count = _filteredInvoices.length;
+    if (count == 0) {
+      return 1;
+    }
+    return (count / _invoicePageSize).ceil();
+  }
+
   @override
   void dispose() {
     _invoiceSearchController.dispose();
@@ -816,9 +772,16 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
     super.dispose();
   }
 
+  void _refreshInvoiceFilters() {
+    setState(() {
+      _invoicePage = 1;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredInvoices = _filteredInvoices;
+    final visibleInvoices = _visibleInvoices;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -985,7 +948,7 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                         Expanded(
                           child: TextField(
                             controller: _invoiceSearchController,
-                            onChanged: (_) => setState(() {}),
+                            onChanged: (_) => _refreshInvoiceFilters(),
                             decoration: _fieldDecoration(
                               hintText: 'Search by Invoice #...',
                             ),
@@ -995,7 +958,7 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                         Expanded(
                           child: TextField(
                             controller: _invoiceDateController,
-                            onChanged: (_) => setState(() {}),
+                            onChanged: (_) => _refreshInvoiceFilters(),
                             decoration: _fieldDecoration(
                               hintText: 'yyyy-mm-dd',
                             ),
@@ -1034,7 +997,7 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                               ],
                             ),
                           ),
-                          if (filteredInvoices.isEmpty)
+                          if (visibleInvoices.isEmpty)
                             const Padding(
                               padding: EdgeInsets.all(18),
                               child: Text(
@@ -1045,7 +1008,7 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                                 ),
                               ),
                             ),
-                          for (final invoice in filteredInvoices)
+                          for (final invoice in visibleInvoices)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 14,
@@ -1095,6 +1058,71 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                                 ],
                               ),
                             ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: const BoxDecoration(
+                              border: Border(
+                                top: BorderSide(color: Color(0xFFF0F4F8)),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  filteredInvoices.isEmpty
+                                      ? 'Showing 0 to 0 of 0 invoices'
+                                      : 'Showing ${((_invoicePage - 1) * _invoicePageSize) + 1} to ${((_invoicePage - 1) * _invoicePageSize) + visibleInvoices.length} of ${filteredInvoices.length} invoices',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF8B99AD),
+                                  ),
+                                ),
+                                const Spacer(),
+                                _PaginationButton(
+                                  icon: Icons.chevron_left_rounded,
+                                  enabled: _invoicePage > 1,
+                                  onTap: () {
+                                    setState(() {
+                                      _invoicePage -= 1;
+                                    });
+                                  },
+                                ),
+                                Container(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: const Color(0xFFE5EAF2),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Page $_invoicePage of $_invoiceTotalPages',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF566376),
+                                    ),
+                                  ),
+                                ),
+                                _PaginationButton(
+                                  icon: Icons.chevron_right_rounded,
+                                  enabled: _invoicePage < _invoiceTotalPages,
+                                  onTap: () {
+                                    setState(() {
+                                      _invoicePage += 1;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1144,6 +1172,38 @@ class _PageActionButton extends StatelessWidget {
       ),
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _PaginationButton extends StatelessWidget {
+  const _PaginationButton({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE5EAF2)),
+        ),
+        child: Icon(
+          icon,
+          color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+        ),
+      ),
     );
   }
 }
@@ -1484,7 +1544,7 @@ InputDecoration _fieldDecoration({
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.7),
+      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.8),
     ),
   );
 }
@@ -1493,9 +1553,9 @@ BoxDecoration _panelDecoration() {
   return BoxDecoration(
     color: AppColors.white,
     borderRadius: BorderRadius.circular(18),
-    border: Border.all(color: const Color(0xFFE8EDF4)),
+    border: Border.all(color: const Color(0xFFE7EDF5)),
     boxShadow: const [
-      BoxShadow(color: Color(0x0F0F172A), blurRadius: 10, offset: Offset(0, 4)),
+      BoxShadow(color: Color(0x120F172A), blurRadius: 18, offset: Offset(0, 8)),
     ],
   );
 }
@@ -1506,9 +1566,9 @@ BoxDecoration _dialogDecoration() {
     borderRadius: BorderRadius.circular(18),
     boxShadow: const [
       BoxShadow(
-        color: Color(0x330F172A),
-        blurRadius: 28,
-        offset: Offset(0, 18),
+        color: Color(0x40000000),
+        blurRadius: 38,
+        offset: Offset(0, 16),
       ),
     ],
   );

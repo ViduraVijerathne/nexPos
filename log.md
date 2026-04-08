@@ -61,3 +61,8 @@
 - Completed supplier details loading from Isar and wired the supplier GRN table to sort newest GRNs first.
 - Added supplier GRN status filtering in the details dialog for `All Status`, `Paid`, `Partial`, and `Due`.
 - Verified the supplier backend integration with `flutter test` and `flutter build macos --debug`.
+- Connected the customers module to local Isar storage with a dedicated customer repository and seeded customer/invoice data for local development.
+- Completed add customer and edit customer with real local persistence and duplicate email validation.
+- Connected the customer table to local Isar data with search, spend filters, and pagination limited to 10 customers per page.
+- Completed customer details loading from Isar and wired customer invoice history to support invoice search plus pagination with 5 invoices per page.
+- Verified the customer backend integration with `flutter test` and `flutter build macos --debug`.

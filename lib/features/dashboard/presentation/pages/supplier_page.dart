@@ -1,0 +1,2078 @@
+import 'package:flutter/material.dart';
+
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/toast/app_toast.dart';
+
+class SupplierPage extends StatefulWidget {
+  const SupplierPage({super.key});
+
+  @override
+  State<SupplierPage> createState() => _SupplierPageState();
+}
+
+class _SupplierPageState extends State<SupplierPage> {
+  final TextEditingController _searchController = TextEditingController();
+
+  late final List<SupplierRecord> _suppliers = [
+    SupplierRecord(
+      id: 'sup-1',
+      supplierName: 'apple',
+      companyName: 'Uva wellassa university Sri lanka',
+      contactNumber: '0733',
+      companyContact: '29922',
+      email: 'bet23058@std.uwu.ac.lk',
+      address: 'moroththa,madahapola',
+      isActive: true,
+      grns: [
+        SupplierGrnRecord(
+          grnId: '5r4MH2V6SVrTcnQM73vY',
+          date: 'N/A',
+          itemsCount: 0,
+          total: 0,
+          paid: 59829,
+          due: 0,
+          status: SupplierGrnStatus.paid,
+        ),
+        SupplierGrnRecord(
+          grnId: 'EblchgQGfpvBfWjY4hrO',
+          date: 'N/A',
+          itemsCount: 0,
+          total: 0,
+          paid: 0,
+          due: 693,
+          status: SupplierGrnStatus.paid,
+        ),
+        SupplierGrnRecord(
+          grnId: 'ya5Rw466RR08',
+          date: '4/6/2026',
+          itemsCount: 1,
+          total: 5929,
+          paid: 333,
+          due: 5596,
+          status: SupplierGrnStatus.partial,
+        ),
+      ],
+    ),
+    SupplierRecord(
+      id: 'sup-2',
+      supplierName: 'sahan',
+      companyName: 'unilever',
+      contactNumber: '07667668',
+      companyContact: '+1 234 567 8900',
+      email: 'sahan@gmail.com',
+      address: 'abc',
+      isActive: true,
+      grns: const [],
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<SupplierRecord> get _filteredSuppliers {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _suppliers;
+    }
+
+    return _suppliers.where((supplier) {
+      return supplier.supplierName.toLowerCase().contains(query) ||
+          supplier.companyName.toLowerCase().contains(query) ||
+          supplier.email.toLowerCase().contains(query) ||
+          supplier.contactNumber.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Future<void> _openSupplierDialog({
+    SupplierRecord? supplier,
+    int? index,
+  }) async {
+    final result = await showDialog<SupplierRecord>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SupplierFormDialog(initialSupplier: supplier),
+    );
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() {
+      if (index == null) {
+        _suppliers.insert(0, result);
+      } else {
+        _suppliers[index] = result;
+      }
+    });
+
+    AppToast.success(
+      index == null
+          ? 'Supplier added successfully'
+          : 'Supplier updated successfully',
+    );
+  }
+
+  void _openSupplierDetails(SupplierRecord supplier) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SupplierDetailsDialog(
+        supplier: supplier,
+        onToggleStatus: () {
+          final supplierIndex = _suppliers.indexWhere(
+            (item) => item.id == supplier.id,
+          );
+          if (supplierIndex == -1) {
+            return;
+          }
+
+          setState(() {
+            _suppliers[supplierIndex] = _suppliers[supplierIndex].copyWith(
+              isActive: !_suppliers[supplierIndex].isActive,
+            );
+          });
+
+          Navigator.of(context).pop();
+
+          AppToast.success(
+            _suppliers[supplierIndex].isActive
+                ? 'Supplier activated successfully'
+                : 'Supplier deactivated successfully',
+          );
+
+          _openSupplierDetails(_suppliers[supplierIndex]);
+        },
+        onPayDue: (grn) => _openPayDueDialog(supplier, grn),
+      ),
+    );
+  }
+
+  void _openPayDueDialog(SupplierRecord supplier, SupplierGrnRecord grn) {
+    showDialog<PaySupplierDueResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SupplierPayDueDialog(grn: grn),
+    ).then((result) {
+      if (result == null) {
+        return;
+      }
+
+      final supplierIndex = _suppliers.indexWhere(
+        (item) => item.id == supplier.id,
+      );
+      if (supplierIndex == -1) {
+        return;
+      }
+
+      final grnIndex = _suppliers[supplierIndex].grns.indexWhere(
+        (item) => item.grnId == grn.grnId,
+      );
+      if (grnIndex == -1) {
+        return;
+      }
+
+      final currentGrn = _suppliers[supplierIndex].grns[grnIndex];
+      final updatedPaid = currentGrn.paid + result.amount;
+      final updatedDue = (currentGrn.due - result.amount).clamp(
+        0,
+        double.infinity,
+      );
+
+      final updatedGrn = currentGrn.copyWith(
+        paid: updatedPaid,
+        due: updatedDue.toDouble(),
+        status: updatedDue <= 0
+            ? SupplierGrnStatus.paid
+            : SupplierGrnStatus.partial,
+      );
+
+      final updatedGrns = List<SupplierGrnRecord>.from(
+        _suppliers[supplierIndex].grns,
+      )..[grnIndex] = updatedGrn;
+
+      setState(() {
+        _suppliers[supplierIndex] = _suppliers[supplierIndex].copyWith(
+          grns: updatedGrns,
+        );
+      });
+
+      AppToast.success('Supplier payment recorded successfully');
+      _openSupplierDetails(_suppliers[supplierIndex]);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredSuppliers = _filteredSuppliers;
+
+    return Padding(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(child: _SupplierHeader()),
+              const SizedBox(width: 16),
+              _SupplierActionButton(
+                label: 'Add Supplier',
+                icon: Icons.add,
+                onPressed: _openSupplierDialog,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _SupplierSearchCard(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 18),
+          Expanded(
+            child: filteredSuppliers.isEmpty
+                ? const _SupplierEmptyState()
+                : _SupplierTableCard(
+                    suppliers: filteredSuppliers,
+                    onViewDetails: _openSupplierDetails,
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SupplierHeader extends StatelessWidget {
+  const _SupplierHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Suppliers',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF334155),
+          ),
+        ),
+        SizedBox(height: 6),
+        Text(
+          'Manage your supplier relationships and contacts.',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF8391A7),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SupplierSearchCard extends StatelessWidget {
+  const _SupplierSearchCard({
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: _panelDecoration(),
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          hintText:
+              'Search suppliers by name, contact person, email, or company...',
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: Color(0xFF9AA8BC),
+            size: 21,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE5EBF3)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE5EBF3)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(
+              color: AppColors.primaryTeal,
+              width: 1.8,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupplierCard extends StatelessWidget {
+  const _SupplierCard({required this.supplier, required this.onViewDetails});
+
+  final SupplierRecord supplier;
+  final VoidCallback onViewDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: _panelDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 38,
+                width: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE4FFFB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.local_shipping_outlined,
+                  color: AppColors.primaryTeal,
+                  size: 20,
+                ),
+              ),
+              const Spacer(),
+              _StatusPill(
+                label: supplier.isActive ? 'Active' : 'Inactive',
+                active: supplier.isActive,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            supplier.supplierName,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334155),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            supplier.companyName,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF7F8CA1),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ContactRow(icon: Icons.call_outlined, value: supplier.contactNumber),
+          const SizedBox(height: 8),
+          _ContactRow(icon: Icons.mail_outline_rounded, value: supplier.email),
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: Color(0xFFE8EDF4)),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _StatColumn(
+                  label: 'Total GRNs',
+                  value: '${supplier.grns.length}',
+                ),
+              ),
+              Expanded(
+                child: _StatColumn(
+                  label: 'Paid Amount',
+                  value: _formatCurrency(supplier.totalPaid),
+                  valueColor: const Color(0xFF36B4AE),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _StatColumn(
+            label: 'Due Amount',
+            value: _formatCurrency(supplier.totalDue),
+            valueColor: const Color(0xFFF35E5E),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onViewDetails,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(42),
+                side: const BorderSide(color: Color(0xFFE3E9F2)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              icon: const Icon(
+                Icons.visibility_outlined,
+                size: 16,
+                color: Color(0xFF485568),
+              ),
+              label: const Text(
+                'View Details',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF39475B),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SupplierTableCard extends StatelessWidget {
+  const _SupplierTableCard({
+    required this.suppliers,
+    required this.onViewDetails,
+  });
+
+  final List<SupplierRecord> suppliers;
+  final ValueChanged<SupplierRecord> onViewDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _panelDecoration(),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FBFD),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 22, child: _TableHeaderText('Supplier')),
+                Expanded(flex: 24, child: _TableHeaderText('Company')),
+                Expanded(flex: 14, child: _TableHeaderText('Contact')),
+                Expanded(flex: 20, child: _TableHeaderText('Email')),
+                Expanded(flex: 8, child: _TableHeaderText('GRNs')),
+                Expanded(flex: 12, child: _TableHeaderText('Paid')),
+                Expanded(flex: 12, child: _TableHeaderText('Due')),
+                Expanded(flex: 10, child: _TableHeaderText('Status')),
+                Expanded(flex: 12, child: _TableHeaderText('Actions')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: suppliers.length,
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+              itemBuilder: (context, index) {
+                final supplier = suppliers[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 22,
+                        child: Row(
+                          children: [
+                            Container(
+                              height: 40,
+                              width: 40,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE4FFFB),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.local_shipping_outlined,
+                                color: AppColors.primaryTeal,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                supplier.supplierName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF364255),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        flex: 24,
+                        child: Text(
+                          supplier.companyName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF7B889E),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 14,
+                        child: Text(
+                          supplier.contactNumber,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF556276),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 20,
+                        child: Text(
+                          supplier.email,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF7B889E),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 8,
+                        child: Text(
+                          '${supplier.grns.length}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF364255),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 12,
+                        child: Text(
+                          _formatCurrency(supplier.totalPaid),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF36B4AE),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 12,
+                        child: Text(
+                          _formatCurrency(supplier.totalDue),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: supplier.totalDue > 0
+                                ? const Color(0xFFF45D5D)
+                                : const Color(0xFF36B4AE),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 10,
+                        child: _StatusPill(
+                          label: supplier.isActive ? 'Active' : 'Inactive',
+                          active: supplier.isActive,
+                        ),
+                      ),
+                      Expanded(
+                        flex: 12,
+                        child: OutlinedButton.icon(
+                          onPressed: () => onViewDetails(supplier),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(92, 38),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            side: const BorderSide(color: Color(0xFFE3E9F2)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.visibility_outlined,
+                            size: 15,
+                            color: Color(0xFF485568),
+                          ),
+                          label: const Text(
+                            'View',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF39475B),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SupplierFormDialog extends StatefulWidget {
+  const SupplierFormDialog({super.key, this.initialSupplier});
+
+  final SupplierRecord? initialSupplier;
+
+  @override
+  State<SupplierFormDialog> createState() => _SupplierFormDialogState();
+}
+
+class _SupplierFormDialogState extends State<SupplierFormDialog> {
+  late final TextEditingController _supplierNameController;
+  late final TextEditingController _companyNameController;
+  late final TextEditingController _contactNumberController;
+  late final TextEditingController _companyContactController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _addressController;
+
+  late String _status;
+
+  bool get _isEditing => widget.initialSupplier != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final supplier = widget.initialSupplier;
+    _supplierNameController = TextEditingController(
+      text: supplier?.supplierName ?? '',
+    );
+    _companyNameController = TextEditingController(
+      text: supplier?.companyName ?? '',
+    );
+    _contactNumberController = TextEditingController(
+      text: supplier?.contactNumber ?? '',
+    );
+    _companyContactController = TextEditingController(
+      text: supplier?.companyContact ?? '',
+    );
+    _emailController = TextEditingController(text: supplier?.email ?? '');
+    _addressController = TextEditingController(text: supplier?.address ?? '');
+    _status = supplier?.isActive == false ? 'Inactive' : 'Active';
+  }
+
+  @override
+  void dispose() {
+    _supplierNameController.dispose();
+    _companyNameController.dispose();
+    _contactNumberController.dispose();
+    _companyContactController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_supplierNameController.text.trim().isEmpty ||
+        _companyNameController.text.trim().isEmpty ||
+        _contactNumberController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty ||
+        _addressController.text.trim().isEmpty) {
+      AppToast.error('Fill all required supplier fields');
+      return;
+    }
+
+    Navigator.of(context).pop(
+      SupplierRecord(
+        id:
+            widget.initialSupplier?.id ??
+            'sup-${DateTime.now().millisecondsSinceEpoch}',
+        supplierName: _supplierNameController.text.trim(),
+        companyName: _companyNameController.text.trim(),
+        contactNumber: _contactNumberController.text.trim(),
+        companyContact: _companyContactController.text.trim(),
+        email: _emailController.text.trim(),
+        address: _addressController.text.trim(),
+        isActive: _status == 'Active',
+        grns: widget.initialSupplier?.grns ?? const [],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Container(
+        width: 740,
+        decoration: _dialogDecoration(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _DialogHeader(
+              title: _isEditing ? 'Edit Supplier' : 'Add New Supplier',
+              onClose: () => Navigator.of(context).pop(),
+            ),
+            const Divider(height: 1, color: Color(0xFFE8EDF4)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Supplier Name *',
+                          child: _DialogInputField(
+                            controller: _supplierNameController,
+                            hintText: 'Enter supplier name',
+                            prefixIcon: Icons.person_outline_rounded,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Company Name *',
+                          child: _DialogInputField(
+                            controller: _companyNameController,
+                            hintText: 'Enter company name',
+                            prefixIcon: Icons.business_outlined,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Contact Number *',
+                          child: _DialogInputField(
+                            controller: _contactNumberController,
+                            hintText: '+1 234 567 8900',
+                            prefixIcon: Icons.call_outlined,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Company Contact',
+                          child: _DialogInputField(
+                            controller: _companyContactController,
+                            hintText: '+1 234 567 8900',
+                            prefixIcon: Icons.call_outlined,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Email *',
+                          child: _DialogInputField(
+                            controller: _emailController,
+                            hintText: 'email@example.com',
+                            prefixIcon: Icons.mail_outline_rounded,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Status',
+                          child: DropdownButtonFormField<String>(
+                            value: _status,
+                            decoration: _fieldDecoration(),
+                            items: const ['Active', 'Inactive']
+                                .map(
+                                  (status) => DropdownMenuItem<String>(
+                                    value: status,
+                                    child: Text(status),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _status = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _FormFieldGroup(
+                    label: 'Address *',
+                    child: TextField(
+                      controller: _addressController,
+                      maxLines: 4,
+                      decoration: _fieldDecoration(
+                        hintText: 'Enter full address',
+                        prefixIcon: Icons.location_on_outlined,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _DialogFooter(
+              primaryLabel: _isEditing ? 'Update Supplier' : 'Add Supplier',
+              onPrimaryPressed: _submit,
+              onSecondaryPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SupplierDetailsDialog extends StatefulWidget {
+  const SupplierDetailsDialog({
+    super.key,
+    required this.supplier,
+    required this.onToggleStatus,
+    required this.onPayDue,
+  });
+
+  final SupplierRecord supplier;
+  final VoidCallback onToggleStatus;
+  final ValueChanged<SupplierGrnRecord> onPayDue;
+
+  @override
+  State<SupplierDetailsDialog> createState() => _SupplierDetailsDialogState();
+}
+
+class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
+  String _statusFilter = 'All Status';
+
+  List<SupplierGrnRecord> get _filteredGrns {
+    if (_statusFilter == 'All Status') {
+      return widget.supplier.grns;
+    }
+    if (_statusFilter == 'Paid') {
+      return widget.supplier.grns.where((grn) => grn.due <= 0).toList();
+    }
+    return widget.supplier.grns.where((grn) => grn.due > 0).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredGrns = _filteredGrns;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Container(
+        width: 790,
+        decoration: _dialogDecoration(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
+              decoration: const BoxDecoration(
+                color: Color(0xFF36B4AE),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.supplier.supplierName,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.supplier.companyName,
+                        style: const TextStyle(
+                          color: Color(0xFFE5FFFA),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7FBFD),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE8EDF4)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            height: 42,
+                            width: 42,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE9FFFB),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.toggle_on_outlined,
+                              color: AppColors.primaryTeal,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Supplier Status',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF3D4A5D),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.supplier.isActive
+                                      ? 'Currently Active'
+                                      : 'Currently Inactive',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF8A97AA),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton(
+                            onPressed: widget.onToggleStatus,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: widget.supplier.isActive
+                                  ? const Color(0xFFF45050)
+                                  : const Color(0xFF36B4AE),
+                              foregroundColor: AppColors.white,
+                              minimumSize: const Size(110, 40),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: Text(
+                              widget.supplier.isActive
+                                  ? 'Deactivate'
+                                  : 'Activate',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Supplier Information',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF3B4657),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.business_outlined,
+                            label: 'Company Name',
+                            value: widget.supplier.companyName,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.person_outline_rounded,
+                            label: 'Contact Person',
+                            value: widget.supplier.supplierName,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.mail_outline_rounded,
+                            label: 'Email',
+                            value: widget.supplier.email,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.call_outlined,
+                            label: 'Phone',
+                            value: widget.supplier.contactNumber,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _InfoBlock(
+                      icon: Icons.location_on_outlined,
+                      label: 'Address',
+                      value: widget.supplier.address,
+                    ),
+                    const SizedBox(height: 14),
+                    _InfoBlock(
+                      icon: Icons.call_outlined,
+                      label: 'Company Contact',
+                      value: widget.supplier.companyContact.isEmpty
+                          ? 'N/A'
+                          : widget.supplier.companyContact,
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Goods Received Notes (${widget.supplier.grns.length})',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF3B4657),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 130,
+                          child: DropdownButtonFormField<String>(
+                            value: _statusFilter,
+                            decoration: _fieldDecoration(),
+                            items: const ['All Status', 'Paid', 'Due']
+                                .map(
+                                  (status) => DropdownMenuItem<String>(
+                                    value: status,
+                                    child: Text(status),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _statusFilter = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (filteredGrns.isEmpty)
+                      Container(
+                        height: 118,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7FBFD),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE8EDF4)),
+                        ),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.assignment_outlined,
+                              size: 38,
+                              color: Color(0xFFD2DBE8),
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'No GRN records available for this supplier',
+                              style: TextStyle(
+                                color: Color(0xFF8F9CB0),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE8EDF4)),
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF8FBFD),
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(14),
+                                ),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Expanded(
+                                    flex: 26,
+                                    child: _TableHeaderText('GRN ID'),
+                                  ),
+                                  Expanded(
+                                    flex: 12,
+                                    child: _TableHeaderText('Date'),
+                                  ),
+                                  Expanded(
+                                    flex: 10,
+                                    child: _TableHeaderText('Items'),
+                                  ),
+                                  Expanded(
+                                    flex: 12,
+                                    child: _TableHeaderText('Total'),
+                                  ),
+                                  Expanded(
+                                    flex: 12,
+                                    child: _TableHeaderText('Paid'),
+                                  ),
+                                  Expanded(
+                                    flex: 12,
+                                    child: _TableHeaderText('Due'),
+                                  ),
+                                  Expanded(
+                                    flex: 12,
+                                    child: _TableHeaderText('Status'),
+                                  ),
+                                  Expanded(
+                                    flex: 14,
+                                    child: _TableHeaderText('Actions'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            for (final grn in filteredGrns)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 14,
+                                ),
+                                decoration: const BoxDecoration(
+                                  border: Border(
+                                    top: BorderSide(color: Color(0xFFF0F4F8)),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 26,
+                                      child: Text(
+                                        grn.grnId,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF4A5568),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: Text(
+                                        grn.date,
+                                        style: const TextStyle(
+                                          color: Color(0xFF7F8DA1),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 10,
+                                      child: Text('${grn.itemsCount}'),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: Text(_formatCurrency(grn.total)),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: Text(
+                                        _formatCurrency(grn.paid),
+                                        style: const TextStyle(
+                                          color: Color(0xFF36B4AE),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: Text(
+                                        _formatCurrency(grn.due),
+                                        style: TextStyle(
+                                          color: grn.due > 0
+                                              ? const Color(0xFFF45D5D)
+                                              : const Color(0xFF36B4AE),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: _StatusPill(
+                                        label: grn.status.label,
+                                        active:
+                                            grn.status != SupplierGrnStatus.due,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 14,
+                                      child: grn.due <= 0
+                                          ? const SizedBox.shrink()
+                                          : ElevatedButton.icon(
+                                              onPressed: () {
+                                                Navigator.of(context).pop();
+                                                widget.onPayDue(grn);
+                                              },
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(
+                                                  0xFF36B4AE,
+                                                ),
+                                                foregroundColor:
+                                                    AppColors.white,
+                                                minimumSize: const Size(82, 38),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                              ),
+                                              icon: const Icon(
+                                                Icons.attach_money,
+                                                size: 16,
+                                              ),
+                                              label: const Text('Pay'),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SupplierPayDueDialog extends StatefulWidget {
+  const SupplierPayDueDialog({super.key, required this.grn});
+
+  final SupplierGrnRecord grn;
+
+  @override
+  State<SupplierPayDueDialog> createState() => _SupplierPayDueDialogState();
+}
+
+class _SupplierPayDueDialogState extends State<SupplierPayDueDialog> {
+  late final TextEditingController _paymentAmountController;
+  String _paymentMethod = 'Cash';
+
+  double get _amount =>
+      double.tryParse(_paymentAmountController.text.trim()) ?? 0;
+  double get _finalBalance =>
+      (widget.grn.due - _amount).clamp(0, double.infinity).toDouble();
+
+  @override
+  void initState() {
+    super.initState();
+    _paymentAmountController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _paymentAmountController.dispose();
+    super.dispose();
+  }
+
+  void _pay() {
+    if (_amount <= 0) {
+      AppToast.error('Enter a valid payment amount');
+      return;
+    }
+    if (_amount > widget.grn.due) {
+      AppToast.error('Payment amount exceeds due amount');
+      return;
+    }
+
+    Navigator.of(
+      context,
+    ).pop(PaySupplierDueResult(amount: _amount, method: _paymentMethod));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 440,
+        decoration: _dialogDecoration(),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
+              decoration: const BoxDecoration(
+                color: Color(0xFF36B4AE),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pay Due Amount',
+                          style: TextStyle(
+                            color: AppColors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Supplier payment settlement',
+                          style: TextStyle(
+                            color: Color(0xFFE6FFFA),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFE5E5),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Current Due Amount',
+                          style: TextStyle(
+                            color: Color(0xFFEE6C6C),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _formatCurrency(widget.grn.due),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'GRN ID',
+                          child: _DialogInputField(
+                            controller: TextEditingController(
+                              text: widget.grn.grnId,
+                            ),
+                            enabled: false,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _FormFieldGroup(
+                          label: 'Due Amount',
+                          child: _DialogInputField(
+                            controller: TextEditingController(
+                              text: widget.grn.due.toStringAsFixed(2),
+                            ),
+                            enabled: false,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _FormFieldGroup(
+                    label: 'Payment Amount *',
+                    child: TextField(
+                      controller: _paymentAmountController,
+                      onChanged: (_) => setState(() {}),
+                      keyboardType: TextInputType.number,
+                      decoration: _fieldDecoration(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _FormFieldGroup(
+                    label: 'Payment Method',
+                    child: DropdownButtonFormField<String>(
+                      value: _paymentMethod,
+                      decoration: _fieldDecoration(),
+                      items: const ['Cash', 'Card', 'Bank Transfer']
+                          .map(
+                            (method) => DropdownMenuItem<String>(
+                              value: method,
+                              child: Text(method),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _paymentMethod = value);
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDDFBF6),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Final Balance to Pay',
+                          style: TextStyle(
+                            color: Color(0xFF4AAEA6),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _formatCurrency(_finalBalance),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF374151),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _DialogFooter(
+              primaryLabel: 'Pay',
+              primaryIcon: Icons.attach_money,
+              onPrimaryPressed: _pay,
+              onSecondaryPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SupplierActionButton extends StatelessWidget {
+  const _SupplierActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF36B4AE),
+        foregroundColor: AppColors.white,
+        minimumSize: const Size(114, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: Icon(icon, size: 18),
+      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _SupplierEmptyState extends StatelessWidget {
+  const _SupplierEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: _panelDecoration(),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.local_shipping_outlined,
+            size: 48,
+            color: Color(0xFFD4DCE7),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'No suppliers found',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF526174),
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Try adjusting the search query or add a new supplier.',
+            style: TextStyle(
+              color: Color(0xFF8A97AA),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactRow extends StatelessWidget {
+  const _ContactRow({required this.icon, required this.value});
+
+  final IconData icon;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF8D9CB0)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF738196),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatColumn extends StatelessWidget {
+  const _StatColumn({
+    required this.label,
+    required this.value,
+    this.valueColor = const Color(0xFF334155),
+  });
+
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF94A0B3),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: valueColor,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.active});
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFE7FCF8) : const Color(0xFFFFE8E8),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: active ? const Color(0xFF45C2B6) : const Color(0xFFF05E5E),
+        ),
+      ),
+    );
+  }
+}
+
+class _DialogHeader extends StatelessWidget {
+  const _DialogHeader({required this.title, required this.onClose});
+
+  final String title;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 12, 16),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF334155),
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            onPressed: onClose,
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 29,
+              color: Color(0xFF7E8CA2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DialogFooter extends StatelessWidget {
+  const _DialogFooter({
+    required this.primaryLabel,
+    required this.onPrimaryPressed,
+    required this.onSecondaryPressed,
+    this.primaryIcon,
+  });
+
+  final String primaryLabel;
+  final VoidCallback onPrimaryPressed;
+  final VoidCallback onSecondaryPressed;
+  final IconData? primaryIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 18),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF9FBFD),
+        border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          OutlinedButton(
+            onPressed: onSecondaryPressed,
+            child: const Text('Cancel'),
+          ),
+          const SizedBox(width: 12),
+          if (primaryIcon != null)
+            ElevatedButton.icon(
+              onPressed: onPrimaryPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF36B4AE),
+                foregroundColor: AppColors.white,
+              ),
+              icon: Icon(primaryIcon, size: 16),
+              label: Text(primaryLabel),
+            )
+          else
+            ElevatedButton(
+              onPressed: onPrimaryPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8FDDD6),
+                foregroundColor: AppColors.white,
+              ),
+              child: Text(primaryLabel),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FormFieldGroup extends StatelessWidget {
+  const _FormFieldGroup({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF445166),
+          ),
+        ),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+}
+
+class _DialogInputField extends StatelessWidget {
+  const _DialogInputField({
+    required this.controller,
+    this.hintText,
+    this.prefixIcon,
+    this.enabled = true,
+  });
+
+  final TextEditingController controller;
+  final String? hintText;
+  final IconData? prefixIcon;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      decoration: _fieldDecoration(hintText: hintText, prefixIcon: prefixIcon),
+    );
+  }
+}
+
+class _InfoBlock extends StatelessWidget {
+  const _InfoBlock({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FBFD),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: const Color(0xFF91A0B4)),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8C99AD),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF364255),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TableHeaderText extends StatelessWidget {
+  const _TableHeaderText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF8D9AB0),
+      ),
+    );
+  }
+}
+
+InputDecoration _fieldDecoration({String? hintText, IconData? prefixIcon}) {
+  return InputDecoration(
+    hintText: hintText,
+    hintStyle: const TextStyle(
+      color: Color(0xFFA9B5C7),
+      fontWeight: FontWeight.w600,
+    ),
+    prefixIcon: prefixIcon == null
+        ? null
+        : Icon(prefixIcon, size: 20, color: const Color(0xFF91A0B4)),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.7),
+    ),
+  );
+}
+
+BoxDecoration _dialogDecoration() {
+  return BoxDecoration(
+    color: AppColors.white,
+    borderRadius: BorderRadius.circular(18),
+    boxShadow: const [
+      BoxShadow(
+        color: Color(0x330F172A),
+        blurRadius: 28,
+        offset: Offset(0, 18),
+      ),
+    ],
+  );
+}
+
+BoxDecoration _panelDecoration() {
+  return BoxDecoration(
+    color: AppColors.white,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0xFFE8EDF4)),
+    boxShadow: const [
+      BoxShadow(color: Color(0x0F0F172A), blurRadius: 10, offset: Offset(0, 4)),
+    ],
+  );
+}
+
+String _formatCurrency(double value) => '\$${value.toStringAsFixed(2)}';
+
+class SupplierRecord {
+  const SupplierRecord({
+    required this.id,
+    required this.supplierName,
+    required this.companyName,
+    required this.contactNumber,
+    required this.companyContact,
+    required this.email,
+    required this.address,
+    required this.isActive,
+    required this.grns,
+  });
+
+  final String id;
+  final String supplierName;
+  final String companyName;
+  final String contactNumber;
+  final String companyContact;
+  final String email;
+  final String address;
+  final bool isActive;
+  final List<SupplierGrnRecord> grns;
+
+  double get totalPaid => grns.fold(0, (sum, item) => sum + item.paid);
+  double get totalDue => grns.fold(0, (sum, item) => sum + item.due);
+
+  SupplierRecord copyWith({
+    String? id,
+    String? supplierName,
+    String? companyName,
+    String? contactNumber,
+    String? companyContact,
+    String? email,
+    String? address,
+    bool? isActive,
+    List<SupplierGrnRecord>? grns,
+  }) {
+    return SupplierRecord(
+      id: id ?? this.id,
+      supplierName: supplierName ?? this.supplierName,
+      companyName: companyName ?? this.companyName,
+      contactNumber: contactNumber ?? this.contactNumber,
+      companyContact: companyContact ?? this.companyContact,
+      email: email ?? this.email,
+      address: address ?? this.address,
+      isActive: isActive ?? this.isActive,
+      grns: grns ?? this.grns,
+    );
+  }
+}
+
+class SupplierGrnRecord {
+  const SupplierGrnRecord({
+    required this.grnId,
+    required this.date,
+    required this.itemsCount,
+    required this.total,
+    required this.paid,
+    required this.due,
+    required this.status,
+  });
+
+  final String grnId;
+  final String date;
+  final int itemsCount;
+  final double total;
+  final double paid;
+  final double due;
+  final SupplierGrnStatus status;
+
+  SupplierGrnRecord copyWith({
+    String? grnId,
+    String? date,
+    int? itemsCount,
+    double? total,
+    double? paid,
+    double? due,
+    SupplierGrnStatus? status,
+  }) {
+    return SupplierGrnRecord(
+      grnId: grnId ?? this.grnId,
+      date: date ?? this.date,
+      itemsCount: itemsCount ?? this.itemsCount,
+      total: total ?? this.total,
+      paid: paid ?? this.paid,
+      due: due ?? this.due,
+      status: status ?? this.status,
+    );
+  }
+}
+
+enum SupplierGrnStatus {
+  paid('Paid'),
+  partial('Partial'),
+  due('Due');
+
+  const SupplierGrnStatus(this.label);
+
+  final String label;
+}
+
+class PaySupplierDueResult {
+  const PaySupplierDueResult({required this.amount, required this.method});
+
+  final double amount;
+  final String method;
+}

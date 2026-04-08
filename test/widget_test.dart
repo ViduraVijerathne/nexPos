@@ -1,21 +1,14 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:nex_pos_desktop/app.dart';
 
 void main() {
-  testWidgets('Dashboard renders starter content', (WidgetTester tester) async {
+  testWidgets('Login page renders auth UI', (WidgetTester tester) async {
     await tester.pumpWidget(const NexPosApp());
 
-    expect(find.text('Nex POS'), findsOneWidget);
-    expect(find.text('Point of Sale Dashboard'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('NexPos'), findsOneWidget);
+    expect(find.text('Username / Email'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
   });
 }

@@ -46,3 +46,5 @@
 - Extracted shared dashboard data models into `lib/features/dashboard/models/models.dart` and updated the product, stock, GRN, supplier, customer, and invoice UIs to use the shared model layer.
 - Added Isar entity classes and schema exports for products, stocks, GRNs, suppliers, customers, and invoices in `lib/core/database/entities`.
 - Added a first-launch activation flow with device ID display, copy action, activation key input, and persisted activation state before login.
+- Added a debug delete action on the login page to clear stored activation data and return the app to the activation screen.
+- Added a first-run setup wizard after activation with version selection, admin account creation, PIN setup, default login method selection, shop information capture, setup resume logic, and login integration with stored credentials/PIN.

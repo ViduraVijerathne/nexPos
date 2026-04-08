@@ -6,11 +6,11 @@ import 'isar_schemas.dart';
 class AppDatabase {
   AppDatabase._();
 
-  static const String _databaseName = 'nex_pos_db';
+  static const String databaseName = 'nex_pos_db';
   static Future<Isar>? _openFuture;
 
   static Future<Isar> get instance {
-    final existing = Isar.getInstance(_databaseName);
+    final existing = Isar.getInstance(databaseName);
     if (existing != null) {
       return Future<Isar>.value(existing);
     }
@@ -24,8 +24,26 @@ class AppDatabase {
     return Isar.open(
       appIsarSchemas,
       directory: directory.path,
-      name: _databaseName,
+      name: databaseName,
       inspector: false,
     );
+  }
+
+  static Future<String> getSupportDirectoryPath() async {
+    final directory = await getApplicationSupportDirectory();
+    return directory.path;
+  }
+
+  static Future<String> getDatabaseFilePath() async {
+    final directory = await getApplicationSupportDirectory();
+    return '${directory.path}/$databaseName.isar';
+  }
+
+  static Future<void> close() async {
+    final existing = Isar.getInstance(databaseName);
+    if (existing != null) {
+      await existing.close();
+    }
+    _openFuture = null;
   }
 }

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/invoice_local_repository.dart';
 import '../../models/models.dart';
 
 class InvoicePage extends StatefulWidget {
@@ -12,8 +15,6 @@ class InvoicePage extends StatefulWidget {
 }
 
 class _InvoicePageState extends State<InvoicePage> {
-  static const int _pageSize = 10;
-
   final TextEditingController _invoiceIdController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _dateFromController = TextEditingController();
@@ -21,253 +22,31 @@ class _InvoicePageState extends State<InvoicePage> {
   final TextEditingController _amountLessController = TextEditingController();
   final TextEditingController _amountGreaterController =
       TextEditingController();
+  final InvoiceLocalRepository _repository = const InvoiceLocalRepository();
 
   String _statusFilter = 'All Status';
-  int _currentPage = 0;
+  List<InvoiceRecord> _invoices = <InvoiceRecord>[];
+  InvoiceSummary _summary = const InvoiceSummary(
+    totalInvoices: 0,
+    paidInvoices: 0,
+    pendingInvoices: 0,
+    overdueInvoices: 0,
+  );
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _searchDebounce;
 
-  late final List<InvoiceRecord> _invoices = [
-    InvoiceRecord(
-      invoiceId: 'INV-000018',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-07T02:26:12.607Z',
-      amount: 3514.50,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(
-          name: 'manchee super cream cracker',
-          quantity: 10,
-          unitPrice: 290.40,
-        ),
-        InvoiceLineItem(name: 'apple', quantity: 2, unitPrice: 305.25),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000017',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T18:57:12.670Z',
-      amount: 193.60,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'dodam', quantity: 2, unitPrice: 96.80),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000016',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T18:57:11.486Z',
-      amount: 193.60,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'dodam', quantity: 2, unitPrice: 96.80),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000015',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T18:56:44.570Z',
-      amount: 290.40,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(
-          name: 'manchee super cream cracker',
-          quantity: 3,
-          unitPrice: 96.80,
-        ),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000014',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T18:56:41.536Z',
-      amount: 290.40,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(
-          name: 'manchee super cream cracker',
-          quantity: 3,
-          unitPrice: 96.80,
-        ),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000013',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T18:50:11.731Z',
-      amount: 96.80,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'dodam', quantity: 1, unitPrice: 96.80),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000012',
-      customerName: 'BET23085 S.G.N.N.Bandara',
-      customerCode: 'cust-001',
-      date: '2026-04-06T17:44:11.731Z',
-      amount: 4799.40,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'apple', quantity: 3, unitPrice: 1599.80),
-      ],
-      paymentMethod: 'Card',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000011',
-      customerName: 'BET23085 S.G.N.N.Bandara',
-      customerCode: 'cust-001',
-      date: '2026-04-06T17:12:08.620Z',
-      amount: 2399.70,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'apple', quantity: 3, unitPrice: 799.90),
-      ],
-      paymentMethod: 'Card',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000010',
-      customerName: 'Kasun Perera',
-      customerCode: 'cust-011',
-      date: '2026-04-06T16:01:41.536Z',
-      amount: 120.00,
-      status: InvoiceStatus.paid,
-      items: const [InvoiceLineItem(name: '444', quantity: 4, unitPrice: 30)],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000009',
-      customerName: 'Nadee Silva',
-      customerCode: 'cust-012',
-      date: '2026-04-06T15:33:41.536Z',
-      amount: 520.00,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'product5', quantity: 5, unitPrice: 104),
-      ],
-      paymentMethod: 'UPI',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000008',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T14:28:41.536Z',
-      amount: 60.00,
-      status: InvoiceStatus.paid,
-      items: const [InvoiceLineItem(name: '44', quantity: 2, unitPrice: 30)],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000007',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T13:14:41.536Z',
-      amount: 88.00,
-      status: InvoiceStatus.paid,
-      items: const [InvoiceLineItem(name: 'dodam', quantity: 1, unitPrice: 88)],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000006',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T12:04:41.536Z',
-      amount: 205.70,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'product5', quantity: 1, unitPrice: 99),
-        InvoiceLineItem(name: 'dodam', quantity: 1, unitPrice: 88),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000005',
-      customerName: 'Kasun Perera',
-      customerCode: 'cust-011',
-      date: '2026-04-06T11:44:41.536Z',
-      amount: 140.00,
-      status: InvoiceStatus.paid,
-      items: const [InvoiceLineItem(name: '444', quantity: 2, unitPrice: 70)],
-      paymentMethod: 'Card',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000004',
-      customerName: 'Nadee Silva',
-      customerCode: 'cust-012',
-      date: '2026-04-06T10:18:41.536Z',
-      amount: 780.00,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'apple', quantity: 3, unitPrice: 260),
-      ],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000003',
-      customerName: 'Walk-in Customer',
-      customerCode: 'walk-in',
-      date: '2026-04-06T09:17:41.536Z',
-      amount: 154.00,
-      status: InvoiceStatus.paid,
-      items: const [InvoiceLineItem(name: '44', quantity: 2, unitPrice: 77)],
-      paymentMethod: 'Cash',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000002',
-      customerName: 'BET23085 S.G.N.N.Bandara',
-      customerCode: 'cust-001',
-      date: '2026-04-06T08:59:46.437Z',
-      amount: 2399.70,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'apple', quantity: 3, unitPrice: 799.90),
-      ],
-      paymentMethod: 'Card',
-      cashierName: 'Admin User',
-    ),
-    InvoiceRecord(
-      invoiceId: 'INV-000001',
-      customerName: 'BET23085 S.G.N.N.Bandara',
-      customerCode: 'cust-001',
-      date: '2026-04-06T08:59:43.617Z',
-      amount: 2399.70,
-      status: InvoiceStatus.paid,
-      items: const [
-        InvoiceLineItem(name: 'apple', quantity: 3, unitPrice: 799.90),
-      ],
-      paymentMethod: 'Card',
-      cashierName: 'Admin User',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
+  }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _invoiceIdController.dispose();
     _customerController.dispose();
     _dateFromController.dispose();
@@ -277,67 +56,81 @@ class _InvoicePageState extends State<InvoicePage> {
     super.dispose();
   }
 
-  List<InvoiceRecord> get _filteredInvoices {
-    final invoiceId = _invoiceIdController.text.trim().toLowerCase();
-    final customer = _customerController.text.trim().toLowerCase();
-    final dateFrom = _dateFromController.text.trim();
-    final dateTo = _dateToController.text.trim();
-    final amountLess = double.tryParse(_amountLessController.text.trim());
-    final amountGreater = double.tryParse(_amountGreaterController.text.trim());
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _loadInvoices();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    return _invoices.where((invoice) {
-      if (invoiceId.isNotEmpty &&
-          !invoice.invoiceId.toLowerCase().contains(invoiceId)) {
-        return false;
-      }
-      if (customer.isNotEmpty &&
-          !invoice.customerName.toLowerCase().contains(customer)) {
-        return false;
-      }
-      if (dateFrom.isNotEmpty && !invoice.date.contains(dateFrom)) {
-        return false;
-      }
-      if (dateTo.isNotEmpty && !invoice.date.contains(dateTo)) {
-        return false;
-      }
-      if (amountLess != null && invoice.amount >= amountLess) {
-        return false;
-      }
-      if (amountGreater != null && invoice.amount <= amountGreater) {
-        return false;
-      }
-      if (_statusFilter != 'All Status' &&
-          invoice.status.label != _statusFilter) {
-        return false;
-      }
-      return true;
-    }).toList();
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load invoices: $error');
+    }
   }
 
-  int get _totalPages {
-    final count = _filteredInvoices.length;
-    return count == 0 ? 1 : ((count - 1) ~/ _pageSize) + 1;
-  }
+  Future<void> _loadInvoices({int? targetPage}) async {
+    setState(() => _isLoading = true);
 
-  List<InvoiceRecord> get _pagedInvoices {
-    final filtered = _filteredInvoices;
-    final start = (_currentPage * _pageSize).clamp(0, filtered.length);
-    final end = (start + _pageSize).clamp(0, filtered.length);
-    return filtered.sublist(start, end);
+    try {
+      final result = await _repository.fetchInvoices(
+        page: targetPage ?? _currentPage,
+        invoiceIdQuery: _invoiceIdController.text.trim(),
+        customerQuery: _customerController.text.trim(),
+        dateFrom: _dateFromController.text.trim(),
+        dateTo: _dateToController.text.trim(),
+        amountLessThan: double.tryParse(_amountLessController.text.trim()),
+        amountGreaterThan: double.tryParse(
+          _amountGreaterController.text.trim(),
+        ),
+        statusFilter: _statusFilter,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _invoices = result.invoices;
+        _summary = result.summary;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _totalCount = result.totalCount;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load invoices: $error');
+    }
   }
 
   void _refreshFilters() {
-    setState(() {
-      _currentPage = 0;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+      _loadInvoices(targetPage: 1);
     });
   }
 
-  void _showInvoiceDetails(InvoiceRecord invoice) {
+  Future<void> _showInvoiceDetails(InvoiceRecord invoice) async {
+    final record = await _repository.fetchInvoiceById(invoice.invoiceId);
+    if (!mounted || record == null) {
+      AppToast.error('Invoice details not found');
+      return;
+    }
+
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => InvoiceDetailsDialog(
-        invoice: invoice,
+        invoice: record,
         onPrint: () {
           Navigator.of(context).pop();
           AppToast.success('Invoice sent to printer');
@@ -352,10 +145,6 @@ class _InvoicePageState extends State<InvoicePage> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredInvoices;
-    final paged = _pagedInvoices;
-    final summary = InvoiceSummary.fromInvoices(_invoices);
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -368,7 +157,7 @@ class _InvoicePageState extends State<InvoicePage> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Total Invoices',
-                  value: '${summary.totalInvoices}',
+                  value: '${_summary.totalInvoices}',
                   valueColor: const Color(0xFF334155),
                 ),
               ),
@@ -376,7 +165,7 @@ class _InvoicePageState extends State<InvoicePage> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Paid',
-                  value: '${summary.paidInvoices}',
+                  value: '${_summary.paidInvoices}',
                   valueColor: const Color(0xFF36B4AE),
                 ),
               ),
@@ -384,7 +173,7 @@ class _InvoicePageState extends State<InvoicePage> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Pending',
-                  value: '${summary.pendingInvoices}',
+                  value: '${_summary.pendingInvoices}',
                   valueColor: const Color(0xFFDE9B1F),
                 ),
               ),
@@ -392,7 +181,7 @@ class _InvoicePageState extends State<InvoicePage> {
               Expanded(
                 child: _SummaryCard(
                   label: 'Overdue',
-                  value: '${summary.overdueInvoices}',
+                  value: '${_summary.overdueInvoices}',
                   valueColor: const Color(0xFFE23A56),
                 ),
               ),
@@ -411,13 +200,19 @@ class _InvoicePageState extends State<InvoicePage> {
             onStatusChanged: (value) {
               setState(() {
                 _statusFilter = value;
-                _currentPage = 0;
               });
+              _loadInvoices(targetPage: 1);
             },
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: filtered.isEmpty
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryTeal,
+                    ),
+                  )
+                : _invoices.isEmpty
                 ? const _EmptyState(
                     icon: Icons.receipt_long_outlined,
                     title: 'No invoices found',
@@ -425,17 +220,19 @@ class _InvoicePageState extends State<InvoicePage> {
                         'Try changing the filters to see matching invoices.',
                   )
                 : _InvoiceTableCard(
-                    invoices: paged,
+                    invoices: _invoices,
                     currentPage: _currentPage,
                     totalPages: _totalPages,
-                    totalItems: filtered.length,
-                    onPrevious: _currentPage == 0
+                    totalItems: _totalCount,
+                    onPrevious: _currentPage <= 1
                         ? null
-                        : () => setState(() => _currentPage -= 1),
-                    onNext: _currentPage >= _totalPages - 1
+                        : () => _loadInvoices(targetPage: _currentPage - 1),
+                    onNext: _currentPage >= _totalPages
                         ? null
-                        : () => setState(() => _currentPage += 1),
-                    onView: _showInvoiceDetails,
+                        : () => _loadInvoices(targetPage: _currentPage + 1),
+                    onView: (invoice) {
+                      _showInvoiceDetails(invoice);
+                    },
                     onPrint: _printInvoice,
                   ),
           ),
@@ -686,7 +483,7 @@ class _InvoiceTableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final start = totalItems == 0 ? 0 : (currentPage * 10) + 1;
+    final start = totalItems == 0 ? 0 : ((currentPage - 1) * 10) + 1;
     final end = totalItems == 0 ? 0 : start + invoices.length - 1;
 
     return Container(
@@ -868,7 +665,7 @@ class _InvoiceTableCard extends StatelessWidget {
                     border: Border.all(color: const Color(0xFFE5EAF2)),
                   ),
                   child: Text(
-                    'Page ${currentPage + 1} of $totalPages',
+                    'Page $currentPage of $totalPages',
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF566376),

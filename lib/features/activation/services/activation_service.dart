@@ -86,6 +86,32 @@ class ActivationService {
     await prefs.remove(_isActivatedPref);
   }
 
+  Future<Map<String, dynamic>> exportState() async {
+    final prefs = await SharedPreferences.getInstance();
+    return <String, dynamic>{
+      _activationKeyPref: prefs.getString(_activationKeyPref),
+      _deviceIdPref: prefs.getString(_deviceIdPref),
+      _isActivatedPref: prefs.getBool(_isActivatedPref) ?? false,
+    };
+  }
+
+  Future<void> importState(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    final activationKey = data[_activationKeyPref];
+    final deviceId = data[_deviceIdPref];
+    final isActivated = data[_isActivatedPref];
+
+    if (activationKey is String && activationKey.isNotEmpty) {
+      await prefs.setString(_activationKeyPref, activationKey);
+    }
+    if (deviceId is String && deviceId.isNotEmpty) {
+      await prefs.setString(_deviceIdPref, deviceId);
+    }
+    if (isActivated is bool) {
+      await prefs.setBool(_isActivatedPref, isActivated);
+    }
+  }
+
   String _normalizeKey(String value) =>
       value.replaceAll('-', '').replaceAll(' ', '').toUpperCase();
 

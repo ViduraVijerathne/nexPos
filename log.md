@@ -85,3 +85,29 @@
 - Added customer autosuggest in POS for name/mobile search with `Walk-in Customer` selected by default.
 - Added live subtotal, tax, total, paid amount, and balance/change calculation on the POS order panel.
 - Completed local sale processing to create paid invoices in Isar and decrement stock quantities after checkout.
+- Added a dedicated local invoice repository so the invoice screen can read persisted invoice data from Isar.
+- Connected invoice search and filter controls to local Isar data for invoice ID, customer, date range, amount range, and status filtering.
+- Completed invoice table pagination with a maximum of 10 invoices per page using persisted data.
+- Completed invoice details loading from Isar so the `View` action now shows real saved invoice information from POS billing.
+- Added a dedicated local insight repository to build dashboard analytics from persisted Isar data.
+- Connected the insight page to real totals for sales, orders, active products, and customers.
+- Replaced the sales chart with a real 7-day sales series from saved invoices.
+- Replaced the stock allocation and low-stock alert panels with live data derived from products and stocks in Isar.
+- Added interactive from/to date pickers to the insight sales chart and wired the chart to reload for the selected date range.
+- Added a new expired stocks widget on the insight page with real data from stock expiry dates.
+- Added a deactivate action for expired stocks so items can be removed from active inventory directly from the insight page.
+- Added a dedicated local reports repository to build sales, inventory, and customer analytics from Isar data.
+- Replaced the reports placeholder with a full reports page including date range controls, summary cards, and a daily sales summary chart.
+- Added inventory report sections for low stock alerts and stock valuation by category.
+- Added customer reporting for top customers ranked by purchases and average order value.
+- Wired the dashboard reports navigation item to the new real reports page.
+- Replaced the extensions placeholder with a full dummy extensions marketplace page.
+- Added extension search, install-status filtering, summary cards, and extension cards matching the approved desktop layout.
+- Marked only `Point of Sale`, `Customer Management`, `Report Extension`, and `Inventory Management` as installed.
+- Added a support dialog for non-installed extensions that tells the user to contact customer support for installation.
+- Replaced the backups placeholder with a full functional backup page.
+- Added real local backup creation using Isar `copyToFile`, along with persisted backup history and summary cards.
+- Added export support for backups and their paired setup/activation state snapshot files.
+- Added restore flow for local backups plus external `.isar` backup import with application reload after restore.
+- Added a `Backup Every Login` toggle and wired successful login flow to create an automatic backup when enabled.
+- Fixed macOS backup export entitlement configuration by cleaning duplicate sandbox keys and keeping explicit user-selected read/write permissions in both debug and release entitlements.

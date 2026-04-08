@@ -656,6 +656,30 @@ class InvoiceSummary {
   }
 }
 
+class InvoicePageResult {
+  const InvoicePageResult({
+    required this.invoices,
+    required this.summary,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<InvoiceRecord> invoices;
+  final InvoiceSummary summary;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
 class InvoiceRecord {
   const InvoiceRecord({
     required this.invoiceId,
@@ -705,4 +729,175 @@ enum InvoiceStatus {
   const InvoiceStatus(this.label);
 
   final String label;
+}
+
+class InsightMetricRecord {
+  const InsightMetricRecord({
+    required this.title,
+    required this.value,
+    required this.note,
+  });
+
+  final String title;
+  final String value;
+  final String note;
+}
+
+class InsightSalesPoint {
+  const InsightSalesPoint({required this.label, required this.value});
+
+  final String label;
+  final double value;
+}
+
+class InsightCategoryAllocation {
+  const InsightCategoryAllocation({
+    required this.label,
+    required this.percentage,
+  });
+
+  final String label;
+  final double percentage;
+}
+
+class InsightLowStockItem {
+  const InsightLowStockItem({required this.name, required this.status});
+
+  final String name;
+  final String status;
+}
+
+class InsightExpiredStockItem {
+  const InsightExpiredStockItem({
+    required this.id,
+    required this.name,
+    required this.barcode,
+    required this.expiryDate,
+  });
+
+  final int id;
+  final String name;
+  final String barcode;
+  final String expiryDate;
+}
+
+class InsightDashboardData {
+  const InsightDashboardData({
+    required this.totalSales,
+    required this.totalOrders,
+    required this.activeProducts,
+    required this.totalCustomers,
+    required this.salesGrowthNote,
+    required this.ordersGrowthNote,
+    required this.productsNote,
+    required this.customersNote,
+    required this.salesPoints,
+    required this.chartDateFromLabel,
+    required this.chartDateToLabel,
+    required this.categoryAllocation,
+    required this.lowStockItems,
+    required this.expiredStockItems,
+  });
+
+  final double totalSales;
+  final int totalOrders;
+  final int activeProducts;
+  final int totalCustomers;
+  final String salesGrowthNote;
+  final String ordersGrowthNote;
+  final String productsNote;
+  final String customersNote;
+  final List<InsightSalesPoint> salesPoints;
+  final String chartDateFromLabel;
+  final String chartDateToLabel;
+  final List<InsightCategoryAllocation> categoryAllocation;
+  final List<InsightLowStockItem> lowStockItems;
+  final List<InsightExpiredStockItem> expiredStockItems;
+}
+
+class ReportSummaryData {
+  const ReportSummaryData({
+    required this.totalRevenue,
+    required this.totalOrders,
+    required this.averageOrderValue,
+    required this.stockValue,
+    required this.activeProducts,
+    required this.lowStockItemsCount,
+  });
+
+  final double totalRevenue;
+  final int totalOrders;
+  final double averageOrderValue;
+  final double stockValue;
+  final int activeProducts;
+  final int lowStockItemsCount;
+}
+
+class ReportSalesPoint {
+  const ReportSalesPoint({required this.label, required this.value});
+
+  final String label;
+  final double value;
+}
+
+class ReportLowStockRow {
+  const ReportLowStockRow({
+    required this.product,
+    required this.currentStock,
+    required this.minimumRequired,
+    required this.status,
+  });
+
+  final String product;
+  final int currentStock;
+  final int minimumRequired;
+  final String status;
+}
+
+class ReportStockValuationRow {
+  const ReportStockValuationRow({
+    required this.category,
+    required this.totalItems,
+    required this.totalValue,
+  });
+
+  final String category;
+  final int totalItems;
+  final double totalValue;
+}
+
+class ReportTopCustomerRow {
+  const ReportTopCustomerRow({
+    required this.rank,
+    required this.customer,
+    required this.orders,
+    required this.totalSpent,
+    required this.averageOrder,
+  });
+
+  final int rank;
+  final String customer;
+  final int orders;
+  final double totalSpent;
+  final double averageOrder;
+}
+
+class ReportDashboardData {
+  const ReportDashboardData({
+    required this.summary,
+    required this.salesPoints,
+    required this.lowStockRows,
+    required this.stockValuationRows,
+    required this.topCustomers,
+    required this.fromDateLabel,
+    required this.toDateLabel,
+  });
+
+  final ReportSummaryData summary;
+  final List<ReportSalesPoint> salesPoints;
+  final List<ReportLowStockRow> lowStockRows;
+  final List<ReportStockValuationRow> stockValuationRows;
+  final List<ReportTopCustomerRow> topCustomers;
+  final String fromDateLabel;
+  final String toDateLabel;
 }

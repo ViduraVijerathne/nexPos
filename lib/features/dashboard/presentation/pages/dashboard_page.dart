@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../auth/presentation/pages/login_page.dart';
+import 'backup_page.dart';
 import 'coming_soon_page.dart';
 import 'customer_page.dart';
+import 'extension_page.dart';
 import 'grn_page.dart';
 import 'insight_page.dart';
 import 'invoice_page.dart';
 import 'pos_page.dart';
 import 'product_page.dart';
+import 'report_page.dart';
 import 'stock_page.dart';
 import 'supplier_page.dart';
 
@@ -47,28 +50,15 @@ class _DashboardPageState extends State<DashboardPage> {
     DashboardSection.supplies: const SupplierPage(),
     DashboardSection.customers: const CustomerPage(),
     DashboardSection.invoice: const InvoicePage(),
-    DashboardSection.reports: const ComingSoonPage(
-      title: 'Reports',
-      description: 'View sales reports, trends, and operational summaries.',
-      icon: Icons.bar_chart_rounded,
-    ),
-    DashboardSection.extensions: const ComingSoonPage(
-      title: 'Extensions',
-      description: 'Configure integrations and additional POS capabilities.',
-      icon: Icons.extension_outlined,
-    ),
+    DashboardSection.reports: const ReportPage(),
+    DashboardSection.extensions: const ExtensionPage(),
     DashboardSection.settings: const ComingSoonPage(
       title: 'Settings',
       description:
           'Control application preferences, roles, and business details.',
       icon: Icons.settings_outlined,
     ),
-    DashboardSection.backups: const ComingSoonPage(
-      title: 'Backups',
-      description:
-          'Manage backup schedules and restore points for your store data.',
-      icon: Icons.storage_outlined,
-    ),
+    DashboardSection.backups: const BackupPage(),
   };
 
   static const _navItems = [

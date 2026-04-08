@@ -5,6 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/pin_number_pad.dart';
 import '../../../activation/services/activation_service.dart';
+import '../../../backup/services/backup_service.dart';
 import '../../../dashboard/presentation/pages/dashboard_page.dart';
 import '../../../setup/services/setup_service.dart';
 import '../widgets/auth_text_field.dart';
@@ -92,7 +93,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    _openDashboard();
+    await _openDashboard();
   }
 
   Future<void> _handlePinLogin() async {
@@ -119,10 +120,24 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    _openDashboard();
+    await _openDashboard();
   }
 
-  void _openDashboard() {
+  Future<void> _openDashboard() async {
+    try {
+      final automaticBackup = await BackupService.instance
+          .createBackupIfEnabled();
+      if (automaticBackup != null) {
+        AppToast.info('Automatic login backup created');
+      }
+    } catch (error) {
+      AppToast.error('Login backup failed: $error');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     AppToast.success('Login successful');
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => const DashboardPage()),

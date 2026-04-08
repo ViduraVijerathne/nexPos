@@ -2,23 +2,151 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-class InsightPage extends StatelessWidget {
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/toast/app_toast.dart';
+import '../../data/insight_local_repository.dart';
+import '../../models/models.dart';
+
+class InsightPage extends StatefulWidget {
   const InsightPage({super.key});
 
   @override
+  State<InsightPage> createState() => _InsightPageState();
+}
+
+class _InsightPageState extends State<InsightPage> {
+  final InsightLocalRepository _repository = const InsightLocalRepository();
+  bool _isLoading = true;
+  InsightDashboardData? _dashboardData;
+  late DateTime _fromDate;
+  late DateTime _toDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _toDate = DateTime.now();
+    _fromDate = _toDate.subtract(const Duration(days: 6));
+    _initializePage();
+  }
+
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      final dashboardData = await _repository.fetchDashboardData(
+        fromDate: _fromDate,
+        toDate: _toDate,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dashboardData = dashboardData;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load business insights: $error');
+    }
+  }
+
+  Future<void> _pickFromDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _fromDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null) {
+      return;
+    }
+
+    setState(() {
+      _fromDate = selected;
+      if (_fromDate.isAfter(_toDate)) {
+        _toDate = _fromDate;
+      }
+      _isLoading = true;
+    });
+    await _initializePage();
+  }
+
+  Future<void> _pickToDate() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _toDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (selected == null) {
+      return;
+    }
+
+    setState(() {
+      _toDate = selected;
+      if (_toDate.isBefore(_fromDate)) {
+        _fromDate = _toDate;
+      }
+      _isLoading = true;
+    });
+    await _initializePage();
+  }
+
+  Future<void> _deactivateExpiredStock(InsightExpiredStockItem item) async {
+    try {
+      await _repository.deactivateExpiredStock(item.id);
+      await _initializePage();
+      AppToast.success('${item.name} removed from active inventory');
+    } catch (error) {
+      AppToast.error('Failed to deactivate stock: $error');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const SingleChildScrollView(
-      padding: EdgeInsets.all(18),
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primaryTeal),
+      );
+    }
+
+    final dashboardData = _dashboardData;
+    if (dashboardData == null) {
+      return const Center(
+        child: Text(
+          'No insight data available',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF8492A6),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InsightHeader(),
-          SizedBox(height: 18),
-          _InsightMetrics(),
-          SizedBox(height: 18),
-          _SalesPerformanceCard(),
-          SizedBox(height: 18),
-          _DashboardBottomPanels(),
+          const _InsightHeader(),
+          const SizedBox(height: 18),
+          _InsightMetrics(data: dashboardData),
+          const SizedBox(height: 18),
+          _SalesPerformanceCard(
+            data: dashboardData,
+            onFromTap: _pickFromDate,
+            onToTap: _pickToDate,
+          ),
+          const SizedBox(height: 18),
+          _DashboardBottomPanels(data: dashboardData),
+          const SizedBox(height: 18),
+          _ExpiredStocksCard(
+            items: dashboardData.expiredStockItems,
+            onDeactivate: _deactivateExpiredStock,
+          ),
         ],
       ),
     );
@@ -56,49 +184,51 @@ class _InsightHeader extends StatelessWidget {
 }
 
 class _InsightMetrics extends StatelessWidget {
-  const _InsightMetrics();
+  const _InsightMetrics({required this.data});
 
-  static const _metrics = [
-    _MetricData(
-      title: 'Total Sales',
-      value: '\$31338.60',
-      note: '+100.0% from last month',
-      icon: Icons.attach_money_rounded,
-      iconColor: Color(0xFF30B7B0),
-      iconBackground: Color(0xFFE8FBF7),
-      noteColor: Color(0xFF58C7BC),
-    ),
-    _MetricData(
-      title: 'Total Orders',
-      value: '18',
-      note: '+100.0% from last month',
-      icon: Icons.shopping_cart_outlined,
-      iconColor: Color(0xFF58A7F5),
-      iconBackground: Color(0xFFEAF5FF),
-      noteColor: Color(0xFF4F97F1),
-    ),
-    _MetricData(
-      title: 'Active Products',
-      value: '11',
-      note: 'Across 8 categories',
-      icon: Icons.inventory_2_outlined,
-      iconColor: Color(0xFFF0AA3B),
-      iconBackground: Color(0xFFFFF4E3),
-      noteColor: Color(0xFF8E9BB0),
-    ),
-    _MetricData(
-      title: 'Total Customers',
-      value: '12',
-      note: '+15.3% new customers',
-      icon: Icons.people_outline_rounded,
-      iconColor: Color(0xFFC06AE9),
-      iconBackground: Color(0xFFF9EBFF),
-      noteColor: Color(0xFFC06AE9),
-    ),
-  ];
+  final InsightDashboardData data;
 
   @override
   Widget build(BuildContext context) {
+    final metrics = [
+      _MetricData(
+        title: 'Total Sales',
+        value: 'Rs ${data.totalSales.toStringAsFixed(2)}',
+        note: data.salesGrowthNote,
+        icon: Icons.attach_money_rounded,
+        iconColor: const Color(0xFF30B7B0),
+        iconBackground: const Color(0xFFE8FBF7),
+        noteColor: const Color(0xFF58C7BC),
+      ),
+      _MetricData(
+        title: 'Total Orders',
+        value: '${data.totalOrders}',
+        note: data.ordersGrowthNote,
+        icon: Icons.shopping_cart_outlined,
+        iconColor: const Color(0xFF58A7F5),
+        iconBackground: const Color(0xFFEAF5FF),
+        noteColor: const Color(0xFF4F97F1),
+      ),
+      _MetricData(
+        title: 'Active Products',
+        value: '${data.activeProducts}',
+        note: data.productsNote,
+        icon: Icons.inventory_2_outlined,
+        iconColor: const Color(0xFFF0AA3B),
+        iconBackground: const Color(0xFFFFF4E3),
+        noteColor: const Color(0xFF8E9BB0),
+      ),
+      _MetricData(
+        title: 'Total Customers',
+        value: '${data.totalCustomers}',
+        note: data.customersNote,
+        icon: Icons.people_outline_rounded,
+        iconColor: const Color(0xFFC06AE9),
+        iconBackground: const Color(0xFFF9EBFF),
+        noteColor: const Color(0xFFC06AE9),
+      ),
+    ];
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final itemWidth = (constraints.maxWidth - 36) / 4;
@@ -107,7 +237,7 @@ class _InsightMetrics extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: [
-            for (final metric in _metrics)
+            for (final metric in metrics)
               SizedBox(
                 width: itemWidth.clamp(220.0, 320.0),
                 child: _InsightMetricCard(metric: metric),
@@ -120,28 +250,26 @@ class _InsightMetrics extends StatelessWidget {
 }
 
 class _SalesPerformanceCard extends StatelessWidget {
-  const _SalesPerformanceCard();
+  const _SalesPerformanceCard({
+    required this.data,
+    required this.onFromTap,
+    required this.onToTap,
+  });
+
+  final InsightDashboardData data;
+  final VoidCallback onFromTap;
+  final VoidCallback onToTap;
 
   @override
   Widget build(BuildContext context) {
-    const points = [
-      _ChartPoint('Apr 02', 0),
-      _ChartPoint('Apr 03', 0),
-      _ChartPoint('Apr 04', 0),
-      _ChartPoint('Apr 05', 0),
-      _ChartPoint('Apr 06', 27000),
-      _ChartPoint('Apr 07', 5000),
-      _ChartPoint('Apr 08', 0),
-    ];
-
     return _DashboardCard(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Text(
+            children: [
+              const Text(
                 'Sales Performance',
                 style: TextStyle(
                   fontSize: 15,
@@ -149,9 +277,9 @@ class _SalesPerformanceCard extends StatelessWidget {
                   color: Color(0xFF374457),
                 ),
               ),
-              Spacer(),
-              _DateRangeChip('Apr 02, 2026'),
-              Padding(
+              const Spacer(),
+              _DateRangeChip(data.chartDateFromLabel, onTap: onFromTap),
+              const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 10),
                 child: Text(
                   'to',
@@ -161,11 +289,11 @@ class _SalesPerformanceCard extends StatelessWidget {
                   ),
                 ),
               ),
-              _DateRangeChip('Apr 08, 2026'),
+              _DateRangeChip(data.chartDateToLabel, onTap: onToTap),
             ],
           ),
           const SizedBox(height: 16),
-          const SizedBox(height: 254, child: _SalesChart(points: points)),
+          SizedBox(height: 254, child: _SalesChart(points: data.salesPoints)),
           const SizedBox(height: 8),
           const Center(
             child: Row(
@@ -178,7 +306,7 @@ class _SalesPerformanceCard extends StatelessWidget {
                 ),
                 SizedBox(width: 4),
                 Text(
-                  'Sales (\$)',
+                  'Sales (Rs)',
                   style: TextStyle(
                     color: Color(0xFF43C2BE),
                     fontSize: 13,
@@ -195,34 +323,49 @@ class _SalesPerformanceCard extends StatelessWidget {
 }
 
 class _DashboardBottomPanels extends StatelessWidget {
-  const _DashboardBottomPanels();
+  const _DashboardBottomPanels({required this.data});
+
+  final InsightDashboardData data;
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(flex: 11, child: _StockAllocationCard()),
-        SizedBox(width: 18),
-        Expanded(flex: 11, child: _LowStockAlertCard()),
+        Expanded(
+          flex: 11,
+          child: _StockAllocationCard(items: data.categoryAllocation),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          flex: 11,
+          child: _LowStockAlertCard(alerts: data.lowStockItems),
+        ),
       ],
     );
   }
 }
 
 class _StockAllocationCard extends StatelessWidget {
-  const _StockAllocationCard();
+  const _StockAllocationCard({required this.items});
 
-  static const _items = [
-    _CategoryStockData('Cream Crackers', 38, Color(0xFF36B4AE)),
-    _CategoryStockData('Beverages', 24, Color(0xFF64A7F7)),
-    _CategoryStockData('Biscuits', 18, Color(0xFFF0B34F)),
-    _CategoryStockData('Snacks', 12, Color(0xFFC875EF)),
-    _CategoryStockData('Other', 8, Color(0xFF98A6BA)),
-  ];
+  final List<InsightCategoryAllocation> items;
 
   @override
   Widget build(BuildContext context) {
+    final chartItems = items.isEmpty
+        ? const <_CategoryStockData>[
+            _CategoryStockData('No Data', 100, Color(0xFFCBD5E1)),
+          ]
+        : [
+            for (var i = 0; i < items.length; i++)
+              _CategoryStockData(
+                items[i].label,
+                items[i].percentage,
+                _allocationColors[i % _allocationColors.length],
+              ),
+          ];
+
     return _DashboardCard(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       child: Column(
@@ -239,16 +382,16 @@ class _StockAllocationCard extends StatelessWidget {
           const SizedBox(height: 22),
           Row(
             children: [
-              const SizedBox(
+              SizedBox(
                 width: 188,
                 height: 188,
-                child: _CategoryDonutChart(items: _items),
+                child: _CategoryDonutChart(items: chartItems),
               ),
               const SizedBox(width: 22),
               Expanded(
                 child: Column(
                   children: [
-                    for (final item in _items) ...[
+                    for (final item in chartItems) ...[
                       _CategoryLegendRow(item: item),
                       const SizedBox(height: 14),
                     ],
@@ -264,14 +407,9 @@ class _StockAllocationCard extends StatelessWidget {
 }
 
 class _LowStockAlertCard extends StatelessWidget {
-  const _LowStockAlertCard();
+  const _LowStockAlertCard({required this.alerts});
 
-  static const _alerts = [
-    _LowStockItem('manchee super cream cracker', 'Low Stock'),
-    _LowStockItem('cream cracker large pack', 'Running Low'),
-    _LowStockItem('orange crush 500ml', 'Low Stock'),
-    _LowStockItem('chocolate wafer bites', 'Running Low'),
-  ];
+  final List<InsightLowStockItem> alerts;
 
   @override
   Widget build(BuildContext context) {
@@ -299,21 +437,115 @@ class _LowStockAlertCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFFF3E7CF)),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                for (var i = 0; i < _alerts.length; i++) ...[
-                  _LowStockRow(item: _alerts[i]),
-                  if (i != _alerts.length - 1)
-                    const Divider(height: 1, color: Color(0xFFF5F1E7)),
+          if (alerts.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFF3E7CF)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'No low stock alerts right now',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF8E9BB0),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFF3E7CF)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < alerts.length; i++) ...[
+                    _LowStockRow(item: alerts[i]),
+                    if (i != alerts.length - 1)
+                      const Divider(height: 1, color: Color(0xFFF5F1E7)),
+                  ],
                 ],
-              ],
+              ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpiredStocksCard extends StatelessWidget {
+  const _ExpiredStocksCard({required this.items, required this.onDeactivate});
+
+  final List<InsightExpiredStockItem> items;
+  final ValueChanged<InsightExpiredStockItem> onDeactivate;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardCard(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(
+                Icons.event_busy_outlined,
+                size: 22,
+                color: Color(0xFFE45A5A),
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Expired Stocks',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF374457),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 16),
+          if (items.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFF1D5D5)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'No expired active stocks found',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xFF8E9BB0),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: const Color(0xFFF1D5D5)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  for (var i = 0; i < items.length; i++) ...[
+                    _ExpiredStockRow(
+                      item: items[i],
+                      onDeactivate: () => onDeactivate(items[i]),
+                    ),
+                    if (i != items.length - 1)
+                      const Divider(height: 1, color: Color(0xFFF6E9E9)),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -376,37 +608,42 @@ class _InsightMetricCard extends StatelessWidget {
 }
 
 class _DateRangeChip extends StatelessWidget {
-  const _DateRangeChip(this.label);
+  const _DateRangeChip(this.label, {this.onTap});
 
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE3E9F1)),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.calendar_today_outlined,
-            size: 15,
-            color: Color(0xFF5D6A7D),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF4C5A6D),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE3E9F1)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.calendar_today_outlined,
+              size: 15,
+              color: Color(0xFF5D6A7D),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF4C5A6D),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -445,11 +682,24 @@ class _DashboardCard extends StatelessWidget {
 class _SalesChart extends StatelessWidget {
   const _SalesChart({required this.points});
 
-  final List<_ChartPoint> points;
+  final List<InsightSalesPoint> points;
 
   @override
   Widget build(BuildContext context) {
-    const yLabels = ['28000', '21000', '14000', '7000', '0'];
+    final maxValue = points.isEmpty
+        ? 1.0
+        : points
+                  .map((point) => point.value)
+                  .reduce(math.max)
+                  .clamp(1.0, double.infinity) *
+              1.1;
+    final yLabels = [
+      _compactAmount(maxValue),
+      _compactAmount(maxValue * 0.75),
+      _compactAmount(maxValue * 0.5),
+      _compactAmount(maxValue * 0.25),
+      '0',
+    ];
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -481,7 +731,7 @@ class _SalesChart extends StatelessWidget {
             children: [
               Expanded(
                 child: CustomPaint(
-                  painter: _SalesChartPainter(points),
+                  painter: _SalesChartPainter(points, maxValue),
                   child: const SizedBox.expand(),
                 ),
               ),
@@ -505,6 +755,13 @@ class _SalesChart extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _compactAmount(double value) {
+    if (value >= 1000) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(0);
   }
 }
 
@@ -574,7 +831,7 @@ class _CategoryLegendRow extends StatelessWidget {
           ),
         ),
         Text(
-          '${item.percentage}%',
+          '${item.percentage.toStringAsFixed(1)}%',
           style: const TextStyle(
             color: Color(0xFF8E9BB0),
             fontSize: 13,
@@ -589,7 +846,7 @@ class _CategoryLegendRow extends StatelessWidget {
 class _LowStockRow extends StatelessWidget {
   const _LowStockRow({required this.item});
 
-  final _LowStockItem item;
+  final InsightLowStockItem item;
 
   @override
   Widget build(BuildContext context) {
@@ -610,8 +867,10 @@ class _LowStockRow extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             item.status,
-            style: const TextStyle(
-              color: Color(0xFFF0AE42),
+            style: TextStyle(
+              color: item.status == 'Out of Stock'
+                  ? const Color(0xFFEA5A5A)
+                  : const Color(0xFFF0AE42),
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),
@@ -622,13 +881,93 @@ class _LowStockRow extends StatelessWidget {
   }
 }
 
-class _SalesChartPainter extends CustomPainter {
-  const _SalesChartPainter(this.points);
+class _ExpiredStockRow extends StatelessWidget {
+  const _ExpiredStockRow({required this.item, required this.onDeactivate});
 
-  final List<_ChartPoint> points;
+  final InsightExpiredStockItem item;
+  final VoidCallback onDeactivate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 34,
+            child: Text(
+              item.name,
+              style: const TextStyle(
+                color: Color(0xFF4C5A6D),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 24,
+            child: Text(
+              item.barcode,
+              style: const TextStyle(
+                color: Color(0xFF8E9BB0),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 18,
+            child: Text(
+              item.expiryDate,
+              style: const TextStyle(
+                color: Color(0xFFE45A5A),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 24,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onDeactivate,
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFE45A5A),
+                  backgroundColor: const Color(0xFFFFEEEE),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Deactivate',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SalesChartPainter extends CustomPainter {
+  const _SalesChartPainter(this.points, this.maxValue);
+
+  final List<InsightSalesPoint> points;
+  final double maxValue;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) {
+      return;
+    }
+
     final gridPaint = Paint()
       ..color = const Color(0xFFE7EDF5)
       ..strokeWidth = 1;
@@ -643,8 +982,9 @@ class _SalesChartPainter extends CustomPainter {
     final pointPaint = Paint()..color = const Color(0xFF45C1BC);
 
     final chartHeight = size.height - 10;
-    final maxValue = 28000.0;
-    final stepX = size.width / (points.length - 1);
+    final stepX = points.length == 1
+        ? size.width
+        : size.width / (points.length - 1);
 
     for (var i = 0; i < 5; i++) {
       final y = chartHeight * i / 4;
@@ -693,7 +1033,7 @@ class _SalesChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SalesChartPainter oldDelegate) {
-    return oldDelegate.points != points;
+    return oldDelegate.points != points || oldDelegate.maxValue != maxValue;
   }
 }
 
@@ -749,24 +1089,18 @@ class _MetricData {
   final Color noteColor;
 }
 
-class _ChartPoint {
-  const _ChartPoint(this.label, this.value);
-
-  final String label;
-  final double value;
-}
-
 class _CategoryStockData {
   const _CategoryStockData(this.label, this.percentage, this.color);
 
   final String label;
-  final int percentage;
+  final double percentage;
   final Color color;
 }
 
-class _LowStockItem {
-  const _LowStockItem(this.name, this.status);
-
-  final String name;
-  final String status;
-}
+const List<Color> _allocationColors = <Color>[
+  Color(0xFF36B4AE),
+  Color(0xFF64A7F7),
+  Color(0xFFF0B34F),
+  Color(0xFFC875EF),
+  Color(0xFF98A6BA),
+];

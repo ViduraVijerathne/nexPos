@@ -210,6 +210,32 @@ class SetupService {
     await prefs.remove(_shopAddressPref);
   }
 
+  Future<Map<String, dynamic>> exportState() async {
+    final prefs = await SharedPreferences.getInstance();
+    return <String, dynamic>{
+      _appModePref: prefs.getString(_appModePref),
+      _adminEmailPref: prefs.getString(_adminEmailPref),
+      _passwordHashPref: prefs.getString(_passwordHashPref),
+      _pinPref: prefs.getString(_pinPref),
+      _defaultLoginMethodPref: prefs.getString(_defaultLoginMethodPref),
+      _shopLogoPathPref: prefs.getString(_shopLogoPathPref),
+      _shopNamePref: prefs.getString(_shopNamePref),
+      _shopEmailPref: prefs.getString(_shopEmailPref),
+      _shopPhonePref: prefs.getString(_shopPhonePref),
+      _shopAddressPref: prefs.getString(_shopAddressPref),
+    };
+  }
+
+  Future<void> importState(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final entry in data.entries) {
+      final value = entry.value;
+      if (value is String) {
+        await prefs.setString(entry.key, value);
+      }
+    }
+  }
+
   String _hashPassword(String password) {
     return sha256.convert(utf8.encode(password)).toString();
   }

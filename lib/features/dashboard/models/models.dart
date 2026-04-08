@@ -141,17 +141,22 @@ class GrnRecord {
   double get dueAmount => total - paidAmount;
 
   GrnRecord copyWith({
+    String? supplier,
+    String? date,
+    double? subTotal,
+    double? discount,
     double? paidAmount,
+    List<GrnItem>? items,
     List<PaymentHistory>? paymentHistory,
   }) {
     return GrnRecord(
       id: id,
-      supplier: supplier,
-      date: date,
-      subTotal: subTotal,
-      discount: discount,
+      supplier: supplier ?? this.supplier,
+      date: date ?? this.date,
+      subTotal: subTotal ?? this.subTotal,
+      discount: discount ?? this.discount,
       paidAmount: paidAmount ?? this.paidAmount,
-      items: items,
+      items: items ?? this.items,
       paymentHistory: paymentHistory ?? this.paymentHistory,
       paymentMethod: paymentMethod,
     );
@@ -199,6 +204,38 @@ class PayDueResult {
 
   final double amount;
   final String method;
+}
+
+class GrnPageResult {
+  const GrnPageResult({
+    required this.records,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<GrnRecord> records;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
+class GrnDialogResult {
+  const GrnDialogResult({
+    required this.record,
+    required this.addToStock,
+  });
+
+  final GrnRecord record;
+  final bool addToStock;
 }
 
 class SupplierRecord {

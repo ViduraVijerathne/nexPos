@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/grn_local_repository.dart';
 import '../../models/models.dart';
 
 class GrnPage extends StatefulWidget {
@@ -19,157 +21,26 @@ class _GrnPageState extends State<GrnPage> {
   final TextEditingController _dateFromController = TextEditingController();
   final TextEditingController _dateToController = TextEditingController();
   final TextEditingController _dueAboveController = TextEditingController();
+  final GrnLocalRepository _repository = const GrnLocalRepository();
 
-  final List<String> _productSuggestions = [
-    'manchee super cream cracker',
-    'apple',
-    'dodam',
-    '444',
-    'product5',
-  ];
+  List<String> _productSuggestions = <String>[];
+  List<String> _supplierSuggestions = <String>[];
+  List<GrnRecord> _grns = <GrnRecord>[];
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalCount = 0;
+  bool _isLoading = true;
+  Timer? _filterDebounce;
 
-  List<String> get _supplierSuggestions {
-    final suppliers = _grns.map((grn) => grn.supplier).toSet().toList()..sort();
-    return suppliers;
+  @override
+  void initState() {
+    super.initState();
+    _initializePage();
   }
-
-  late final List<GrnRecord> _grns = [
-    GrnRecord(
-      id: 'ya5Rw466RR08...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 5929,
-      discount: 0,
-      paidAmount: 333,
-      items: const [
-        GrnItem(
-          product: 'dodam',
-          stockBarcode: 'STK-1775491682558-3o5mmmzrt',
-          quantity: 77,
-          buyingPrice: 77,
-          sellingPrice: 88,
-          inStock: true,
-        ),
-      ],
-      paymentHistory: const [
-        PaymentHistory(
-          dateTime: '4/8/2026, 10:42:29 AM',
-          amount: 333,
-          method: 'Bank Transfer',
-          remainingBalance: 5596,
-        ),
-        PaymentHistory(
-          dateTime: '4/8/2026, 10:42:27 AM',
-          amount: 333,
-          method: 'Bank Transfer',
-          remainingBalance: 5596,
-        ),
-      ],
-    ),
-    GrnRecord(
-      id: 'n5g0DP7r...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 693,
-      discount: 0,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'kOHpHalv...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 27972,
-      discount: 0,
-      paidAmount: 20000,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'iG5ANULe...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 9801,
-      discount: 9,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'hzx2nKMe...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 72,
-      discount: 0,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'YxIEzec4...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 64,
-      discount: 0,
-      paidAmount: 88,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'FwrM5nMM...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 7623,
-      discount: 0,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'FSe1bGT1...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 704,
-      discount: 0,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'EblchgQG...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 693,
-      discount: 0,
-      paidAmount: 0,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: '5r4MH2V6...',
-      supplier: 'apple',
-      date: '4/6/2026',
-      subTotal: 59829,
-      discount: 0,
-      paidAmount: 59829,
-      items: const [],
-      paymentHistory: const [],
-    ),
-    GrnRecord(
-      id: 'EXTRA111...',
-      supplier: 'banana co',
-      date: '4/8/2026',
-      subTotal: 100,
-      discount: 0,
-      paidAmount: 20,
-      items: const [],
-      paymentHistory: const [],
-    ),
-  ];
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
     _supplierSearchController.dispose();
     _dateFromController.dispose();
     _dateToController.dispose();
@@ -177,32 +48,81 @@ class _GrnPageState extends State<GrnPage> {
     super.dispose();
   }
 
-  List<GrnRecord> get _filteredGrns {
-    final supplier = _supplierSearchController.text.trim().toLowerCase();
-    final dateFrom = _dateFromController.text.trim();
-    final dateTo = _dateToController.text.trim();
-    final dueAbove = double.tryParse(_dueAboveController.text.trim());
+  Future<void> _initializePage() async {
+    try {
+      await _repository.initialize();
+      await _reloadSuggestions();
+      await _loadGrns();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
 
-    return _grns.where((grn) {
-      if (supplier.isNotEmpty &&
-          !grn.supplier.toLowerCase().contains(supplier)) {
-        return false;
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load GRNs: $error');
+    }
+  }
+
+  Future<void> _reloadSuggestions() async {
+    final products = await _repository.fetchProductSuggestions();
+    final suppliers = await _repository.fetchSupplierSuggestions();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _productSuggestions = products;
+      _supplierSuggestions = suppliers;
+    });
+  }
+
+  Future<void> _loadGrns({int? targetPage}) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final result = await _repository.fetchGrns(
+        page: targetPage ?? _currentPage,
+        supplierQuery: _supplierSearchController.text.trim(),
+        dateFrom: _dateFromController.text.trim(),
+        dateTo: _dateToController.text.trim(),
+        dueAbove: double.tryParse(_dueAboveController.text.trim()),
+      );
+
+      if (!mounted) {
+        return;
       }
-      if (dateFrom.isNotEmpty && grn.date != dateFrom) {
-        return false;
+
+      setState(() {
+        _grns = result.records;
+        _currentPage = result.currentPage;
+        _totalPages = result.totalPages;
+        _totalCount = result.totalCount;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
       }
-      if (dateTo.isNotEmpty && grn.date != dateTo) {
-        return false;
+
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load GRNs: $error');
+    }
+  }
+
+  void _applyFiltersDebounced() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
       }
-      if (dueAbove != null && grn.dueAmount <= dueAbove) {
-        return false;
-      }
-      return true;
-    }).toList();
+
+      _loadGrns(targetPage: 1);
+    });
   }
 
   Future<void> _openCreateGrnDialog() async {
-    final result = await showDialog<GrnRecord>(
+    final result = await showDialog<GrnDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (context) => CreateGrnDialog(
@@ -215,25 +135,35 @@ class _GrnPageState extends State<GrnPage> {
       return;
     }
 
-    setState(() {
-      _grns.insert(0, result);
-      for (final item in result.items) {
-        if (!_productSuggestions.contains(item.product)) {
-          _productSuggestions.add(item.product);
-        }
-      }
-      _productSuggestions.sort();
-    });
+    try {
+      await _repository.saveGrn(result.record, addToStock: result.addToStock);
+      await _reloadSuggestions();
+      await _loadGrns(targetPage: 1);
 
-    AppToast.success('GRN created successfully');
+      AppToast.success(
+        result.addToStock
+            ? 'GRN saved and stock added successfully'
+            : 'GRN created successfully',
+      );
+    } on GrnLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+    } catch (error) {
+      AppToast.error('Failed to save GRN: $error');
+    }
   }
 
-  void _showGrnDetails(GrnRecord record) {
+  Future<void> _showGrnDetails(GrnRecord record) async {
+    final freshRecord = await _repository.fetchGrnById(record.id);
+    if (!mounted || freshRecord == null) {
+      AppToast.error('GRN details not found');
+      return;
+    }
+
     showDialog<void>(
       context: context,
       builder: (context) => GrnDetailsDialog(
-        record: record,
-        onPayDue: () => _showPayDueDialog(record),
+        record: freshRecord,
+        onPayDue: () => _showPayDueDialog(freshRecord),
       ),
     );
   }
@@ -243,38 +173,45 @@ class _GrnPageState extends State<GrnPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => PayDueDialog(record: record),
-    ).then((result) {
-      if (result == null) return;
+    ).then((result) async {
+      if (result == null) {
+        return;
+      }
 
-      final index = _grns.indexOf(record);
-      if (index == -1) return;
-
-      final updatedHistory = List<PaymentHistory>.from(record.paymentHistory)
-        ..insert(
-          0,
-          PaymentHistory(
-            dateTime: '4/8/2026, 10:49:00 AM',
-            amount: result.amount,
-            method: result.method,
-            remainingBalance: math.max(0, record.dueAmount - result.amount),
-          ),
+      try {
+        final updated = await _repository.recordDuePayment(
+          grnId: record.id,
+          amount: result.amount,
+          method: result.method,
         );
+        await _loadGrns(targetPage: _currentPage);
+        if (!mounted || updated == null) {
+          AppToast.error('Failed to update GRN payment');
+          return;
+        }
 
-      setState(() {
-        _grns[index] = record.copyWith(
-          paidAmount: record.paidAmount + result.amount,
-          paymentHistory: updatedHistory,
-        );
-      });
-
-      AppToast.success('Payment recorded successfully');
+        AppToast.success('Payment recorded successfully');
+        _showGrnDetails(updated);
+      } on GrnLocalRepositoryException catch (error) {
+        AppToast.error(error.message);
+      } catch (error) {
+        AppToast.error('Failed to record payment: $error');
+      }
     });
+  }
+
+  String get _footerText {
+    if (_totalCount == 0) {
+      return 'Showing 0 to 0 of 0 GRNs';
+    }
+
+    final start = ((_currentPage - 1) * GrnLocalRepository.pageSize) + 1;
+    final end = (start + _grns.length) - 1;
+    return 'Showing $start to $end of $_totalCount GRNs';
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filteredGrns;
-
     return Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -298,11 +235,30 @@ class _GrnPageState extends State<GrnPage> {
             dateFromController: _dateFromController,
             dateToController: _dateToController,
             dueAboveController: _dueAboveController,
-            onApply: () => setState(() {}),
+            onApply: () => _loadGrns(targetPage: 1),
+            onChanged: _applyFiltersDebounced,
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: _GrnTableCard(records: filtered, onView: _showGrnDetails),
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryTeal,
+                    ),
+                  )
+                : _GrnTableCard(
+                    records: _grns,
+                    footerText: _footerText,
+                    currentPage: _currentPage,
+                    totalPages: _totalPages,
+                    onView: _showGrnDetails,
+                    onPreviousPage: _currentPage > 1
+                        ? () => _loadGrns(targetPage: _currentPage - 1)
+                        : null,
+                    onNextPage: _currentPage < _totalPages
+                        ? () => _loadGrns(targetPage: _currentPage + 1)
+                        : null,
+                  ),
           ),
         ],
       ),
@@ -329,7 +285,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
 
   final TextEditingController _supplierController = TextEditingController();
   final TextEditingController _dateController = TextEditingController(
-    text: '2026-04-08',
+    text: DateTime.now().toIso8601String().split('T').first,
   );
   final TextEditingController _discountController = TextEditingController(
     text: '0',
@@ -362,8 +318,10 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
     if (query.isEmpty) {
       return widget.supplierSuggestions.take(6).toList();
     }
+
     return widget.supplierSuggestions
         .where((supplier) => supplier.toLowerCase().contains(query))
+        .take(6)
         .toList();
   }
 
@@ -372,20 +330,18 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
     if (query.isEmpty) {
       return widget.productSuggestions.take(6).toList();
     }
+
     return widget.productSuggestions
         .where((product) => product.toLowerCase().contains(query))
+        .take(6)
         .toList();
   }
 
   double get _subtotal => _items.fold(0, (sum, item) => sum + item.subtotal);
-
   double get _discount => double.tryParse(_discountController.text.trim()) ?? 0;
-
   double get _paidAmount =>
       double.tryParse(_paidAmountController.text.trim()) ?? 0;
-
   double get _total => _subtotal - _discount;
-
   double get _dueAmount => _total - _paidAmount;
 
   @override
@@ -409,16 +365,29 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
       return;
     }
 
+    final quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
+    final buyingPrice =
+        double.tryParse(_buyingPriceController.text.trim()) ?? 0;
+    final sellingPrice =
+        double.tryParse(_sellingPriceController.text.trim()) ?? 0;
+
+    if (quantity <= 0 || buyingPrice < 0 || sellingPrice < 0) {
+      AppToast.error('Enter valid item values');
+      return;
+    }
+
+    final stockBarcode = _stockBarcodeController.text.trim().isEmpty
+        ? _generateStockBarcode()
+        : _stockBarcodeController.text.trim();
+
     final item = GrnItem(
       product: _productController.text.trim(),
-      stockBarcode: _stockBarcodeController.text.trim().isEmpty
-          ? 'Auto-generated if empty'
-          : _stockBarcodeController.text.trim(),
-      quantity: int.tryParse(_quantityController.text.trim()) ?? 0,
-      buyingPrice: double.tryParse(_buyingPriceController.text.trim()) ?? 0,
-      sellingPrice: double.tryParse(_sellingPriceController.text.trim()) ?? 0,
+      stockBarcode: stockBarcode,
+      quantity: quantity,
+      buyingPrice: buyingPrice,
+      sellingPrice: sellingPrice,
       maxDiscount: double.tryParse(_maxDiscountController.text.trim()) ?? 0,
-      inStock: true,
+      inStock: false,
     );
 
     setState(() {
@@ -433,7 +402,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
     });
   }
 
-  void _saveGrn() {
+  void _saveGrn({required bool addToStock}) {
     if (_supplierController.text.trim().isEmpty || _items.isEmpty) {
       AppToast.error('Add supplier and at least one GRN item');
       return;
@@ -446,12 +415,19 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
       subTotal: _subtotal,
       discount: _discount,
       paidAmount: _paidAmount,
-      items: List<GrnItem>.from(_items),
+      items: _items.map((item) => item.copyWithInStock(addToStock)).toList(),
       paymentHistory: const [],
       paymentMethod: _paymentMethod,
     );
 
-    Navigator.of(context).pop(record);
+    Navigator.of(
+      context,
+    ).pop(GrnDialogResult(record: record, addToStock: addToStock));
+  }
+
+  String _generateStockBarcode() {
+    final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
+    return 'STK-${timestamp.substring(timestamp.length - 10)}';
   }
 
   @override
@@ -530,6 +506,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                 controller: _discountController,
                                 hintText: '0',
                                 keyboardType: TextInputType.number,
+                                onChanged: (_) => setState(() {}),
                               ),
                             ),
                           ),
@@ -541,6 +518,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                 controller: _paidAmountController,
                                 hintText: '0',
                                 keyboardType: TextInputType.number,
+                                onChanged: (_) => setState(() {}),
                               ),
                             ),
                           ),
@@ -876,7 +854,9 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _items.isEmpty ? null : _saveGrn,
+                    onPressed: _items.isEmpty
+                        ? null
+                        : () => _saveGrn(addToStock: false),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFADB7C5),
                     ),
@@ -884,7 +864,9 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: _items.isEmpty ? null : _saveGrn,
+                    onPressed: _items.isEmpty
+                        ? null
+                        : () => _saveGrn(addToStock: true),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF8FDDD6),
                     ),
@@ -1028,7 +1010,7 @@ class GrnDetailsDialog extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: onPayDue,
+                      onPressed: record.dueAmount <= 0 ? null : onPayDue,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF36B4AE),
                       ),
@@ -1144,13 +1126,26 @@ class _PayDueDialogState extends State<PayDueDialog> {
   @override
   void initState() {
     super.initState();
-    _amountController = TextEditingController(text: '499');
+    _amountController = TextEditingController(
+      text: widget.record.dueAmount.toStringAsFixed(2),
+    );
   }
 
   @override
   void dispose() {
     _amountController.dispose();
     super.dispose();
+  }
+
+  void _submit() {
+    if (_enteredAmount <= 0 || _enteredAmount > _currentDue) {
+      AppToast.error('Enter a valid payment amount');
+      return;
+    }
+
+    Navigator.of(
+      context,
+    ).pop(PayDueResult(amount: _enteredAmount, method: _method));
   }
 
   @override
@@ -1242,7 +1237,7 @@ class _PayDueDialogState extends State<PayDueDialog> {
                   const SizedBox(height: 8),
                   _DialogTextField(
                     controller: _amountController,
-                    hintText: '499',
+                    hintText: '0.00',
                     keyboardType: TextInputType.number,
                     onChanged: (_) => setState(() {}),
                   ),
@@ -1252,7 +1247,9 @@ class _PayDueDialogState extends State<PayDueDialog> {
                   DropdownButtonFormField<String>(
                     value: _method,
                     onChanged: (value) {
-                      if (value != null) setState(() => _method = value);
+                      if (value != null) {
+                        setState(() => _method = value);
+                      }
                     },
                     decoration: _dialogFieldDecoration(),
                     items: const ['Cash', 'Card', 'Bank Transfer']
@@ -1315,11 +1312,7 @@ class _PayDueDialogState extends State<PayDueDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).pop(
-                        PayDueResult(amount: _enteredAmount, method: _method),
-                      );
-                    },
+                    onPressed: _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF36B4AE),
                     ),
@@ -1373,6 +1366,7 @@ class _GrnFilterCard extends StatelessWidget {
     required this.dateToController,
     required this.dueAboveController,
     required this.onApply,
+    required this.onChanged,
   });
 
   final TextEditingController supplierController;
@@ -1380,6 +1374,7 @@ class _GrnFilterCard extends StatelessWidget {
   final TextEditingController dateToController;
   final TextEditingController dueAboveController;
   final VoidCallback onApply;
+  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1408,6 +1403,7 @@ class _GrnFilterCard extends StatelessWidget {
                     controller: supplierController,
                     hintText: 'Search by supplier...',
                     prefixIcon: Icons.search_rounded,
+                    onChanged: (_) => onChanged(),
                   ),
                 ),
               ),
@@ -1418,6 +1414,7 @@ class _GrnFilterCard extends StatelessWidget {
                   child: _FilterTextField(
                     controller: dateFromController,
                     hintText: 'yyyy-mm-dd',
+                    onChanged: (_) => onChanged(),
                   ),
                 ),
               ),
@@ -1428,6 +1425,7 @@ class _GrnFilterCard extends StatelessWidget {
                   child: _FilterTextField(
                     controller: dateToController,
                     hintText: 'yyyy-mm-dd',
+                    onChanged: (_) => onChanged(),
                   ),
                 ),
               ),
@@ -1439,6 +1437,7 @@ class _GrnFilterCard extends StatelessWidget {
                     controller: dueAboveController,
                     hintText: '0.00',
                     prefixText: '\$',
+                    onChanged: (_) => onChanged(),
                   ),
                 ),
               ),
@@ -1463,10 +1462,23 @@ class _GrnFilterCard extends StatelessWidget {
 }
 
 class _GrnTableCard extends StatelessWidget {
-  const _GrnTableCard({required this.records, required this.onView});
+  const _GrnTableCard({
+    required this.records,
+    required this.footerText,
+    required this.currentPage,
+    required this.totalPages,
+    required this.onView,
+    required this.onPreviousPage,
+    required this.onNextPage,
+  });
 
   final List<GrnRecord> records;
-  final ValueChanged<GrnRecord> onView;
+  final String footerText;
+  final int currentPage;
+  final int totalPages;
+  final Future<void> Function(GrnRecord) onView;
+  final VoidCallback? onPreviousPage;
+  final VoidCallback? onNextPage;
 
   @override
   Widget build(BuildContext context) {
@@ -1493,101 +1505,123 @@ class _GrnTableCard extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              itemCount: math.min(records.length, 10),
-              separatorBuilder: (_, _) =>
-                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
-              itemBuilder: (context, index) {
-                final record = records[index];
-                final highlighted = record.id == 'iG5ANULe...';
-                return Container(
-                  color: highlighted ? const Color(0xFFF7FAFC) : null,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 14,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: 20,
-                        child: Text(
-                          record.id,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+            child: records.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No GRNs found',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8492A6),
                       ),
-                      Expanded(
-                        flex: 16,
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: records.length,
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                    itemBuilder: (context, index) {
+                      final record = records[index];
+                      final highlighted = index == 3;
+                      return Container(
+                        color: highlighted ? const Color(0xFFF7FAFC) : null,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.local_shipping_outlined,
-                              size: 14,
-                              color: Color(0xFFAAB5C4),
+                            Expanded(
+                              flex: 20,
+                              child: Text(
+                                record.id,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                            Text(record.supplier),
+                            Expanded(
+                              flex: 16,
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.local_shipping_outlined,
+                                    size: 14,
+                                    color: Color(0xFFAAB5C4),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(child: Text(record.supplier)),
+                                ],
+                              ),
+                            ),
+                            Expanded(flex: 14, child: Text(record.date)),
+                            Expanded(
+                              flex: 16,
+                              child: Text(
+                                '\$${record.subTotal.toStringAsFixed(2)}',
+                              ),
+                            ),
+                            Expanded(
+                              flex: 14,
+                              child: Text(
+                                '\$${record.discount.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Color(0xFFFA6A6A),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 16,
+                              child: Text(
+                                '\$${record.total.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Color(0xFF36B4AE),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 16,
+                              child: Text(
+                                '\$${record.dueAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  color: record.dueAmount <= 0
+                                      ? const Color(0xFF36B4AE)
+                                      : const Color(0xFFFA6A6A),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              flex: 14,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    onView(record);
+                                  },
+                                  icon: const Icon(
+                                    Icons.remove_red_eye_outlined,
+                                    size: 14,
+                                  ),
+                                  label: const Text('View'),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: const Size(64, 32),
+                                    side: const BorderSide(
+                                      color: Color(0xFFE1E8F1),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
-                      ),
-                      Expanded(flex: 14, child: Text(record.date)),
-                      Expanded(
-                        flex: 16,
-                        child: Text('\$${record.subTotal.toStringAsFixed(2)}'),
-                      ),
-                      Expanded(
-                        flex: 14,
-                        child: Text(
-                          '\$${record.discount.toStringAsFixed(2)}',
-                          style: const TextStyle(color: Color(0xFFFA6A6A)),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 16,
-                        child: Text(
-                          '\$${record.total.toStringAsFixed(2)}',
-                          style: const TextStyle(color: Color(0xFF36B4AE)),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 16,
-                        child: Text(
-                          '\$${record.dueAmount.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            color: record.dueAmount <= 0
-                                ? const Color(0xFF36B4AE)
-                                : const Color(0xFFFA6A6A),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 14,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: OutlinedButton.icon(
-                            onPressed: () => onView(record),
-                            icon: const Icon(
-                              Icons.remove_red_eye_outlined,
-                              size: 14,
-                            ),
-                            label: const Text('View'),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(64, 32),
-                              side: const BorderSide(color: Color(0xFFE1E8F1)),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
           const Divider(color: Color(0xFFF0F4F8)),
           Row(
             children: [
               Text(
-                'Showing 1 to ${math.min(records.length, 10)} of ${records.length} GRNs',
+                footerText,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -1597,8 +1631,8 @@ class _GrnTableCard extends StatelessWidget {
               const Spacer(),
               _PagerButton(
                 icon: Icons.chevron_left_rounded,
-                enabled: false,
-                onTap: null,
+                enabled: onPreviousPage != null,
+                onTap: onPreviousPage,
               ),
               const SizedBox(width: 8),
               Container(
@@ -1609,18 +1643,16 @@ class _GrnTableCard extends StatelessWidget {
                   border: Border.all(color: const Color(0xFFE4EAF2)),
                 ),
                 alignment: Alignment.center,
-                child: const Text(
-                  'Page 1 of 2',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                child: Text(
+                  'Page $currentPage of $totalPages',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(width: 8),
               _PagerButton(
                 icon: Icons.chevron_right_rounded,
-                enabled: true,
-                onTap: () {
-                  AppToast.info('Pagination will be wired to data next');
-                },
+                enabled: onNextPage != null,
+                onTap: onNextPage,
               ),
             ],
           ),
@@ -1764,14 +1796,18 @@ class _SimpleTable extends StatelessWidget {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFE7FBF7),
+                                  color: row[i] == 'In Stock'
+                                      ? const Color(0xFFE7FBF7)
+                                      : const Color(0xFFF8FBFD),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
                                   row[i],
-                                  style: const TextStyle(
-                                    color: Color(0xFF36B4AE),
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w700,
+                                    color: row[i] == 'In Stock'
+                                        ? const Color(0xFF36B4AE)
+                                        : const Color(0xFF8492A6),
                                   ),
                                 ),
                               ),
@@ -1779,12 +1815,12 @@ class _SimpleTable extends StatelessWidget {
                           : Text(
                               row[i],
                               style: TextStyle(
-                                color: emphasizeColumn == i
-                                    ? const Color(0xFF36B4AE)
-                                    : const Color(0xFF6E7C91),
                                 fontWeight: emphasizeColumn == i
                                     ? FontWeight.w700
                                     : FontWeight.w600,
+                                color: emphasizeColumn == i
+                                    ? const Color(0xFF36B4AE)
+                                    : const Color(0xFF5B687B),
                               ),
                             ),
                     ),
@@ -1811,9 +1847,10 @@ class _InfoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAFC),
+        color: const Color(0xFFF8FBFD),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -1821,22 +1858,22 @@ class _InfoTile extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 15, color: const Color(0xFF94A1B5)),
-              const SizedBox(width: 6),
+              Icon(icon, size: 18, color: const Color(0xFF94A3B8)),
+              const SizedBox(width: 8),
               Text(
                 label,
                 style: const TextStyle(
-                  color: Color(0xFF8E9BB0),
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF8E9CAF),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 17,
               fontWeight: FontWeight.w700,
               color: Color(0xFF334156),
             ),
@@ -1861,9 +1898,10 @@ class _AmountTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: positive ? const Color(0xFFDDF8F4) : const Color(0xFFFFDADB),
+        color: positive ? const Color(0xFFDDF8F4) : const Color(0xFFFFE3E3),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -1872,10 +1910,10 @@ class _AmountTile extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
+              fontWeight: FontWeight.w700,
               color: positive
                   ? const Color(0xFF36B4AE)
-                  : const Color(0xFFFA6A6A),
-              fontWeight: FontWeight.w700,
+                  : const Color(0xFFF46A6A),
             ),
           ),
           const SizedBox(height: 8),
@@ -1898,7 +1936,7 @@ class _SummaryValueRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.large = false,
-    this.valueColor = const Color(0xFF334156),
+    this.valueColor = const Color(0xFF445166),
   });
 
   final String label;
@@ -1913,17 +1951,17 @@ class _SummaryValueRow extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontSize: large ? 17 : 14,
-            fontWeight: large ? FontWeight.w800 : FontWeight.w700,
-            color: const Color(0xFF445166),
+            fontSize: large ? 16 : 14,
+            fontWeight: large ? FontWeight.w800 : FontWeight.w600,
+            color: const Color(0xFF6B778C),
           ),
         ),
         const Spacer(),
         Text(
           value,
           style: TextStyle(
-            fontSize: large ? 18 : 14,
-            fontWeight: FontWeight.w800,
+            fontSize: large ? 16 : 14,
+            fontWeight: large ? FontWeight.w800 : FontWeight.w700,
             color: valueColor,
           ),
         ),
@@ -2022,9 +2060,9 @@ class _FormLabel extends StatelessWidget {
     return Text(
       label,
       style: const TextStyle(
-        fontSize: 13.5,
+        fontSize: 12.5,
         fontWeight: FontWeight.w700,
-        color: Color(0xFF445166),
+        color: Color(0xFF8B98AB),
       ),
     );
   }
@@ -2042,7 +2080,54 @@ class _HeaderText extends StatelessWidget {
       style: const TextStyle(
         fontSize: 12.5,
         fontWeight: FontWeight.w700,
-        color: Color(0xFF8694A7),
+        color: Color(0xFF8B98AB),
+      ),
+    );
+  }
+}
+
+class _FilterTextField extends StatelessWidget {
+  const _FilterTextField({
+    required this.controller,
+    required this.hintText,
+    this.prefixIcon,
+    this.prefixText,
+    this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final IconData? prefixIcon;
+  final String? prefixText;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        hintText: hintText,
+        prefixText: prefixText,
+        prefixIcon: prefixIcon == null
+            ? null
+            : Icon(prefixIcon, color: const Color(0xFF95A2B5), size: 18),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 1.6),
+        ),
       ),
     );
   }
@@ -2114,7 +2199,7 @@ InputDecoration _dialogFieldDecoration({String? hintText}) {
       fontSize: 13.5,
       fontWeight: FontWeight.w500,
     ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
@@ -2128,53 +2213,6 @@ InputDecoration _dialogFieldDecoration({String? hintText}) {
       borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
     ),
   );
-}
-
-class _FilterTextField extends StatelessWidget {
-  const _FilterTextField({
-    required this.controller,
-    required this.hintText,
-    this.prefixIcon,
-    this.prefixText,
-  });
-
-  final TextEditingController controller;
-  final String hintText;
-  final IconData? prefixIcon;
-  final String? prefixText;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      decoration: InputDecoration(
-        hintText: hintText,
-        prefixIcon: prefixIcon == null ? null : Icon(prefixIcon, size: 18),
-        prefixText: prefixText,
-        hintStyle: const TextStyle(
-          color: Color(0xFFA2AEBD),
-          fontSize: 13.5,
-          fontWeight: FontWeight.w500,
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF36B4AE)),
-        ),
-      ),
-    );
-  }
 }
 
 BoxDecoration _panelDecoration() {
@@ -2200,4 +2238,18 @@ BoxDecoration _dialogDecoration() {
       ),
     ],
   );
+}
+
+extension on GrnItem {
+  GrnItem copyWithInStock(bool inStock) {
+    return GrnItem(
+      product: product,
+      stockBarcode: stockBarcode,
+      quantity: quantity,
+      buyingPrice: buyingPrice,
+      sellingPrice: sellingPrice,
+      maxDiscount: maxDiscount,
+      inStock: inStock,
+    );
+  }
 }

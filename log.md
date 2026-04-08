@@ -66,3 +66,10 @@
 - Connected the customer table to local Isar data with search, spend filters, and pagination limited to 10 customers per page.
 - Completed customer details loading from Isar and wired customer invoice history to support invoice search plus pagination with 5 invoices per page.
 - Verified the customer backend integration with `flutter test` and `flutter build macos --debug`.
+- Connected the GRN module to local Isar storage with a dedicated repository and local seed data for suppliers, products, and GRNs when needed.
+- Completed GRN creation with two save flows: `Save GRN` and `Save & Add to Stock`.
+- Added real local stock creation from GRN items when using the `Save & Add to Stock` action.
+- Connected the GRN table to local Isar data with search/filter support and pagination limited to 10 GRNs per page.
+- Completed GRN details loading from Isar, including payment history and GRN item status display.
+- Completed due payment recording against local Isar data and kept the payment history table updated from persisted payment records.
+- Verified the GRN backend integration with `flutter test` and `flutter build macos --debug`.

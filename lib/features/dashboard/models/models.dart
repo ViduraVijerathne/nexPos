@@ -229,10 +229,7 @@ class GrnPageResult {
 }
 
 class GrnDialogResult {
-  const GrnDialogResult({
-    required this.record,
-    required this.addToStock,
-  });
+  const GrnDialogResult({required this.record, required this.addToStock});
 
   final GrnRecord record;
   final bool addToStock;

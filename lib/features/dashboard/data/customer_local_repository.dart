@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'customer_repository.dart';
 
 class CustomerLocalRepositoryException implements Exception {
   CustomerLocalRepositoryException(this.message);
@@ -13,7 +14,7 @@ class CustomerLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class CustomerLocalRepository {
+class CustomerLocalRepository implements CustomerRepository {
   const CustomerLocalRepository();
 
   static const int pageSize = 10;
@@ -88,15 +89,15 @@ class CustomerLocalRepository {
     );
   }
 
-  Future<CustomerRecord?> fetchCustomerById(int customerId) async {
+  Future<CustomerRecord?> fetchCustomerDetails(CustomerRecord customer) async {
     final isar = await AppDatabase.instance;
-    final customer = await isar.customerEntitys.get(customerId);
-    if (customer == null) {
+    final entity = await isar.customerEntitys.get(customer.id);
+    if (entity == null) {
       return null;
     }
 
-    final invoices = await _fetchInvoicesForCustomer(isar, customer);
-    return _mapCustomerEntityToRecord(customer, invoices);
+    final invoices = await _fetchInvoicesForCustomer(isar, entity);
+    return _mapCustomerEntityToRecord(entity, invoices);
   }
 
   Future<CustomerRecord?> fetchCustomerByPhone(String phone) async {
@@ -448,6 +449,7 @@ class CustomerLocalRepository {
   ) {
     return CustomerRecord(
       id: entity.id,
+      cloudId: null,
       name: entity.name,
       email: entity.email,
       phone: entity.phone,

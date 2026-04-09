@@ -171,3 +171,6 @@
 - Added row-level loading feedback to the supplier `View` action so opening supplier details now shows a clear loading state.
 - Moved supplier save handling into the create/edit dialog so the primary button now shows a loading spinner during save, closes automatically on success, and uses a stronger active button color instead of appearing disabled.
 - Added an `Edit` action directly to the supplier table so suppliers can now be updated from the list view using the same save/loading dialog flow.
+- Completed the customer page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped customers and customer-linked invoices from Firestore.
+- Added a customer repository abstraction plus a Firestore customer repository, covering add customer, update customer, customer table search and pagination, customer details loading, and invoice history loading for the selected customer in online mode.
+- Improved customer page UX with loading feedback, including table skeleton rows during fetches, row-level loading for opening customer details, and dialog save spinners with automatic close on successful add or update.

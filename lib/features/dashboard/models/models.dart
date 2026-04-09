@@ -550,6 +550,7 @@ class PaySupplierDueResult {
 class CustomerRecord {
   const CustomerRecord({
     required this.id,
+    this.cloudId,
     required this.name,
     required this.email,
     required this.phone,
@@ -559,6 +560,7 @@ class CustomerRecord {
   });
 
   final int id;
+  final String? cloudId;
   final String name;
   final String email;
   final String phone;
@@ -580,6 +582,7 @@ class CustomerRecord {
 
   CustomerRecord copyWith({
     int? id,
+    String? cloudId,
     String? name,
     String? email,
     String? phone,
@@ -589,6 +592,7 @@ class CustomerRecord {
   }) {
     return CustomerRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       name: name ?? this.name,
       email: email ?? this.email,
       phone: phone ?? this.phone,

@@ -228,7 +228,7 @@ class _SupplierPageState extends State<SupplierPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(
                       color: AppColors.primaryTeal,
                     ),
@@ -324,10 +324,7 @@ class _SupplierSearchCard extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(
-              color: AppColors.primaryTeal,
-              width: 1.8,
-            ),
+            borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.8),
           ),
         ),
       ),
@@ -358,7 +355,7 @@ class _SupplierCard extends StatelessWidget {
                   color: const Color(0xFFE4FFFB),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.local_shipping_outlined,
                   color: AppColors.primaryTeal,
                   size: 20,
@@ -523,7 +520,7 @@ class _SupplierTableCard extends StatelessWidget {
                                 color: const Color(0xFFE4FFFB),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.local_shipping_outlined,
                                 color: AppColors.primaryTeal,
                                 size: 20,
@@ -1027,7 +1024,7 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                               color: const Color(0xFFE9FFFB),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.toggle_on_outlined,
                               color: AppColors.primaryTeal,
                             ),
@@ -2050,7 +2047,7 @@ InputDecoration _fieldDecoration({String? hintText, IconData? prefixIcon}) {
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.7),
+      borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.7),
     ),
   );
 }

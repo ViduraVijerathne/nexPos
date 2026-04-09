@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
+import 'app_theme_controller.dart';
 
 class AppTheme {
   const AppTheme._();
 
-  static ThemeData get lightTheme {
+  static ThemeData lightTheme(AppThemeSettings settings) {
+    final palette = AppThemeController.instance.palette;
     final baseTextTheme = Typography.material2021().black.apply(
       bodyColor: AppColors.textPrimary,
       displayColor: AppColors.textPrimary,
@@ -13,27 +15,27 @@ class AppTheme {
 
     return ThemeData(
       useMaterial3: true,
-      colorScheme: const ColorScheme.light(
+      colorScheme: ColorScheme.light(
         primary: AppColors.primaryTeal,
         secondary: AppColors.primaryDark,
-        surface: AppColors.white,
+        surface: palette.surface,
         error: AppColors.error,
         onPrimary: AppColors.white,
         onSecondary: AppColors.white,
         onSurface: AppColors.textPrimary,
         onError: AppColors.white,
       ),
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: palette.background,
       fontFamilyFallback: const ['Inter', 'Roboto', 'Arial', 'sans-serif'],
       textTheme: baseTextTheme,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.white,
+      appBarTheme: AppBarTheme(
+        backgroundColor: palette.surface,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
         centerTitle: false,
       ),
       cardTheme: CardThemeData(
-        color: AppColors.white,
+        color: palette.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -51,7 +53,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.white,
+        fillColor: palette.surface,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
@@ -66,7 +68,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
         hintStyle: baseTextTheme.bodyMedium?.copyWith(
           color: AppColors.textSecondary,

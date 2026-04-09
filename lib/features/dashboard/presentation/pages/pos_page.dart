@@ -53,6 +53,9 @@ class _PosPageState extends State<PosPage> {
   PosCustomerSettings _customerSettings = const PosCustomerSettings(
     createCustomerOnlyContact: false,
   );
+  PosPrintSettings _printSettings = const PosPrintSettings(
+    invoicePrintMode: PosInvoicePrintMode.preview,
+  );
 
   @override
   void initState() {
@@ -91,12 +94,15 @@ class _PosPageState extends State<PosPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final printSettings = await AppSettingsService.instance
+          .loadPosPrintSettings();
       await _loadCatalog();
       await _loadCustomers();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
           _customerSettings = customerSettings;
+          _printSettings = printSettings;
         });
       }
       if (mounted) {
@@ -368,7 +374,11 @@ class _PosPageState extends State<PosPage> {
       _resetToWalkInCustomer();
       await _loadCatalog();
       _searchFocusNode.requestFocus();
-      await _showPrintPreview(preview);
+      if (_printSettings.invoicePrintMode == PosInvoicePrintMode.instant) {
+        await _printInstantly(preview);
+      } else {
+        await _showPrintPreview(preview);
+      }
     } on PosLocalRepositoryException catch (error) {
       if (!mounted) {
         return;
@@ -413,6 +423,21 @@ class _PosPageState extends State<PosPage> {
         },
       ),
     );
+  }
+
+  Future<void> _printInstantly(InvoicePreviewData preview) async {
+    final setupState = await SetupService.instance.loadState();
+    final layoutSettings = await AppSettingsService.instance
+        .loadInvoiceLayoutSettings();
+    await InvoicePrintService.printInvoice(
+      shopInfo: setupState.shopInfo,
+      settings: layoutSettings,
+      preview: preview,
+    );
+    if (!mounted) {
+      return;
+    }
+    AppToast.success('Invoice sent to printer');
   }
 
   Future<PosCustomerOption?> _resolveCheckoutCustomer() async {
@@ -525,7 +550,7 @@ class _PosPageState extends State<PosPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(
                       color: AppColors.primaryTeal,
                     ),
@@ -719,7 +744,7 @@ class _PosCustomerCreateDialogState extends State<PosCustomerCreateDialog> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+        borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
       ),
     );
   }

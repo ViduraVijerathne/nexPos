@@ -174,7 +174,7 @@ class _ActivationPageState extends State<ActivationPage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
+                    borderSide: BorderSide(
                       color: AppColors.primaryTeal,
                       width: 1.8,
                     ),

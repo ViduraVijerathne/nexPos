@@ -15,6 +15,21 @@ class PosCustomerSettings {
   final bool createCustomerOnlyContact;
 }
 
+enum PosInvoicePrintMode {
+  preview('Show Preview Before Printing'),
+  instant('Print Instantly');
+
+  const PosInvoicePrintMode(this.label);
+
+  final String label;
+}
+
+class PosPrintSettings {
+  const PosPrintSettings({required this.invoicePrintMode});
+
+  final PosInvoicePrintMode invoicePrintMode;
+}
+
 enum InvoicePaperSize {
   thermal80mm('80mm Thermal Printer'),
   a4('A4 Size');
@@ -108,6 +123,8 @@ class AppSettingsService {
   static const String _posTaxPercentKey = 'settings.pos_tax_percent';
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
+  static const String _posInvoicePrintModeKey =
+      'settings.pos_invoice_print_mode';
   static const String _invoicePaperSizeKey = 'settings.invoice_paper_size';
   static const String _invoiceLanguageKey = 'settings.invoice_language';
   static const String _invoiceEnglishFontKey = 'settings.invoice_english_font';
@@ -163,6 +180,23 @@ class AppSettingsService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_posCustomerOnlyContactKey, createCustomerOnlyContact);
+  }
+
+  Future<PosPrintSettings> loadPosPrintSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawMode = prefs.getString(_posInvoicePrintModeKey);
+    final mode = PosInvoicePrintMode.values.firstWhere(
+      (item) => item.name == rawMode,
+      orElse: () => PosInvoicePrintMode.preview,
+    );
+    return PosPrintSettings(invoicePrintMode: mode);
+  }
+
+  Future<void> savePosPrintSettings({
+    required PosInvoicePrintMode invoicePrintMode,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_posInvoicePrintModeKey, invoicePrintMode.name);
   }
 
   Future<InvoiceLayoutSettings> loadInvoiceLayoutSettings() async {

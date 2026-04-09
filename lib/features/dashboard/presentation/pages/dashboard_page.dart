@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../auth/presentation/pages/login_page.dart';
 import 'backup_page.dart';
@@ -102,7 +103,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F9FC),
+      backgroundColor: AppThemeController.instance.palette.background,
       body: Row(
         children: [
           _DashboardSidebar(
@@ -167,9 +168,9 @@ class _DashboardSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 204,
-      decoration: const BoxDecoration(
-        color: AppColors.white,
-        border: Border(right: BorderSide(color: Color(0xFFE4EAF2))),
+      decoration: BoxDecoration(
+        color: AppThemeController.instance.palette.sidebarBackground,
+        border: const Border(right: BorderSide(color: Color(0xFFE4EAF2))),
       ),
       child: Column(
         children: [
@@ -263,8 +264,8 @@ class _DashboardTopBar extends StatelessWidget {
           Container(
             width: 26,
             height: 26,
-            decoration: const BoxDecoration(
-              color: Color(0xFF36ABA5),
+            decoration: BoxDecoration(
+              color: AppColors.primaryTeal,
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
@@ -365,7 +366,7 @@ class _SidebarNavItem extends StatelessWidget {
       child: Container(
         height: 40,
         decoration: BoxDecoration(
-          color: isActive ? const Color(0xFF36ABA5) : Colors.transparent,
+          color: isActive ? AppColors.primaryTeal : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_bootstrap_page.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_theme_controller.dart';
 import 'core/toast/app_toast_overlay.dart';
 
 class NexPosApp extends StatelessWidget {
@@ -9,15 +10,21 @@ class NexPosApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Nex POS',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      navigatorKey: AppToastOverlay.navigatorKey,
-      builder: (context, child) {
-        return AppToastOverlay(child: child ?? const SizedBox.shrink());
+    return AnimatedBuilder(
+      animation: AppThemeController.instance,
+      builder: (context, _) {
+        final settings = AppThemeController.instance.settings;
+        return MaterialApp(
+          title: 'Nex POS',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme(settings),
+          navigatorKey: AppToastOverlay.navigatorKey,
+          builder: (context, child) {
+            return AppToastOverlay(child: child ?? const SizedBox.shrink());
+          },
+          home: const AppBootstrapPage(),
+        );
       },
-      home: const AppBootstrapPage(),
     );
   }
 }

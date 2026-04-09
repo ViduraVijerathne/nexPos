@@ -137,3 +137,6 @@
 - Added configurable report header layout settings with language, fonts, title, subtitle, logo visibility, margins, and live preview, then wired the reports page header to use those saved settings.
 - Added a real invoice printing pipeline using saved invoice layout settings, then wired both POS checkout and the invoice page print action to open print preview and send invoices to the printer.
 - Renamed the settings menu section from `Language & Region` to `Invoice Layout` and moved invoice paper size plus margin controls into that same invoice layout section for a cleaner settings structure.
+- Made the `Profile Settings` section functional by showing the saved shop information with logo preview and adding the ability to update shop name, email, phone, address, and logo from the settings page.
+- Added a real-time theme system with multiple light theme styles and accent color selection, then wired the settings page to update the app theme instantly and persist the selected theme.
+- Added a POS invoice printing behavior setting so cashiers can choose between previewing the invoice first or printing instantly right after `Process Payment`.

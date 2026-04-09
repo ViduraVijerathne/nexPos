@@ -263,7 +263,7 @@ class _InvoicePageState extends State<InvoicePage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(
                       color: AppColors.primaryTeal,
                     ),
@@ -1329,7 +1329,7 @@ InputDecoration _fieldDecoration({String? hintText}) {
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.7),
+      borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.7),
     ),
   );
 }

@@ -269,7 +269,7 @@ class _GrnPageState extends State<GrnPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? const Center(
+                ? Center(
                     child: CircularProgressIndicator(
                       color: AppColors.primaryTeal,
                     ),

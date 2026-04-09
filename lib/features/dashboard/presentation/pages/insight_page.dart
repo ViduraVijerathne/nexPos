@@ -108,7 +108,7 @@ class _InsightPageState extends State<InsightPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(
+      return Center(
         child: CircularProgressIndicator(color: AppColors.primaryTeal),
       );
     }

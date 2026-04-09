@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../../../core/widgets/report_header_preview.dart';
@@ -12,6 +13,7 @@ import '../../../setup/services/setup_service.dart';
 
 enum _SettingsMenuSection {
   profile,
+  themes,
   notifications,
   security,
   languageRegion,
@@ -23,6 +25,7 @@ enum _SettingsMenuSection {
 extension on _SettingsMenuSection {
   String get title => switch (this) {
     _SettingsMenuSection.profile => 'Profile Settings',
+    _SettingsMenuSection.themes => 'Themes',
     _SettingsMenuSection.notifications => 'Notifications',
     _SettingsMenuSection.security => 'Security',
     _SettingsMenuSection.languageRegion => 'Invoice Layout',
@@ -33,6 +36,7 @@ extension on _SettingsMenuSection {
 
   IconData get icon => switch (this) {
     _SettingsMenuSection.profile => Icons.person_outline_rounded,
+    _SettingsMenuSection.themes => Icons.palette_outlined,
     _SettingsMenuSection.notifications => Icons.notifications_none_rounded,
     _SettingsMenuSection.security => Icons.lock_outline_rounded,
     _SettingsMenuSection.languageRegion => Icons.language_rounded,
@@ -72,6 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isSaving = false;
   bool _isTaxEnabled = false;
   bool _createCustomerOnlyContact = false;
+  PosInvoicePrintMode _posInvoicePrintMode = PosInvoicePrintMode.preview;
   ShopInfo _shopInfo = const ShopInfo(
     logoPath: '',
     shopName: '',
@@ -90,6 +95,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String _reportHeaderSinhalaFontFamily =
       ReportHeaderSettings.defaults.sinhalaFontFamily;
   bool _showReportLogo = ReportHeaderSettings.defaults.showLogo;
+  AppThemeStyle _selectedThemeStyle =
+      AppThemeController.instance.settings.style;
+  Color _selectedAccentColor = AppThemeController.instance.settings.accentColor;
   _SettingsMenuSection _selectedSection =
       _SettingsMenuSection.systemPreferences;
 
@@ -139,6 +147,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final posPrintSettings = await AppSettingsService.instance
+          .loadPosPrintSettings();
       final invoiceSettings = await AppSettingsService.instance
           .loadInvoiceLayoutSettings();
       final reportHeaderSettings = await AppSettingsService.instance
@@ -153,6 +163,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _isTaxEnabled = taxSettings.isTaxEnabled;
         _taxPercentController.text = _formatNumber(taxSettings.taxPercent);
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
+        _posInvoicePrintMode = posPrintSettings.invoicePrintMode;
         _shopInfo = setupState.shopInfo;
         _paperSize = invoiceSettings.paperSize;
         _invoiceLanguage = invoiceSettings.language;
@@ -162,6 +173,8 @@ class _SettingsPageState extends State<SettingsPage> {
         _reportHeaderEnglishFontFamily = reportHeaderSettings.englishFontFamily;
         _reportHeaderSinhalaFontFamily = reportHeaderSettings.sinhalaFontFamily;
         _showReportLogo = reportHeaderSettings.showLogo;
+        _selectedThemeStyle = AppThemeController.instance.settings.style;
+        _selectedAccentColor = AppThemeController.instance.settings.accentColor;
         _marginTopController.text = _formatNumber(invoiceSettings.marginTop);
         _marginRightController.text = _formatNumber(
           invoiceSettings.marginRight,
@@ -238,6 +251,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       await AppSettingsService.instance.savePosCustomerSettings(
         createCustomerOnlyContact: _createCustomerOnlyContact,
+      );
+      await AppSettingsService.instance.savePosPrintSettings(
+        invoicePrintMode: _posInvoicePrintMode,
       );
       await AppSettingsService.instance.saveInvoiceLayoutSettings(
         InvoiceLayoutSettings(
@@ -427,7 +443,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return Padding(
       padding: const EdgeInsets.all(18),
       child: _isLoading
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(color: AppColors.primaryTeal),
             )
           : Column(
@@ -481,6 +497,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildSelectedSectionContent() {
     return switch (_selectedSection) {
       _SettingsMenuSection.profile => _buildProfileSection(),
+      _SettingsMenuSection.themes => _buildThemesSection(),
       _SettingsMenuSection.notifications => _InfoPanel(
         title: 'Notifications',
         description:
@@ -559,6 +576,45 @@ class _SettingsPageState extends State<SettingsPage> {
               onChanged: (value) {
                 setState(() => _createCustomerOnlyContact = value);
               },
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'POS Invoice Printing',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Choose what happens after the cashier presses `Process Payment` in POS.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF8A98AD),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: PosInvoicePrintMode.values.map((mode) {
+                    final selected = _posInvoicePrintMode == mode;
+                    return SizedBox(
+                      width: 260,
+                      child: _SelectableCard(
+                        selected: selected,
+                        icon: mode == PosInvoicePrintMode.preview
+                            ? Icons.preview_outlined
+                            : Icons.print_outlined,
+                        label: mode.label,
+                        onTap: () {
+                          setState(() => _posInvoicePrintMode = mode);
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 18),
@@ -723,6 +779,95 @@ class _SettingsPageState extends State<SettingsPage> {
             child: ElevatedButton(
               onPressed: _isSaving ? null : _saveProfileSettings,
               child: Text(_isSaving ? 'Saving...' : 'Update Profile'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemesSection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Themes',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334156),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Light Theme Styles',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: AppThemeStyle.values.map((style) {
+                    final selected = _selectedThemeStyle == style;
+                    return SizedBox(
+                      width: 210,
+                      child: _ThemeStyleCard(
+                        title: style.label,
+                        selected: selected,
+                        previewColor: switch (style) {
+                          AppThemeStyle.defaultLight => const Color(0xFFF7FAFC),
+                          AppThemeStyle.skyLight => const Color(0xFFF4F8FF),
+                          AppThemeStyle.sageLight => const Color(0xFFF5FBF7),
+                          AppThemeStyle.sandLight => const Color(0xFFFBF8F3),
+                        },
+                        onTap: () async {
+                          setState(() => _selectedThemeStyle = style);
+                          await AppThemeController.instance.updateTheme(
+                            style: style,
+                          );
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Accent Color',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Select the primary accent color used across buttons, highlights, active navigation, and focused inputs.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF8A98AD),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: AppThemeController.accentPresets.map((color) {
+                    final selected = _selectedAccentColor.value == color.value;
+                    return _AccentColorOption(
+                      color: color,
+                      selected: selected,
+                      onTap: () async {
+                        setState(() => _selectedAccentColor = color);
+                        await AppThemeController.instance.updateTheme(
+                          accentColor: color,
+                        );
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
             ),
           ),
         ],
@@ -1419,6 +1564,170 @@ class _InfoPanel extends StatelessWidget {
   }
 }
 
+class _PreviewInfoText extends StatelessWidget {
+  const _PreviewInfoText({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF7E91A8)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF5D6D81),
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThemeStyleCard extends StatelessWidget {
+  const _ThemeStyleCard({
+    required this.title,
+    required this.selected,
+    required this.previewColor,
+    required this.onTap,
+  });
+
+  final String title;
+  final bool selected;
+  final Color previewColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AppColors.primaryTeal : const Color(0xFFE6EDF5),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 82,
+              decoration: BoxDecoration(
+                color: previewColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE6EDF5)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryTeal,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            decoration: BoxDecoration(
+                              color: AppColors.white,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.white,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF334156),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AccentColorOption extends StatelessWidget {
+  const _AccentColorOption({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(99),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: selected ? const Color(0xFF334156) : Colors.transparent,
+            width: 2,
+          ),
+          shape: BoxShape.circle,
+        ),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: selected
+              ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
 class _SwitchTile extends StatelessWidget {
   const _SwitchTile({
     required this.title,
@@ -1525,7 +1834,7 @@ class _NumberField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
     );
@@ -1566,7 +1875,7 @@ class _TextInputField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
     );
@@ -1632,7 +1941,7 @@ class _DropdownField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
       items: items,

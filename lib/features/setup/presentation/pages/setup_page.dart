@@ -860,10 +860,7 @@ class _SetupTextField extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(
-                color: AppColors.primaryTeal,
-                width: 1.8,
-              ),
+              borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.8),
             ),
           ),
         ),

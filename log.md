@@ -168,3 +168,6 @@
 - Completed the supplier page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped suppliers and supplier-linked GRNs from Firestore.
 - Added a supplier repository abstraction plus a Firestore supplier repository, covering add/edit supplier, supplier table pagination and search, supplier details loading, status toggle, due payment updates, and newest-first GRN history with status filtering in online mode.
 - Improved supplier page UX with better loading feedback, including table skeleton rows during supplier fetches and guarded supplier form submission with a loading spinner to prevent duplicate online saves.
+- Added row-level loading feedback to the supplier `View` action so opening supplier details now shows a clear loading state.
+- Moved supplier save handling into the create/edit dialog so the primary button now shows a loading spinner during save, closes automatically on success, and uses a stronger active button color instead of appearing disabled.
+- Added an `Edit` action directly to the supplier table so suppliers can now be updated from the list view using the same save/loading dialog flow.

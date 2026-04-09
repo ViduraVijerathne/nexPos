@@ -27,6 +27,8 @@ class _SupplierPageState extends State<SupplierPage> {
   int _totalCount = 0;
   int _pageSize = 10;
   bool _isLoading = true;
+  String? _loadingSupplierCloudId;
+  int? _loadingSupplierId;
   Timer? _searchDebounce;
 
   @override
@@ -121,20 +123,15 @@ class _SupplierPageState extends State<SupplierPage> {
     final result = await showDialog<SupplierRecord>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => SupplierFormDialog(initialSupplier: supplier),
+      builder: (context) =>
+          SupplierFormDialog(initialSupplier: supplier, repository: repository),
     );
 
     if (result == null) {
       return;
     }
 
-    try {
-      await repository.saveSupplier(result);
-      await _loadSuppliers(targetPage: supplier == null ? 1 : _currentPage);
-    } catch (error) {
-      AppToast.error('Failed to save supplier: ${_readableError(error)}');
-      return;
-    }
+    await _loadSuppliers(targetPage: supplier == null ? 1 : _currentPage);
 
     AppToast.success(
       supplier == null
@@ -150,11 +147,20 @@ class _SupplierPageState extends State<SupplierPage> {
       return;
     }
 
+    setState(() {
+      _loadingSupplierCloudId = supplier.cloudId;
+      _loadingSupplierId = supplier.id;
+    });
+
     SupplierRecord? record;
     try {
       record = await repository.fetchSupplierDetails(supplier);
     } catch (error) {
       if (mounted) {
+        setState(() {
+          _loadingSupplierCloudId = null;
+          _loadingSupplierId = null;
+        });
         AppToast.error(
           'Failed to load supplier details: ${_readableError(error)}',
         );
@@ -163,9 +169,20 @@ class _SupplierPageState extends State<SupplierPage> {
     }
 
     if (!mounted || record == null) {
+      if (mounted) {
+        setState(() {
+          _loadingSupplierCloudId = null;
+          _loadingSupplierId = null;
+        });
+      }
       AppToast.error('Supplier details not found');
       return;
     }
+
+    setState(() {
+      _loadingSupplierCloudId = null;
+      _loadingSupplierId = null;
+    });
 
     showDialog<void>(
       context: context,
@@ -299,6 +316,9 @@ class _SupplierPageState extends State<SupplierPage> {
                 : _SupplierTableCard(
                     suppliers: _suppliers,
                     onViewDetails: _openSupplierDetails,
+                    onEditSupplier: _openSupplierDialog,
+                    loadingSupplierCloudId: _loadingSupplierCloudId,
+                    loadingSupplierId: _loadingSupplierId,
                     footerText: _footerText,
                     currentPage: _currentPage,
                     totalPages: _totalPages,
@@ -515,6 +535,9 @@ class _SupplierTableCard extends StatelessWidget {
   const _SupplierTableCard({
     required this.suppliers,
     required this.onViewDetails,
+    required this.onEditSupplier,
+    required this.loadingSupplierCloudId,
+    required this.loadingSupplierId,
     required this.footerText,
     required this.currentPage,
     required this.totalPages,
@@ -524,6 +547,9 @@ class _SupplierTableCard extends StatelessWidget {
 
   final List<SupplierRecord> suppliers;
   final Future<void> Function(SupplierRecord) onViewDetails;
+  final Future<void> Function({SupplierRecord? supplier}) onEditSupplier;
+  final String? loadingSupplierCloudId;
+  final int? loadingSupplierId;
   final String footerText;
   final int currentPage;
   final int totalPages;
@@ -552,7 +578,7 @@ class _SupplierTableCard extends StatelessWidget {
                 Expanded(flex: 12, child: _TableHeaderText('Paid')),
                 Expanded(flex: 12, child: _TableHeaderText('Due')),
                 Expanded(flex: 10, child: _TableHeaderText('Status')),
-                Expanded(flex: 12, child: _TableHeaderText('Actions')),
+                Expanded(flex: 18, child: _TableHeaderText('Actions')),
               ],
             ),
           ),
@@ -563,6 +589,11 @@ class _SupplierTableCard extends StatelessWidget {
                   const Divider(height: 1, color: Color(0xFFF0F4F8)),
               itemBuilder: (context, index) {
                 final supplier = suppliers[index];
+                final isLoading =
+                    (loadingSupplierCloudId != null &&
+                        loadingSupplierCloudId == supplier.cloudId) ||
+                    (loadingSupplierCloudId == null &&
+                        loadingSupplierId == supplier.id);
                 return Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
@@ -671,31 +702,80 @@ class _SupplierTableCard extends StatelessWidget {
                         ),
                       ),
                       Expanded(
-                        flex: 12,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            onViewDetails(supplier);
-                          },
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(92, 38),
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            side: const BorderSide(color: Color(0xFFE3E9F2)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        flex: 18,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: isLoading
+                                    ? null
+                                    : () {
+                                        onViewDetails(supplier);
+                                      },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(86, 38),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  side: const BorderSide(
+                                    color: Color(0xFFE3E9F2),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                icon: isLoading
+                                    ? const SizedBox(
+                                        width: 15,
+                                        height: 15,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF485568),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.visibility_outlined,
+                                        size: 15,
+                                        color: Color(0xFF485568),
+                                      ),
+                                label: Text(
+                                  isLoading ? 'Loading...' : 'View',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF39475B),
+                                  ),
+                                ),
+                              ),
                             ),
-                          ),
-                          icon: const Icon(
-                            Icons.visibility_outlined,
-                            size: 15,
-                            color: Color(0xFF485568),
-                          ),
-                          label: const Text(
-                            'View',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF39475B),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: isLoading
+                                    ? null
+                                    : () {
+                                        onEditSupplier(supplier: supplier);
+                                      },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(84, 38),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  side: const BorderSide(
+                                    color: Color(0xFFE3E9F2),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  foregroundColor: const Color(0xFF39475B),
+                                ),
+                                icon: const Icon(Icons.edit_outlined, size: 15),
+                                label: const Text(
+                                  'Edit',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                     ],
@@ -759,9 +839,14 @@ class _SupplierTableCard extends StatelessWidget {
 }
 
 class SupplierFormDialog extends StatefulWidget {
-  const SupplierFormDialog({super.key, this.initialSupplier});
+  const SupplierFormDialog({
+    super.key,
+    this.initialSupplier,
+    required this.repository,
+  });
 
   final SupplierRecord? initialSupplier;
+  final SupplierRepository repository;
 
   @override
   State<SupplierFormDialog> createState() => _SupplierFormDialogState();
@@ -812,7 +897,7 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_isSubmitting) {
       return;
     }
@@ -827,20 +912,32 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
     }
 
     setState(() => _isSubmitting = true);
-    Navigator.of(context).pop(
-      SupplierRecord(
-        id: widget.initialSupplier?.id ?? 0,
-        cloudId: widget.initialSupplier?.cloudId,
-        supplierName: _supplierNameController.text.trim(),
-        companyName: _companyNameController.text.trim(),
-        contactNumber: _contactNumberController.text.trim(),
-        companyContact: _companyContactController.text.trim(),
-        email: _emailController.text.trim(),
-        address: _addressController.text.trim(),
-        isActive: _status == 'Active',
-        grns: widget.initialSupplier?.grns ?? const [],
-      ),
+    final supplier = SupplierRecord(
+      id: widget.initialSupplier?.id ?? 0,
+      cloudId: widget.initialSupplier?.cloudId,
+      supplierName: _supplierNameController.text.trim(),
+      companyName: _companyNameController.text.trim(),
+      contactNumber: _contactNumberController.text.trim(),
+      companyContact: _companyContactController.text.trim(),
+      email: _emailController.text.trim(),
+      address: _addressController.text.trim(),
+      isActive: _status == 'Active',
+      grns: widget.initialSupplier?.grns ?? const [],
     );
+
+    try {
+      final saved = await widget.repository.saveSupplier(supplier);
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(saved);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      AppToast.error('Failed to save supplier: $error');
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -2068,7 +2165,7 @@ class _DialogFooter extends StatelessWidget {
             ElevatedButton(
               onPressed: onPrimaryPressed,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF8FDDD6),
+                backgroundColor: const Color(0xFF36B4AE),
                 foregroundColor: AppColors.white,
               ),
               child: isPrimaryLoading

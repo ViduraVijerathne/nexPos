@@ -140,3 +140,4 @@
 - Made the `Profile Settings` section functional by showing the saved shop information with logo preview and adding the ability to update shop name, email, phone, address, and logo from the settings page.
 - Added a real-time theme system with multiple light theme styles and accent color selection, then wired the settings page to update the app theme instantly and persist the selected theme.
 - Added a POS invoice printing behavior setting so cashiers can choose between previewing the invoice first or printing instantly right after `Process Payment`.
+- Added a GitHub Actions workflow to build the Windows desktop app, run analysis/tests, and upload a packaged Windows release artifact automatically.

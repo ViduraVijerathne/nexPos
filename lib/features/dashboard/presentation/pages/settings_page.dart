@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -22,7 +25,7 @@ extension on _SettingsMenuSection {
     _SettingsMenuSection.profile => 'Profile Settings',
     _SettingsMenuSection.notifications => 'Notifications',
     _SettingsMenuSection.security => 'Security',
-    _SettingsMenuSection.languageRegion => 'Language & Region',
+    _SettingsMenuSection.languageRegion => 'Invoice Layout',
     _SettingsMenuSection.systemPreferences => 'System Preferences',
     _SettingsMenuSection.systemUpdates => 'System Updates',
     _SettingsMenuSection.about => 'About',
@@ -60,6 +63,10 @@ class _SettingsPageState extends State<SettingsPage> {
       TextEditingController();
   final TextEditingController _reportHeaderBottomMarginController =
       TextEditingController();
+  final TextEditingController _shopNameController = TextEditingController();
+  final TextEditingController _shopEmailController = TextEditingController();
+  final TextEditingController _shopPhoneController = TextEditingController();
+  final TextEditingController _shopAddressController = TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -119,6 +126,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _reportHeaderSubtitleController.dispose();
     _reportHeaderTopMarginController.dispose();
     _reportHeaderBottomMarginController.dispose();
+    _shopNameController.dispose();
+    _shopEmailController.dispose();
+    _shopPhoneController.dispose();
+    _shopAddressController.dispose();
     super.dispose();
   }
 
@@ -167,6 +178,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _reportHeaderBottomMarginController.text = _formatNumber(
           reportHeaderSettings.marginBottom,
         );
+        _shopNameController.text = setupState.shopInfo.shopName;
+        _shopEmailController.text = setupState.shopInfo.contactEmail;
+        _shopPhoneController.text = setupState.shopInfo.contactNumber;
+        _shopAddressController.text = setupState.shopInfo.address;
         _isLoading = false;
       });
     } catch (error) {
@@ -291,6 +306,67 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
+  Future<void> _pickShopLogo() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final savedPath = await SetupService.instance.saveShopLogo(
+      result.files.first,
+    );
+    if (savedPath == null) {
+      AppToast.error('Unable to save logo');
+      return;
+    }
+
+    setState(() {
+      _shopInfo = ShopInfo(
+        logoPath: savedPath,
+        shopName: _shopNameController.text.trim(),
+        contactEmail: _shopEmailController.text.trim(),
+        contactNumber: _shopPhoneController.text.trim(),
+        address: _shopAddressController.text.trim(),
+      );
+    });
+    AppToast.success('Shop logo updated');
+  }
+
+  Future<void> _saveProfileSettings() async {
+    if (_shopNameController.text.trim().isEmpty) {
+      AppToast.error('Shop name is required');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final updatedShopInfo = ShopInfo(
+        logoPath: _shopInfo.logoPath,
+        shopName: _shopNameController.text.trim(),
+        contactEmail: _shopEmailController.text.trim(),
+        contactNumber: _shopPhoneController.text.trim(),
+        address: _shopAddressController.text.trim(),
+      );
+      await SetupService.instance.saveShopInfo(updatedShopInfo);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _shopInfo = updatedShopInfo;
+      });
+      AppToast.success('Profile settings updated');
+    } catch (error) {
+      AppToast.error('Failed to save profile settings: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
   String _formatNumber(double value) {
     return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
   }
@@ -404,12 +480,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _buildSelectedSectionContent() {
     return switch (_selectedSection) {
-      _SettingsMenuSection.profile => _InfoPanel(
-        title: 'Profile Settings',
-        description:
-            'Admin account and shop owner profile settings will appear here in a future update.',
-        icon: Icons.person_outline_rounded,
-      ),
+      _SettingsMenuSection.profile => _buildProfileSection(),
       _SettingsMenuSection.notifications => _InfoPanel(
         title: 'Notifications',
         description:
@@ -491,68 +562,157 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 18),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _saveSettings,
+              child: Text(_isSaving ? 'Saving...' : 'Save Settings'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileSection() {
+    final hasLogo =
+        _shopInfo.logoPath.trim().isNotEmpty &&
+        File(_shopInfo.logoPath).existsSync();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Profile Settings',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334156),
+            ),
+          ),
+          const SizedBox(height: 18),
           _SettingsBlock(
-            title: 'Invoice Paper & Margins',
+            title: 'Shop Preview',
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 104,
+                  width: 104,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F8FC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE6EDF5)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: hasLogo
+                      ? Image.file(File(_shopInfo.logoPath), fit: BoxFit.cover)
+                      : const Icon(
+                          Icons.storefront_outlined,
+                          size: 40,
+                          color: Color(0xFF8AA0B8),
+                        ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _shopInfo.shopName.trim().isEmpty
+                            ? 'Shop name not set'
+                            : _shopInfo.shopName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334156),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _PreviewInfoText(
+                        icon: Icons.email_outlined,
+                        text: _shopInfo.contactEmail.trim().isEmpty
+                            ? 'No contact email'
+                            : _shopInfo.contactEmail,
+                      ),
+                      const SizedBox(height: 6),
+                      _PreviewInfoText(
+                        icon: Icons.call_outlined,
+                        text: _shopInfo.contactNumber.trim().isEmpty
+                            ? 'No contact number'
+                            : _shopInfo.contactNumber,
+                      ),
+                      const SizedBox(height: 6),
+                      _PreviewInfoText(
+                        icon: Icons.location_on_outlined,
+                        text: _shopInfo.address.trim().isEmpty
+                            ? 'No address'
+                            : _shopInfo.address,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _pickShopLogo,
+                  icon: const Icon(Icons.image_outlined, size: 16),
+                  label: const Text('Change Logo'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Update Shop Information',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _FieldLabel('Paper Size'),
-                const SizedBox(height: 10),
-                Row(
-                  children: InvoicePaperSize.values.map((size) {
-                    final selected = _paperSize == size;
-                    return Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          right: size == InvoicePaperSize.thermal80mm ? 12 : 0,
-                        ),
-                        child: _SelectableCard(
-                          selected: selected,
-                          icon: size == InvoicePaperSize.thermal80mm
-                              ? Icons.receipt_long_outlined
-                              : Icons.description_outlined,
-                          label: size.label,
-                          onTap: () => setState(() => _paperSize = size),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                const _FieldLabel('Shop Name'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _shopNameController,
+                  hintText: 'Enter shop name',
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 Row(
                   children: [
                     Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Top Margin',
-                        controller: _marginTopController,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Contact Email'),
+                          const SizedBox(height: 8),
+                          _TextInputField(
+                            controller: _shopEmailController,
+                            hintText: 'Enter contact email',
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 16),
                     Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Right Margin',
-                        controller: _marginRightController,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Contact Number'),
+                          const SizedBox(height: 8),
+                          _TextInputField(
+                            controller: _shopPhoneController,
+                            hintText: 'Enter contact number',
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Bottom Margin',
-                        controller: _marginBottomController,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Left Margin',
-                        controller: _marginLeftController,
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 14),
+                const _FieldLabel('Address'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _shopAddressController,
+                  hintText: 'Enter shop address',
+                  maxLines: 3,
                 ),
               ],
             ),
@@ -561,8 +721,8 @@ class _SettingsPageState extends State<SettingsPage> {
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton(
-              onPressed: _isSaving ? null : _saveSettings,
-              child: Text(_isSaving ? 'Saving...' : 'Save Settings'),
+              onPressed: _isSaving ? null : _saveProfileSettings,
+              child: Text(_isSaving ? 'Saving...' : 'Update Profile'),
             ),
           ),
         ],
@@ -576,7 +736,7 @@ class _SettingsPageState extends State<SettingsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Language & Region',
+            'Invoice Layout',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
@@ -585,7 +745,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 18),
           _SettingsBlock(
-            title: 'Invoice Language',
+            title: 'Invoice Language & Fonts',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -654,6 +814,73 @@ class _SettingsPageState extends State<SettingsPage> {
                             },
                           ),
                         ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Invoice Paper & Margins',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _FieldLabel('Paper Size'),
+                const SizedBox(height: 10),
+                Row(
+                  children: InvoicePaperSize.values.map((size) {
+                    final selected = _paperSize == size;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: size == InvoicePaperSize.thermal80mm ? 12 : 0,
+                        ),
+                        child: _SelectableCard(
+                          selected: selected,
+                          icon: size == InvoicePaperSize.thermal80mm
+                              ? Icons.receipt_long_outlined
+                              : Icons.description_outlined,
+                          label: size.label,
+                          onTap: () => setState(() => _paperSize = size),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Top Margin',
+                        controller: _marginTopController,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Right Margin',
+                        controller: _marginRightController,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Bottom Margin',
+                        controller: _marginBottomController,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Left Margin',
+                        controller: _marginLeftController,
                       ),
                     ),
                   ],

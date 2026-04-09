@@ -136,3 +136,4 @@
 - Refactored the settings page into a desktop-style left menu and right content panel layout, then organized the existing POS, invoice layout, language, and about settings into the new UI structure.
 - Added configurable report header layout settings with language, fonts, title, subtitle, logo visibility, margins, and live preview, then wired the reports page header to use those saved settings.
 - Added a real invoice printing pipeline using saved invoice layout settings, then wired both POS checkout and the invoice page print action to open print preview and send invoices to the printer.
+- Renamed the settings menu section from `Language & Region` to `Invoice Layout` and moved invoice paper size plus margin controls into that same invoice layout section for a cleaner settings structure.

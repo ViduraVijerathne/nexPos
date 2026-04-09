@@ -80,6 +80,15 @@ class ActivationService {
     return true;
   }
 
+  Future<String?> getStoredActivationKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = prefs.getString(_activationKeyPref);
+    if (key == null || key.trim().isEmpty) {
+      return null;
+    }
+    return key;
+  }
+
   Future<void> clearActivation() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_activationKeyPref);

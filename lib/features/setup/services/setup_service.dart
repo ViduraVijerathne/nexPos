@@ -6,6 +6,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/services/secure_payload_service.dart';
+
 enum AppMode {
   online('Online Version'),
   offline('Offline Version');
@@ -43,31 +45,47 @@ class ShopInfo {
 class SetupState {
   const SetupState({
     required this.mode,
+    required this.selectedShopId,
     required this.adminEmail,
     required this.passwordHash,
+    required this.firebaseConfigCiphertext,
+    required this.onlineEmailCiphertext,
+    required this.onlinePasswordCiphertext,
     required this.pin,
     required this.defaultLoginMethod,
     required this.shopInfo,
   });
 
   final AppMode? mode;
+  final String selectedShopId;
   final String adminEmail;
   final String passwordHash;
+  final String firebaseConfigCiphertext;
+  final String onlineEmailCiphertext;
+  final String onlinePasswordCiphertext;
   final String pin;
   final LoginMethod? defaultLoginMethod;
   final ShopInfo shopInfo;
 
   bool get hasMode => mode != null;
   bool get hasAdminAccount => adminEmail.isNotEmpty && passwordHash.isNotEmpty;
+  bool get hasOnlineFirebaseConfig => true;
+  bool get hasOnlinePinCredentials =>
+      mode != AppMode.online ||
+      defaultLoginMethod != LoginMethod.pin ||
+      (onlineEmailCiphertext.trim().isNotEmpty &&
+          onlinePasswordCiphertext.trim().isNotEmpty);
   bool get hasPin => pin.length == 4;
   bool get hasDefaultLoginMethod => defaultLoginMethod != null;
   bool get hasShopInfo => shopInfo.shopName.trim().isNotEmpty;
 
   bool get isComplete =>
       hasMode &&
+      hasOnlineFirebaseConfig &&
       hasAdminAccount &&
       hasPin &&
       hasDefaultLoginMethod &&
+      hasOnlinePinCredentials &&
       hasShopInfo;
 
   int get firstIncompleteStep {
@@ -75,6 +93,7 @@ class SetupState {
     if (!hasAdminAccount) return 1;
     if (!hasPin) return 2;
     if (!hasDefaultLoginMethod) return 3;
+    if (!hasOnlinePinCredentials) return 3;
     if (!hasShopInfo) return 4;
     return 5;
   }
@@ -86,8 +105,13 @@ class SetupService {
   static final SetupService instance = SetupService._();
 
   static const _appModePref = 'setup_app_mode';
+  static const _shopIdPref = 'setup_shop_id';
   static const _adminEmailPref = 'setup_admin_email';
   static const _passwordHashPref = 'setup_admin_password_hash';
+  static const _firebaseConfigCiphertextPref = 'setup_online_firebase_config';
+  static const _onlineEmailCiphertextPref = 'setup_online_email_ciphertext';
+  static const _onlinePasswordCiphertextPref =
+      'setup_online_password_ciphertext';
   static const _pinPref = 'setup_login_pin';
   static const _defaultLoginMethodPref = 'setup_default_login_method';
   static const _shopLogoPathPref = 'setup_shop_logo_path';
@@ -101,8 +125,14 @@ class SetupService {
 
     return SetupState(
       mode: _readAppMode(prefs.getString(_appModePref)),
+      selectedShopId: prefs.getString(_shopIdPref) ?? '',
       adminEmail: prefs.getString(_adminEmailPref) ?? '',
       passwordHash: prefs.getString(_passwordHashPref) ?? '',
+      firebaseConfigCiphertext:
+          prefs.getString(_firebaseConfigCiphertextPref) ?? '',
+      onlineEmailCiphertext: prefs.getString(_onlineEmailCiphertextPref) ?? '',
+      onlinePasswordCiphertext:
+          prefs.getString(_onlinePasswordCiphertextPref) ?? '',
       pin: prefs.getString(_pinPref) ?? '',
       defaultLoginMethod: _readLoginMethod(
         prefs.getString(_defaultLoginMethodPref),
@@ -122,6 +152,11 @@ class SetupService {
     await prefs.setString(_appModePref, mode.name);
   }
 
+  Future<void> saveSelectedShopId(String shopId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_shopIdPref, shopId.trim());
+  }
+
   Future<void> saveAdminAccount({
     required String email,
     required String password,
@@ -129,6 +164,14 @@ class SetupService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_adminEmailPref, email.trim());
     await prefs.setString(_passwordHashPref, _hashPassword(password));
+  }
+
+  Future<void> saveFirebaseConfigCiphertext(String encryptedConfig) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _firebaseConfigCiphertextPref,
+      encryptedConfig.trim(),
+    );
   }
 
   Future<void> savePin(String pin) async {
@@ -139,6 +182,47 @@ class SetupService {
   Future<void> saveDefaultLoginMethod(LoginMethod method) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_defaultLoginMethodPref, method.name);
+  }
+
+  Future<void> saveOnlinePinCredentials({
+    required String email,
+    required String password,
+    required String pin,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _onlineEmailCiphertextPref,
+      SecurePayloadService.encryptText(plainText: email.trim(), secret: pin),
+    );
+    await prefs.setString(
+      _onlinePasswordCiphertextPref,
+      SecurePayloadService.encryptText(plainText: password.trim(), secret: pin),
+    );
+  }
+
+  Future<void> clearOnlinePinCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_onlineEmailCiphertextPref);
+    await prefs.remove(_onlinePasswordCiphertextPref);
+  }
+
+  Future<({String email, String password})?> readOnlinePinCredentials(
+    String pin,
+  ) async {
+    final state = await loadState();
+    if (state.onlineEmailCiphertext.trim().isEmpty ||
+        state.onlinePasswordCiphertext.trim().isEmpty) {
+      return null;
+    }
+    final email = SecurePayloadService.decryptText(
+      encryptedText: state.onlineEmailCiphertext,
+      secret: pin,
+    );
+    final password = SecurePayloadService.decryptText(
+      encryptedText: state.onlinePasswordCiphertext,
+      secret: pin,
+    );
+    return (email: email, password: password);
   }
 
   Future<String?> saveShopLogo(PlatformFile platformFile) async {
@@ -168,8 +252,11 @@ class SetupService {
     return targetFile.path;
   }
 
-  Future<void> saveShopInfo(ShopInfo shopInfo) async {
+  Future<void> saveShopInfo(ShopInfo shopInfo, {String? shopId}) async {
     final prefs = await SharedPreferences.getInstance();
+    if (shopId != null) {
+      await prefs.setString(_shopIdPref, shopId.trim());
+    }
     await prefs.setString(_shopLogoPathPref, shopInfo.logoPath);
     await prefs.setString(_shopNamePref, shopInfo.shopName.trim());
     await prefs.setString(_shopEmailPref, shopInfo.contactEmail.trim());
@@ -199,8 +286,12 @@ class SetupService {
   Future<void> resetSetup() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_appModePref);
+    await prefs.remove(_shopIdPref);
     await prefs.remove(_adminEmailPref);
     await prefs.remove(_passwordHashPref);
+    await prefs.remove(_firebaseConfigCiphertextPref);
+    await prefs.remove(_onlineEmailCiphertextPref);
+    await prefs.remove(_onlinePasswordCiphertextPref);
     await prefs.remove(_pinPref);
     await prefs.remove(_defaultLoginMethodPref);
     await prefs.remove(_shopLogoPathPref);
@@ -214,8 +305,16 @@ class SetupService {
     final prefs = await SharedPreferences.getInstance();
     return <String, dynamic>{
       _appModePref: prefs.getString(_appModePref),
+      _shopIdPref: prefs.getString(_shopIdPref),
       _adminEmailPref: prefs.getString(_adminEmailPref),
       _passwordHashPref: prefs.getString(_passwordHashPref),
+      _firebaseConfigCiphertextPref: prefs.getString(
+        _firebaseConfigCiphertextPref,
+      ),
+      _onlineEmailCiphertextPref: prefs.getString(_onlineEmailCiphertextPref),
+      _onlinePasswordCiphertextPref: prefs.getString(
+        _onlinePasswordCiphertextPref,
+      ),
       _pinPref: prefs.getString(_pinPref),
       _defaultLoginMethodPref: prefs.getString(_defaultLoginMethodPref),
       _shopLogoPathPref: prefs.getString(_shopLogoPathPref),

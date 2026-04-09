@@ -7,6 +7,7 @@ import '../../../../core/widgets/pin_number_pad.dart';
 import '../../../activation/services/activation_service.dart';
 import '../../../backup/services/backup_service.dart';
 import '../../../dashboard/presentation/pages/dashboard_page.dart';
+import '../../../online/services/online_firebase_service.dart';
 import '../../../setup/services/setup_service.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/login_button.dart';
@@ -30,6 +31,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _isPinAutoSubmitting = false;
   bool _rememberMe = false;
   LoginMethod _loginMethod = LoginMethod.emailPassword;
+  AppMode? _appMode;
   String _adminEmail = '';
 
   @override
@@ -55,6 +57,7 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() {
       _isBootLoading = false;
+      _appMode = setupState.mode;
       _loginMethod = setupState.defaultLoginMethod ?? LoginMethod.emailPassword;
       _adminEmail = setupState.adminEmail;
       if (_adminEmail.isNotEmpty && _loginMethod == LoginMethod.emailPassword) {
@@ -82,10 +85,15 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    final isAuthorized = await SetupService.instance.validateAdminCredentials(
-      email: _usernameController.text.trim(),
-      password: _passwordController.text.trim(),
-    );
+    final isAuthorized = _appMode == AppMode.online
+        ? await _validateOnlineCredentials(
+            email: _usernameController.text.trim(),
+            password: _passwordController.text.trim(),
+          )
+        : await SetupService.instance.validateAdminCredentials(
+            email: _usernameController.text.trim(),
+            password: _passwordController.text.trim(),
+          );
 
     setState(() => _isLoading = false);
 
@@ -106,9 +114,9 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
     await Future<void>.delayed(const Duration(milliseconds: 300));
 
-    final isAuthorized = await SetupService.instance.validatePin(
-      _pinController.text,
-    );
+    final isAuthorized = _appMode == AppMode.online
+        ? await _validateOnlinePin(_pinController.text)
+        : await SetupService.instance.validatePin(_pinController.text);
 
     if (!mounted) {
       return;
@@ -159,6 +167,44 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => const DashboardPage()),
     );
+  }
+
+  Future<bool> _validateOnlineCredentials({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      await OnlineFirebaseService.instance.signIn(
+        email: email,
+        password: password,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _validateOnlinePin(String pin) async {
+    final isPinValid = await SetupService.instance.validatePin(pin);
+    if (!isPinValid) {
+      return false;
+    }
+
+    try {
+      final credentials = await SetupService.instance.readOnlinePinCredentials(
+        pin,
+      );
+      if (credentials == null) {
+        return false;
+      }
+      await OnlineFirebaseService.instance.signIn(
+        email: credentials.email,
+        password: credentials.password,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _handleForgotPassword() {

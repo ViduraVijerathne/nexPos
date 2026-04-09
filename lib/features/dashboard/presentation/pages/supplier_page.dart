@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/supplier_local_repository.dart';
+import '../../data/supplier_remote_repository.dart';
+import '../../data/supplier_repository.dart';
+import '../../data/supplier_repository_factory.dart';
 import '../../models/models.dart';
 
 class SupplierPage extends StatefulWidget {
@@ -16,12 +19,13 @@ class SupplierPage extends StatefulWidget {
 
 class _SupplierPageState extends State<SupplierPage> {
   final TextEditingController _searchController = TextEditingController();
-  final SupplierLocalRepository _repository = const SupplierLocalRepository();
 
+  SupplierRepository? _repository;
   List<SupplierRecord> _suppliers = <SupplierRecord>[];
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
+  int _pageSize = 10;
   bool _isLoading = true;
   Timer? _searchDebounce;
 
@@ -40,23 +44,36 @@ class _SupplierPageState extends State<SupplierPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _loadSuppliers();
+      final repository = await SupplierRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _repository = repository;
+      await _loadSuppliers(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load suppliers: $error');
+      AppToast.error('Failed to load suppliers: ${_readableError(error)}');
     }
   }
 
-  Future<void> _loadSuppliers({int? targetPage}) async {
+  Future<void> _loadSuppliers({
+    int? targetPage,
+    SupplierRepository? repositoryOverride,
+  }) async {
+    final repository = repositoryOverride ?? _repository;
+    if (repository == null) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final result = await _repository.fetchSuppliers(
+      final result = await repository.fetchSuppliers(
         page: targetPage ?? _currentPage,
         searchQuery: _searchController.text.trim(),
       );
@@ -70,6 +87,7 @@ class _SupplierPageState extends State<SupplierPage> {
         _currentPage = result.currentPage;
         _totalPages = result.totalPages;
         _totalCount = result.totalCount;
+        _pageSize = result.pageSize;
         _isLoading = false;
       });
     } catch (error) {
@@ -78,7 +96,7 @@ class _SupplierPageState extends State<SupplierPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load suppliers: $error');
+      AppToast.error('Failed to load suppliers: ${_readableError(error)}');
     }
   }
 
@@ -94,6 +112,12 @@ class _SupplierPageState extends State<SupplierPage> {
   }
 
   Future<void> _openSupplierDialog({SupplierRecord? supplier}) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Supplier service is still loading. Please try again.');
+      return;
+    }
+
     final result = await showDialog<SupplierRecord>(
       context: context,
       barrierDismissible: false,
@@ -105,13 +129,10 @@ class _SupplierPageState extends State<SupplierPage> {
     }
 
     try {
-      await _repository.saveSupplier(result);
+      await repository.saveSupplier(result);
       await _loadSuppliers(targetPage: supplier == null ? 1 : _currentPage);
-    } on SupplierLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
-      return;
     } catch (error) {
-      AppToast.error('Failed to save supplier: $error');
+      AppToast.error('Failed to save supplier: ${_readableError(error)}');
       return;
     }
 
@@ -123,7 +144,24 @@ class _SupplierPageState extends State<SupplierPage> {
   }
 
   Future<void> _openSupplierDetails(SupplierRecord supplier) async {
-    final record = await _repository.fetchSupplierById(supplier.id);
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Supplier service is still loading. Please try again.');
+      return;
+    }
+
+    SupplierRecord? record;
+    try {
+      record = await repository.fetchSupplierDetails(supplier);
+    } catch (error) {
+      if (mounted) {
+        AppToast.error(
+          'Failed to load supplier details: ${_readableError(error)}',
+        );
+      }
+      return;
+    }
+
     if (!mounted || record == null) {
       AppToast.error('Supplier details not found');
       return;
@@ -133,31 +171,46 @@ class _SupplierPageState extends State<SupplierPage> {
       context: context,
       barrierDismissible: false,
       builder: (context) => SupplierDetailsDialog(
-        supplier: record,
+        supplier: record!,
         onToggleStatus: () async {
-          final updated = await _repository.toggleSupplierStatus(record.id);
-          Navigator.of(context).pop();
-          await _loadSuppliers(targetPage: _currentPage);
+          try {
+            final updated = await repository.toggleSupplierStatus(record!);
+            Navigator.of(context).pop();
+            await _loadSuppliers(targetPage: _currentPage);
 
-          if (updated == null || !mounted) {
-            AppToast.error('Failed to update supplier status');
+            if (updated == null || !mounted) {
+              AppToast.error('Failed to update supplier status');
+              return;
+            }
+
+            AppToast.success(
+              updated.isActive
+                  ? 'Supplier activated successfully'
+                  : 'Supplier deactivated successfully',
+            );
+
+            _openSupplierDetails(updated);
+          } catch (error) {
+            if (mounted) {
+              AppToast.error(
+                'Failed to update supplier status: ${_readableError(error)}',
+              );
+            }
             return;
           }
-
-          AppToast.success(
-            updated.isActive
-                ? 'Supplier activated successfully'
-                : 'Supplier deactivated successfully',
-          );
-
-          _openSupplierDetails(updated);
         },
-        onPayDue: (grn) => _openPayDueDialog(record, grn),
+        onPayDue: (grn) => _openPayDueDialog(record!, grn),
       ),
     );
   }
 
   void _openPayDueDialog(SupplierRecord supplier, SupplierGrnRecord grn) {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Supplier service is still loading. Please try again.');
+      return;
+    }
+
     showDialog<PaySupplierDueResult>(
       context: context,
       barrierDismissible: false,
@@ -168,8 +221,8 @@ class _SupplierPageState extends State<SupplierPage> {
       }
 
       try {
-        final updated = await _repository.recordDuePayment(
-          supplierId: supplier.id,
+        final updated = await repository.recordDuePayment(
+          supplier: supplier,
           grnId: grn.grnId,
           amount: result.amount,
           method: result.method,
@@ -183,12 +236,22 @@ class _SupplierPageState extends State<SupplierPage> {
 
         AppToast.success('Supplier payment recorded successfully');
         _openSupplierDetails(updated);
-      } on SupplierLocalRepositoryException catch (error) {
-        AppToast.error(error.message);
       } catch (error) {
-        AppToast.error('Failed to record supplier payment: $error');
+        AppToast.error(
+          'Failed to record supplier payment: ${_readableError(error)}',
+        );
       }
     });
+  }
+
+  String _readableError(Object error) {
+    if (error is SupplierLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is SupplierRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
   }
 
   String get _footerText {
@@ -196,7 +259,7 @@ class _SupplierPageState extends State<SupplierPage> {
       return 'Showing 0 to 0 of 0 suppliers';
     }
 
-    final start = ((_currentPage - 1) * SupplierLocalRepository.pageSize) + 1;
+    final start = ((_currentPage - 1) * _pageSize) + 1;
     final end = (start + _suppliers.length) - 1;
     return 'Showing $start to $end of $_totalCount suppliers';
   }
@@ -216,7 +279,9 @@ class _SupplierPageState extends State<SupplierPage> {
               _SupplierActionButton(
                 label: 'Add Supplier',
                 icon: Icons.add,
-                onPressed: () => _openSupplierDialog(),
+                onPressed: _repository == null
+                    ? null
+                    : () => _openSupplierDialog(),
               ),
             ],
           ),
@@ -228,11 +293,7 @@ class _SupplierPageState extends State<SupplierPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
+                ? const _SupplierTableSkeleton()
                 : _suppliers.isEmpty
                 ? const _SupplierEmptyState()
                 : _SupplierTableCard(
@@ -715,6 +776,7 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
   late final TextEditingController _addressController;
 
   late String _status;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.initialSupplier != null;
 
@@ -751,6 +813,10 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
   }
 
   void _submit() {
+    if (_isSubmitting) {
+      return;
+    }
+
     if (_supplierNameController.text.trim().isEmpty ||
         _companyNameController.text.trim().isEmpty ||
         _contactNumberController.text.trim().isEmpty ||
@@ -760,9 +826,11 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
       return;
     }
 
+    setState(() => _isSubmitting = true);
     Navigator.of(context).pop(
       SupplierRecord(
         id: widget.initialSupplier?.id ?? 0,
+        cloudId: widget.initialSupplier?.cloudId,
         supplierName: _supplierNameController.text.trim(),
         companyName: _companyNameController.text.trim(),
         contactNumber: _contactNumberController.text.trim(),
@@ -788,7 +856,7 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
           children: [
             _DialogHeader(
               title: _isEditing ? 'Edit Supplier' : 'Add New Supplier',
-              onClose: () => Navigator.of(context).pop(),
+              onClose: _isSubmitting ? null : () => Navigator.of(context).pop(),
             ),
             const Divider(height: 1, color: Color(0xFFE8EDF4)),
             Padding(
@@ -901,8 +969,11 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
             ),
             _DialogFooter(
               primaryLabel: _isEditing ? 'Update Supplier' : 'Add Supplier',
-              onPrimaryPressed: _submit,
-              onSecondaryPressed: () => Navigator.of(context).pop(),
+              onPrimaryPressed: _isSubmitting ? null : _submit,
+              onSecondaryPressed: _isSubmitting
+                  ? null
+                  : () => Navigator.of(context).pop(),
+              isPrimaryLoading: _isSubmitting,
             ),
           ],
         ),
@@ -1637,7 +1708,7 @@ class _SupplierActionButton extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1652,6 +1723,95 @@ class _SupplierActionButton extends StatelessWidget {
       ),
       icon: Icon(icon, size: 18),
       label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _SupplierTableSkeleton extends StatelessWidget {
+  const _SupplierTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _panelDecoration(),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FBFD),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 22, child: _TableHeaderText('Supplier')),
+                Expanded(flex: 24, child: _TableHeaderText('Company')),
+                Expanded(flex: 14, child: _TableHeaderText('Contact')),
+                Expanded(flex: 20, child: _TableHeaderText('Email')),
+                Expanded(flex: 8, child: _TableHeaderText('GRNs')),
+                Expanded(flex: 12, child: _TableHeaderText('Paid')),
+                Expanded(flex: 12, child: _TableHeaderText('Due')),
+                Expanded(flex: 10, child: _TableHeaderText('Status')),
+                Expanded(flex: 12, child: _TableHeaderText('Actions')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: 8,
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+              itemBuilder: (_, __) => const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                child: Row(
+                  children: [
+                    Expanded(flex: 22, child: _SupplierSkeletonBlock(0.75)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 24, child: _SupplierSkeletonBlock(0.82)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 14, child: _SupplierSkeletonBlock(0.7)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 20, child: _SupplierSkeletonBlock(0.9)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 8, child: _SupplierSkeletonBlock(0.4)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 12, child: _SupplierSkeletonBlock(0.6)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 12, child: _SupplierSkeletonBlock(0.6)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 10, child: _SupplierSkeletonBlock(0.7)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 12, child: _SupplierSkeletonBlock(0.75)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SupplierSkeletonBlock extends StatelessWidget {
+  const _SupplierSkeletonBlock(this.widthFactor);
+
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: widthFactor,
+        child: Container(
+          height: 18,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(999),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1822,7 +1982,7 @@ class _DialogHeader extends StatelessWidget {
   const _DialogHeader({required this.title, required this.onClose});
 
   final String title;
-  final VoidCallback onClose;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -1859,12 +2019,14 @@ class _DialogFooter extends StatelessWidget {
     required this.onPrimaryPressed,
     required this.onSecondaryPressed,
     this.primaryIcon,
+    this.isPrimaryLoading = false,
   });
 
   final String primaryLabel;
-  final VoidCallback onPrimaryPressed;
-  final VoidCallback onSecondaryPressed;
+  final VoidCallback? onPrimaryPressed;
+  final VoidCallback? onSecondaryPressed;
   final IconData? primaryIcon;
+  final bool isPrimaryLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -1890,8 +2052,17 @@ class _DialogFooter extends StatelessWidget {
                 backgroundColor: const Color(0xFF36B4AE),
                 foregroundColor: AppColors.white,
               ),
-              icon: Icon(primaryIcon, size: 16),
-              label: Text(primaryLabel),
+              icon: isPrimaryLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Icon(primaryIcon, size: 16),
+              label: Text(isPrimaryLoading ? 'Please wait...' : primaryLabel),
             )
           else
             ElevatedButton(
@@ -1900,7 +2071,16 @@ class _DialogFooter extends StatelessWidget {
                 backgroundColor: const Color(0xFF8FDDD6),
                 foregroundColor: AppColors.white,
               ),
-              child: Text(primaryLabel),
+              child: isPrimaryLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(primaryLabel),
             ),
         ],
       ),

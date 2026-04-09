@@ -142,3 +142,29 @@
 - Added a POS invoice printing behavior setting so cashiers can choose between previewing the invoice first or printing instantly right after `Process Payment`.
 - Added a GitHub Actions workflow to build the Windows desktop app, run analysis/tests, and upload a packaged Windows release artifact automatically.
 - Updated CI analysis settings to exclude generated files and prevent GitHub Actions from failing on non-fatal analyzer warnings and infos during the Windows build workflow.
+
+## 2026-04-09
+
+- Added the hybrid online setup foundation so `Online Version` can now be selected during first-run setup instead of staying disabled.
+- Added encrypted Firebase config upload and verification during online setup, using the stored activation key to decrypt the uploaded config before validating Firebase options.
+- Extended setup persistence to store encrypted Firebase config plus PIN-encrypted online credentials for Firebase-backed login.
+- Wired login to support online email/password authentication and online PIN login that decrypts the saved Firebase email/password using the PIN before authenticating.
+- Improved online setup resume behavior so saved Firebase config details can be previewed again when reopening an incomplete setup flow.
+- Hardened Firebase initialization to safely reuse an existing initialized app during online-mode startup and login.
+- Added reusable helpers in `lib/key_builder.dart` to encrypt Firebase JSON content or a Firebase JSON file using the same secure payload format as the app setup flow.
+- Prevented online setup crashes from invalid Firebase config uploads by moving verification away from native temporary app initialization and adding platform-aware Firebase `appId` validation.
+- Removed the Firebase JSON upload step from the setup wizard for the hybrid branch and temporarily aligned online setup with the same simple flow as offline mode until traditional Firebase initialization is wired.
+- Updated the online setup admin step to behave like a login verification step: no confirm password field, Firebase sign-in verification before continuing, and direct error feedback when credentials fail.
+- Fixed online setup/login initialization so the app no longer tries to decrypt an empty saved Firebase config when traditional Firebase initialization is already used.
+- Added a visible loading state to the online setup `Verify & Continue` button so long-running authentication checks now disable the button and show a spinner while the request is in progress.
+- Fixed app startup so Firebase is initialized in `main()` using `DefaultFirebaseOptions.currentPlatform` before the online setup/login flow tries to authenticate.
+- Fixed macOS online authentication networking by adding the missing `com.apple.security.network.client` entitlement to both debug and release runner entitlements.
+- Added macOS keychain access group entitlements so Firebase Auth can store and read secure session data without failing on keychain access.
+- Reworked online admin authentication to use Firebase Auth REST sign-in for setup/login verification, avoiding macOS keychain persistence issues in local desktop builds.
+- Updated online setup shop registration for multi-shop Firestore usage: the app now checks `shops` by admin email, loads an existing shop as read-only when found, or lets the admin register a new shop when none exists, while also persisting the resolved `shopId` locally for future data scoping.
+- Completed the product page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped products and categories from Firestore.
+- Added a product repository abstraction plus a Firestore product repository, including category autosuggest, create-category support, barcode uniqueness checks, edit product, search filters, and 10-item pagination in online mode.
+- Improved product page UX with visible loading feedback: table skeleton rows during fetches, category suggestion loading state, and a disabled submit button with spinner while product saves are in progress.
+- Completed the supplier page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped suppliers and supplier-linked GRNs from Firestore.
+- Added a supplier repository abstraction plus a Firestore supplier repository, covering add/edit supplier, supplier table pagination and search, supplier details loading, status toggle, due payment updates, and newest-first GRN history with status filtering in online mode.
+- Improved supplier page UX with better loading feedback, including table skeleton rows during supplier fetches and guarded supplier form submission with a loading spinner to prevent duplicate online saves.

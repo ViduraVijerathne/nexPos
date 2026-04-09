@@ -20,6 +20,7 @@ enum ProductStatus {
 class ProductRecord {
   const ProductRecord({
     this.id,
+    this.cloudId,
     required this.name,
     required this.barcode,
     required this.category,
@@ -29,6 +30,7 @@ class ProductRecord {
   });
 
   final int? id;
+  final String? cloudId;
   final String name;
   final String barcode;
   final String category;
@@ -38,6 +40,7 @@ class ProductRecord {
 
   ProductRecord copyWith({
     int? id,
+    String? cloudId,
     String? name,
     String? barcode,
     String? category,
@@ -47,6 +50,7 @@ class ProductRecord {
   }) {
     return ProductRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       name: name ?? this.name,
       barcode: barcode ?? this.barcode,
       category: category ?? this.category,
@@ -412,6 +416,7 @@ class GrnDialogResult {
 class SupplierRecord {
   const SupplierRecord({
     required this.id,
+    this.cloudId,
     required this.supplierName,
     required this.companyName,
     required this.contactNumber,
@@ -423,6 +428,7 @@ class SupplierRecord {
   });
 
   final int id;
+  final String? cloudId;
   final String supplierName;
   final String companyName;
   final String contactNumber;
@@ -437,6 +443,7 @@ class SupplierRecord {
 
   SupplierRecord copyWith({
     int? id,
+    String? cloudId,
     String? supplierName,
     String? companyName,
     String? contactNumber,
@@ -448,6 +455,7 @@ class SupplierRecord {
   }) {
     return SupplierRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       supplierName: supplierName ?? this.supplierName,
       companyName: companyName ?? this.companyName,
       contactNumber: contactNumber ?? this.contactNumber,

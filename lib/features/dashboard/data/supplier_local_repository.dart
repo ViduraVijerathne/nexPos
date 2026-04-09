@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'supplier_repository.dart';
 
 class SupplierLocalRepositoryException implements Exception {
   SupplierLocalRepositoryException(this.message);
@@ -13,7 +14,7 @@ class SupplierLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class SupplierLocalRepository {
+class SupplierLocalRepository implements SupplierRepository {
   const SupplierLocalRepository();
 
   static const int pageSize = 10;
@@ -79,15 +80,15 @@ class SupplierLocalRepository {
     );
   }
 
-  Future<SupplierRecord?> fetchSupplierById(int supplierId) async {
+  Future<SupplierRecord?> fetchSupplierDetails(SupplierRecord supplier) async {
     final isar = await AppDatabase.instance;
-    final supplier = await isar.supplierEntitys.get(supplierId);
-    if (supplier == null) {
+    final entity = await isar.supplierEntitys.get(supplier.id);
+    if (entity == null) {
       return null;
     }
 
-    final grns = await _fetchGrnsForSupplier(isar, supplier);
-    return _mapSupplierEntityToRecord(supplier, grns);
+    final grns = await _fetchGrnsForSupplier(isar, entity);
+    return _mapSupplierEntityToRecord(entity, grns);
   }
 
   Future<SupplierRecord> saveSupplier(SupplierRecord supplier) async {
@@ -130,26 +131,26 @@ class SupplierLocalRepository {
     return supplier.copyWith(id: savedId);
   }
 
-  Future<SupplierRecord?> toggleSupplierStatus(int supplierId) async {
+  Future<SupplierRecord?> toggleSupplierStatus(SupplierRecord supplier) async {
     final isar = await AppDatabase.instance;
-    final supplier = await isar.supplierEntitys.get(supplierId);
-    if (supplier == null) {
+    final entity = await isar.supplierEntitys.get(supplier.id);
+    if (entity == null) {
       return null;
     }
 
-    supplier
-      ..isActive = !supplier.isActive
+    entity
+      ..isActive = !entity.isActive
       ..updatedAt = DateTime.now();
 
     await isar.writeTxn(() async {
-      await isar.supplierEntitys.put(supplier);
+      await isar.supplierEntitys.put(entity);
     });
 
-    return fetchSupplierById(supplierId);
+    return fetchSupplierDetails(supplier);
   }
 
   Future<SupplierRecord?> recordDuePayment({
-    required int supplierId,
+    required SupplierRecord supplier,
     required String grnId,
     required double amount,
     required String method,
@@ -180,7 +181,7 @@ class SupplierLocalRepository {
       await isar.grnEntitys.put(grn);
     });
 
-    return fetchSupplierById(supplierId);
+    return fetchSupplierDetails(supplier);
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {
@@ -437,6 +438,7 @@ class SupplierLocalRepository {
   ) {
     return SupplierRecord(
       id: entity.id,
+      cloudId: null,
       supplierName: entity.supplierName,
       companyName: entity.companyName,
       contactNumber: entity.contactNumber,

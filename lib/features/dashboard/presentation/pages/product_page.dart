@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/product_local_repository.dart';
+import '../../data/product_remote_repository.dart';
+import '../../data/product_repository.dart';
+import '../../data/product_repository_factory.dart';
 import '../../models/models.dart';
 
 class ProductPage extends StatefulWidget {
@@ -16,13 +19,14 @@ class ProductPage extends StatefulWidget {
 
 class _ProductPageState extends State<ProductPage> {
   final TextEditingController _searchController = TextEditingController();
-  final ProductLocalRepository _repository = const ProductLocalRepository();
 
+  ProductRepository? _repository;
   ProductFilter _selectedFilter = ProductFilter.name;
   List<ProductRecord> _products = <ProductRecord>[];
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
+  int _pageSize = 10;
   bool _isLoading = true;
   Timer? _searchDebounce;
 
@@ -41,8 +45,14 @@ class _ProductPageState extends State<ProductPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _loadProducts();
+      final repository = await ProductRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+
+      _repository = repository;
+      await _loadProducts(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
         return;
@@ -53,12 +63,20 @@ class _ProductPageState extends State<ProductPage> {
     }
   }
 
-  Future<void> _loadProducts({int? targetPage}) async {
+  Future<void> _loadProducts({
+    int? targetPage,
+    ProductRepository? repositoryOverride,
+  }) async {
+    final repository = repositoryOverride ?? _repository;
+    if (repository == null) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final query = _searchController.text.trim();
     try {
-      final result = await _repository.fetchProducts(
+      final result = await repository.fetchProducts(
         page: targetPage ?? _currentPage,
         nameQuery: _selectedFilter == ProductFilter.name ? query : null,
         categoryQuery: _selectedFilter == ProductFilter.category ? query : null,
@@ -74,6 +92,7 @@ class _ProductPageState extends State<ProductPage> {
         _totalCount = result.totalCount;
         _currentPage = result.currentPage;
         _totalPages = result.totalPages;
+        _pageSize = result.pageSize;
         _isLoading = false;
       });
     } catch (error) {
@@ -82,7 +101,7 @@ class _ProductPageState extends State<ProductPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load products: $error');
+      AppToast.error('Failed to load products: ${_readableError(error)}');
     }
   }
 
@@ -98,12 +117,18 @@ class _ProductPageState extends State<ProductPage> {
   }
 
   Future<void> _openProductDialog({ProductRecord? product}) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Product service is still loading. Please try again.');
+      return;
+    }
+
     final result = await showDialog<ProductDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return ProductFormDialog(
-          repository: _repository,
+          repository: repository,
           initialProduct: product,
         );
       },
@@ -114,7 +139,7 @@ class _ProductPageState extends State<ProductPage> {
     }
 
     try {
-      await _repository.saveProduct(result.product);
+      await repository.saveProduct(result.product);
       await _loadProducts(targetPage: product == null ? 1 : _currentPage);
 
       if (result.createdCategory) {
@@ -126,11 +151,19 @@ class _ProductPageState extends State<ProductPage> {
             ? 'Product added successfully'
             : 'Product updated successfully',
       );
-    } on ProductLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
     } catch (error) {
-      AppToast.error('Failed to save product: $error');
+      AppToast.error('Failed to save product: ${_readableError(error)}');
     }
+  }
+
+  String _readableError(Object error) {
+    if (error is ProductLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is ProductRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
   }
 
   String get _footerText {
@@ -138,7 +171,7 @@ class _ProductPageState extends State<ProductPage> {
       return 'Showing 0 to 0 of 0 products';
     }
 
-    final start = ((_currentPage - 1) * ProductLocalRepository.pageSize) + 1;
+    final start = ((_currentPage - 1) * _pageSize) + 1;
     final end = (start + _products.length) - 1;
     return 'Showing $start to $end of $_totalCount products';
   }
@@ -158,7 +191,7 @@ class _ProductPageState extends State<ProductPage> {
               _ActionButton(
                 label: 'Add Product',
                 icon: Icons.add,
-                onPressed: _openProductDialog,
+                onPressed: _repository == null ? null : _openProductDialog,
               ),
             ],
           ),
@@ -245,11 +278,7 @@ class _ProductPageState extends State<ProductPage> {
                   const SizedBox(height: 4),
                   Expanded(
                     child: _isLoading
-                        ? const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFF36B4AE),
-                            ),
-                          )
+                        ? const _ProductTableSkeleton()
                         : _products.isEmpty
                         ? const Center(
                             child: Text(
@@ -341,7 +370,7 @@ class ProductFormDialog extends StatefulWidget {
     this.initialProduct,
   });
 
-  final ProductLocalRepository repository;
+  final ProductRepository repository;
   final ProductRecord? initialProduct;
 
   @override
@@ -362,8 +391,10 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
   List<String> _categorySuggestions = <String>[];
   bool _showCategorySuggestions = false;
+  bool _isLoadingSuggestions = false;
   bool _isCreatingCategory = false;
   bool _createdCategory = false;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.initialProduct != null;
 
@@ -417,14 +448,28 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   }
 
   Future<void> _loadCategorySuggestions(String query) async {
-    final suggestions = await widget.repository.fetchCategorySuggestions(query);
-    if (!mounted) {
-      return;
-    }
+    setState(() => _isLoadingSuggestions = true);
+    try {
+      final suggestions = await widget.repository.fetchCategorySuggestions(
+        query,
+      );
+      if (!mounted) {
+        return;
+      }
 
-    setState(() {
-      _categorySuggestions = suggestions;
-    });
+      setState(() {
+        _categorySuggestions = suggestions;
+        _isLoadingSuggestions = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _categorySuggestions = <String>[];
+        _isLoadingSuggestions = false;
+      });
+    }
   }
 
   void _generateBarcode() {
@@ -472,43 +517,54 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
     }
 
+    setState(() => _isSubmitting = true);
     final categoryName = _categoryController.text.trim();
-    final categoryExists = await widget.repository.categoryExists(categoryName);
-    if (!categoryExists) {
-      try {
+    try {
+      final categoryExists = await widget.repository.categoryExists(
+        categoryName,
+      );
+      if (!categoryExists) {
         await widget.repository.createCategory(categoryName);
         _createdCategory = true;
-      } on ProductLocalRepositoryException catch (error) {
-        AppToast.error(error.message);
-        return;
-      } catch (error) {
-        AppToast.error('Failed to create category: $error');
+      }
+
+      final product = ProductRecord(
+        id: widget.initialProduct?.id,
+        cloudId: widget.initialProduct?.cloudId,
+        name: _nameController.text.trim(),
+        barcode: _barcodeController.text.trim(),
+        category: categoryName,
+        unit: _selectedUnit,
+        lowStock: int.parse(_lowStockController.text.trim()),
+        status: _selectedStatus,
+      );
+
+      if (!mounted) {
         return;
       }
-    }
 
-    final product = ProductRecord(
-      id: widget.initialProduct?.id,
-      name: _nameController.text.trim(),
-      barcode: _barcodeController.text.trim(),
-      category: categoryName,
-      unit: _selectedUnit,
-      lowStock: int.parse(_lowStockController.text.trim()),
-      status: _selectedStatus,
-    );
-
-    if (!mounted) {
+      Navigator.of(context).pop(
+        ProductDialogResult(
+          product: product,
+          createdCategory: _createdCategory,
+        ),
+      );
+    } catch (error) {
+      AppToast.error('Failed to prepare product: $error');
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
       return;
     }
-
-    Navigator.of(context).pop(
-      ProductDialogResult(product: product, createdCategory: _createdCategory),
-    );
   }
 
   @override
@@ -546,7 +602,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                   ),
                   const Spacer(),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     icon: const Icon(
                       Icons.close_rounded,
                       color: Color(0xFF8090A4),
@@ -631,6 +689,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                       focusNode: _categoryFocusNode,
                       suggestions: _categorySuggestions,
                       showSuggestions: _showCategorySuggestions,
+                      isLoadingSuggestions: _isLoadingSuggestions,
                       shouldOfferCreate: _shouldOfferCreateCategory,
                       isCreatingCategory: _isCreatingCategory,
                       onChanged: (value) async {
@@ -719,7 +778,9 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(100, 40),
                       side: const BorderSide(color: Color(0xFFE0E7F0)),
@@ -732,15 +793,24 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _submit,
+                    onPressed: _isSubmitting ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(140, 40),
                       backgroundColor: const Color(0xFF36B4AE),
                     ),
-                    child: Text(
-                      _isEditing ? 'Update Product' : 'Add Product',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _isEditing ? 'Update Product' : 'Add Product',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
                   ),
                 ],
               ),
@@ -1048,6 +1118,7 @@ class _CategoryAutocompleteField extends StatelessWidget {
     required this.focusNode,
     required this.suggestions,
     required this.showSuggestions,
+    required this.isLoadingSuggestions,
     required this.shouldOfferCreate,
     required this.isCreatingCategory,
     required this.onChanged,
@@ -1061,6 +1132,7 @@ class _CategoryAutocompleteField extends StatelessWidget {
   final FocusNode focusNode;
   final List<String> suggestions;
   final bool showSuggestions;
+  final bool isLoadingSuggestions;
   final bool shouldOfferCreate;
   final bool isCreatingCategory;
   final ValueChanged<String> onChanged;
@@ -1086,7 +1158,9 @@ class _CategoryAutocompleteField extends StatelessWidget {
           validator: validator,
         ),
         if (showSuggestions &&
-            (suggestions.isNotEmpty || shouldOfferCreate)) ...[
+            (isLoadingSuggestions ||
+                suggestions.isNotEmpty ||
+                shouldOfferCreate)) ...[
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
@@ -1105,6 +1179,31 @@ class _CategoryAutocompleteField extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (isLoadingSuggestions)
+                  const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF36B4AE),
+                          ),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Loading categories...',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF8190A5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 for (final suggestion in suggestions)
                   InkWell(
                     onTap: () => onSelectSuggestion(suggestion),
@@ -1310,7 +1409,7 @@ class _ActionButton extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1360,6 +1459,64 @@ class _PaginationButton extends StatelessWidget {
           icon,
           size: 18,
           color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductTableSkeleton extends StatelessWidget {
+  const _ProductTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      itemCount: 8,
+      separatorBuilder: (_, _) =>
+          const Divider(height: 1, color: Color(0xFFF0F4F8)),
+      itemBuilder: (context, index) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            children: [
+              Expanded(flex: 33, child: _SkeletonBlock(widthFactor: 0.9)),
+              SizedBox(width: 12),
+              Expanded(flex: 21, child: _SkeletonBlock(widthFactor: 0.8)),
+              SizedBox(width: 12),
+              Expanded(flex: 12, child: _SkeletonBlock(widthFactor: 0.7)),
+              SizedBox(width: 12),
+              Expanded(flex: 12, child: _SkeletonBlock(widthFactor: 0.65)),
+              SizedBox(width: 12),
+              Expanded(flex: 12, child: _SkeletonBlock(widthFactor: 0.45)),
+              SizedBox(width: 12),
+              Expanded(flex: 10, child: _SkeletonBlock(widthFactor: 0.6)),
+              SizedBox(width: 12),
+              Expanded(flex: 12, child: _SkeletonBlock(widthFactor: 0.7)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SkeletonBlock extends StatelessWidget {
+  const _SkeletonBlock({required this.widthFactor});
+
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: widthFactor,
+        child: Container(
+          height: 18,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(999),
+          ),
         ),
       ),
     );

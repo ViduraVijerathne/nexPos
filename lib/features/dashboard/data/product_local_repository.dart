@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'product_repository.dart';
 
 class ProductLocalRepositoryException implements Exception {
   ProductLocalRepositoryException(this.message);
@@ -17,7 +18,7 @@ class ProductLocalRepositoryException implements Exception {
 ///
 /// This keeps the product UI decoupled from Isar-specific details so we can
 /// introduce the online mode later without rewriting the screen logic.
-class ProductLocalRepository {
+class ProductLocalRepository implements ProductRepository {
   const ProductLocalRepository();
 
   static const int pageSize = 10;

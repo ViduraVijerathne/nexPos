@@ -132,3 +132,4 @@
 - Added POS customer-creation checkout logic so manually entered customers can be created during payment, with a new settings toggle for contact-number-only customer creation and phone-prefill for the full dialog flow.
 - Added an invoice layout designer to the settings page with 80mm thermal and A4 templates, language switching, separate English/Sinhala font controls, margin settings, and a live preview that uses the setup shop logo and shop name.
 - Updated invoice printing to open a configurable print preview dialog that follows the saved invoice layout settings before sending the invoice to the printer.
+- Extended the reports page with tax analytics, including total tax collected for the selected duration and a tax trend line chart based on the chosen date range.

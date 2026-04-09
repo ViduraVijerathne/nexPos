@@ -826,6 +826,38 @@ class _SalesBarChart extends StatelessWidget {
   }
 }
 
+class _TrendLineChart extends StatelessWidget {
+  const _TrendLineChart({
+    required this.points,
+    required this.lineColor,
+    required this.fillColor,
+  });
+
+  final List<ReportSalesPoint> points;
+  final Color lineColor;
+  final Color fillColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = points.isEmpty
+        ? 1.0
+        : (points.map((point) => point.value).reduce(math.max) * 1.1).clamp(
+            1.0,
+            double.infinity,
+          );
+
+    return CustomPaint(
+      painter: _TrendLineChartPainter(
+        points: points,
+        maxValue: maxValue,
+        lineColor: lineColor,
+        fillColor: fillColor,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
 class _SalesBarChartPainter extends CustomPainter {
   const _SalesBarChartPainter({required this.points, required this.maxValue});
 
@@ -925,6 +957,141 @@ class _SalesBarChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SalesBarChartPainter oldDelegate) {
     return oldDelegate.points != points || oldDelegate.maxValue != maxValue;
+  }
+}
+
+class _TrendLineChartPainter extends CustomPainter {
+  const _TrendLineChartPainter({
+    required this.points,
+    required this.maxValue,
+    required this.lineColor,
+    required this.fillColor,
+  });
+
+  final List<ReportSalesPoint> points;
+  final double maxValue;
+  final Color lineColor;
+  final Color fillColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final leftPadding = 54.0;
+    final rightPadding = 16.0;
+    final bottomPadding = 28.0;
+    final topPadding = 10.0;
+    final chartWidth = size.width - leftPadding - rightPadding;
+    final chartHeight = size.height - bottomPadding - topPadding;
+
+    final gridPaint = Paint()
+      ..color = const Color(0xFFE7EDF5)
+      ..strokeWidth = 1;
+    final axisPaint = Paint()
+      ..color = const Color(0xFFB8C4D3)
+      ..strokeWidth = 1.2;
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+    final fillPaint = Paint()
+      ..color = fillColor
+      ..style = PaintingStyle.fill;
+    final dotPaint = Paint()..color = lineColor;
+    const textStyle = TextStyle(
+      fontSize: 11.5,
+      color: Color(0xFF98A5B8),
+      fontWeight: FontWeight.w600,
+    );
+
+    final yLabels = [
+      maxValue,
+      maxValue * 0.75,
+      maxValue * 0.50,
+      maxValue * 0.25,
+      0.0,
+    ];
+
+    for (var i = 0; i < yLabels.length; i++) {
+      final y = topPadding + (chartHeight * i / (yLabels.length - 1));
+      canvas.drawLine(
+        Offset(leftPadding, y),
+        Offset(size.width - rightPadding, y),
+        gridPaint,
+      );
+      final painter = TextPainter(
+        text: TextSpan(text: yLabels[i].toStringAsFixed(0), style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      painter.paint(canvas, Offset(leftPadding - painter.width - 8, y - 7));
+    }
+
+    canvas.drawLine(
+      Offset(leftPadding, topPadding),
+      Offset(leftPadding, topPadding + chartHeight),
+      axisPaint,
+    );
+    canvas.drawLine(
+      Offset(leftPadding, topPadding + chartHeight),
+      Offset(size.width - rightPadding, topPadding + chartHeight),
+      axisPaint,
+    );
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    final stepX = points.length == 1 ? 0.0 : chartWidth / (points.length - 1);
+    final linePath = Path();
+    final fillPath = Path();
+
+    for (var i = 0; i < points.length; i++) {
+      final point = points[i];
+      final x = leftPadding + (stepX * i);
+      final y =
+          topPadding + chartHeight - ((point.value / maxValue) * chartHeight);
+
+      if (i == 0) {
+        linePath.moveTo(x, y);
+        fillPath.moveTo(x, topPadding + chartHeight);
+        fillPath.lineTo(x, y);
+      } else {
+        linePath.lineTo(x, y);
+        fillPath.lineTo(x, y);
+      }
+    }
+
+    fillPath.lineTo(
+      leftPadding + (stepX * (points.length - 1)),
+      topPadding + chartHeight,
+    );
+    fillPath.close();
+
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(linePath, linePaint);
+
+    for (var i = 0; i < points.length; i++) {
+      final point = points[i];
+      final x = leftPadding + (stepX * i);
+      final y =
+          topPadding + chartHeight - ((point.value / maxValue) * chartHeight);
+      canvas.drawCircle(Offset(x, y), 4.5, dotPaint);
+
+      final labelPainter = TextPainter(
+        text: TextSpan(text: point.label, style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 54);
+      labelPainter.paint(
+        canvas,
+        Offset(x - (labelPainter.width / 2), size.height - bottomPadding + 6),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendLineChartPainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.fillColor != fillColor;
   }
 }
 

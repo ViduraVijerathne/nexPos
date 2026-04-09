@@ -21,6 +21,6 @@ String buildActivationKey(String deviceId) {
 void main() {
   // Example of using the fixed buildActivationKey function:
   print(
-    'Generated Activation Key is : ${buildActivationKey('7304-69DE-611E-4285-E597-7CBB')}',
+    'Generated Activation Key is : ${buildActivationKey('EA55-F8C8-0B0A-47CC-C66D-76AF')}',
   );
 }

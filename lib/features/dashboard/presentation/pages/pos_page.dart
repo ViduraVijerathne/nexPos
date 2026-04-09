@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../../../core/services/invoice_print_service.dart';
+import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
 import '../../data/pos_local_repository.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
+import '../../../setup/services/setup_service.dart';
 
 enum PosPaymentMethod { cash, card, upi }
 
@@ -324,6 +327,31 @@ class _PosPageState extends State<PosPage> {
         return;
       }
 
+      final preview = InvoicePreviewData(
+        invoiceNumber: result.invoiceNumber,
+        customerName: checkoutCustomer.name,
+        customerMobile: checkoutCustomer.isWalkIn ? '' : checkoutCustomer.phone,
+        dateTimeText: DateTime.now()
+            .toString()
+            .replaceFirst('T', ' ')
+            .substring(0, 16),
+        items: _cartItems
+            .map(
+              (item) => InvoicePreviewLine(
+                name: item.productName,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+              ),
+            )
+            .toList(),
+        subtotal: _subtotal,
+        tax: _tax,
+        total: _total,
+        paymentMethod: _selectedPaymentMethod.label,
+        paidAmount: _amountPaid,
+        balance: result.changeAmount,
+      );
+
       AppToast.success(
         'Payment processed successfully. Invoice ${result.invoiceNumber}',
       );
@@ -340,6 +368,7 @@ class _PosPageState extends State<PosPage> {
       _resetToWalkInCustomer();
       await _loadCatalog();
       _searchFocusNode.requestFocus();
+      await _showPrintPreview(preview);
     } on PosLocalRepositoryException catch (error) {
       if (!mounted) {
         return;
@@ -353,6 +382,37 @@ class _PosPageState extends State<PosPage> {
       setState(() => _isProcessing = false);
       AppToast.error('Failed to process payment: $error');
     }
+  }
+
+  Future<void> _showPrintPreview(InvoicePreviewData preview) async {
+    final setupState = await SetupService.instance.loadState();
+    final layoutSettings = await AppSettingsService.instance
+        .loadInvoiceLayoutSettings();
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => InvoicePrintPreviewDialog(
+        shopInfo: setupState.shopInfo,
+        settings: layoutSettings,
+        preview: preview,
+        onPrint: () async {
+          await InvoicePrintService.printInvoice(
+            shopInfo: setupState.shopInfo,
+            settings: layoutSettings,
+            preview: preview,
+          );
+          if (!context.mounted) {
+            return;
+          }
+          Navigator.of(context).pop();
+          AppToast.success('Invoice sent to printer');
+        },
+      ),
+    );
   }
 
   Future<PosCustomerOption?> _resolveCheckoutCustomer() async {

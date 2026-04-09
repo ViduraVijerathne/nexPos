@@ -311,7 +311,7 @@ class InvoicePreviewCard extends StatelessWidget {
   }
 }
 
-class InvoicePrintPreviewDialog extends StatelessWidget {
+class InvoicePrintPreviewDialog extends StatefulWidget {
   const InvoicePrintPreviewDialog({
     super.key,
     required this.shopInfo,
@@ -323,7 +323,29 @@ class InvoicePrintPreviewDialog extends StatelessWidget {
   final ShopInfo shopInfo;
   final InvoiceLayoutSettings settings;
   final InvoicePreviewData preview;
-  final VoidCallback onPrint;
+  final Future<void> Function() onPrint;
+
+  @override
+  State<InvoicePrintPreviewDialog> createState() =>
+      _InvoicePrintPreviewDialogState();
+}
+
+class _InvoicePrintPreviewDialogState extends State<InvoicePrintPreviewDialog> {
+  bool _isPrinting = false;
+
+  Future<void> _handlePrint() async {
+    if (_isPrinting) {
+      return;
+    }
+    setState(() => _isPrinting = true);
+    try {
+      await widget.onPrint();
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -331,7 +353,9 @@ class InvoicePrintPreviewDialog extends StatelessWidget {
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(24),
       child: Container(
-        width: settings.paperSize == InvoicePaperSize.thermal80mm ? 420 : 760,
+        width: widget.settings.paperSize == InvoicePaperSize.thermal80mm
+            ? 420
+            : 760,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: const Color(0xFFF6F9FC),
@@ -369,9 +393,9 @@ class InvoicePrintPreviewDialog extends StatelessWidget {
               child: SingleChildScrollView(
                 child: Center(
                   child: InvoicePreviewCard(
-                    shopInfo: shopInfo,
-                    settings: settings,
-                    preview: preview,
+                    shopInfo: widget.shopInfo,
+                    settings: widget.settings,
+                    preview: widget.preview,
                   ),
                 ),
               ),
@@ -381,14 +405,16 @@ class InvoicePrintPreviewDialog extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: _isPrinting
+                      ? null
+                      : () => Navigator.of(context).pop(),
                   child: const Text('Close'),
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton.icon(
-                  onPressed: onPrint,
+                  onPressed: _isPrinting ? null : _handlePrint,
                   icon: const Icon(Icons.print_outlined, size: 16),
-                  label: const Text('Print Invoice'),
+                  label: Text(_isPrinting ? 'Printing...' : 'Print Invoice'),
                 ),
               ],
             ),

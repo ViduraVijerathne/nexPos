@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
+import '../../../settings/services/app_settings_service.dart';
+import '../../../setup/services/setup_service.dart';
 import '../../data/report_local_repository.dart';
 import '../../models/models.dart';
 
@@ -21,6 +24,14 @@ class _ReportPageState extends State<ReportPage> {
   late DateTime _toDate;
   bool _isLoading = true;
   ReportDashboardData? _data;
+  ReportHeaderSettings _headerSettings = ReportHeaderSettings.defaults;
+  ShopInfo _shopInfo = const ShopInfo(
+    logoPath: '',
+    shopName: '',
+    contactEmail: '',
+    contactNumber: '',
+    address: '',
+  );
 
   @override
   void initState() {
@@ -34,15 +45,21 @@ class _ReportPageState extends State<ReportPage> {
   Future<void> _initializePage() async {
     try {
       await _repository.initialize();
-      final data = await _repository.fetchDashboardData(
-        fromDate: _fromDate,
-        toDate: _toDate,
-      );
+      final results = await Future.wait([
+        _repository.fetchDashboardData(fromDate: _fromDate, toDate: _toDate),
+        AppSettingsService.instance.loadReportHeaderSettings(),
+        SetupService.instance.loadState(),
+      ]);
+      final data = results[0] as ReportDashboardData;
+      final headerSettings = results[1] as ReportHeaderSettings;
+      final setupState = results[2] as SetupState;
       if (!mounted) {
         return;
       }
       setState(() {
         _data = data;
+        _headerSettings = headerSettings;
+        _shopInfo = setupState.shopInfo;
         _isLoading = false;
       });
     } catch (error) {
@@ -130,6 +147,8 @@ class _ReportPageState extends State<ReportPage> {
           _ReportsHeader(
             fromDateLabel: data.fromDateLabel,
             toDateLabel: data.toDateLabel,
+            shopInfo: _shopInfo,
+            settings: _headerSettings,
             onFromTap: _pickFromDate,
             onToTap: _pickToDate,
             onPrintAll: () => _showExportToast('All reports'),
@@ -189,6 +208,8 @@ class _ReportsHeader extends StatelessWidget {
   const _ReportsHeader({
     required this.fromDateLabel,
     required this.toDateLabel,
+    required this.shopInfo,
+    required this.settings,
     required this.onFromTap,
     required this.onToTap,
     required this.onPrintAll,
@@ -196,37 +217,102 @@ class _ReportsHeader extends StatelessWidget {
 
   final String fromDateLabel;
   final String toDateLabel;
+  final ShopInfo shopInfo;
+  final ReportHeaderSettings settings;
   final VoidCallback onFromTap;
   final VoidCallback onToTap;
   final VoidCallback onPrintAll;
 
+  bool get _isSinhala => settings.language == InvoiceLanguage.sinhala;
+
+  String _t(String english, String sinhala) => _isSinhala ? sinhala : english;
+
+  TextStyle _style({
+    double size = 14,
+    FontWeight weight = FontWeight.w600,
+    Color color = const Color(0xFF334156),
+  }) {
+    final family = _isSinhala
+        ? settings.sinhalaFontFamily
+        : settings.englishFontFamily;
+    return TextStyle(
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      fontFamily: family.trim().isEmpty ? null : family,
+      fontFamilyFallback: _isSinhala
+          ? const ['Noto Sans Sinhala', 'Iskoola Pota', 'Nirmala UI']
+          : const ['Helvetica', 'Arial', 'Times New Roman', 'Courier New'],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final headerTitle = settings.title.trim().isEmpty
+        ? _t('Reports & Analytics', 'වාර්තා සහ විශ්ලේෂණ')
+        : settings.title.trim();
+    final headerSubtitle = settings.subtitle.trim().isEmpty
+        ? _t(
+            'Comprehensive business reports with real-time data.',
+            'තත්‍ය කාලීන දත්ත සමඟ සම්පූර්ණ ව්‍යාපාර වාර්තා.',
+          )
+        : settings.subtitle.trim();
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Reports & Analytics',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF334156),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              top: settings.marginTop,
+              bottom: settings.marginBottom,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (settings.showLogo &&
+                    shopInfo.logoPath.trim().isNotEmpty) ...[
+                  Container(
+                    height: 44,
+                    width: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8FBF7),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.file(
+                      File(shopInfo.logoPath),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Icon(
+                        Icons.storefront_outlined,
+                        color: AppColors.primaryTeal,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        headerTitle,
+                        style: _style(size: 21, weight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        headerSubtitle,
+                        style: _style(
+                          size: 13.5,
+                          weight: FontWeight.w500,
+                          color: const Color(0xFF8492A6),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Comprehensive business reports with real-time data.',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFF8492A6),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(width: 16),

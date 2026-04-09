@@ -133,3 +133,6 @@
 - Added an invoice layout designer to the settings page with 80mm thermal and A4 templates, language switching, separate English/Sinhala font controls, margin settings, and a live preview that uses the setup shop logo and shop name.
 - Updated invoice printing to open a configurable print preview dialog that follows the saved invoice layout settings before sending the invoice to the printer.
 - Extended the reports page with tax analytics, including total tax collected for the selected duration and a tax trend line chart based on the chosen date range.
+- Refactored the settings page into a desktop-style left menu and right content panel layout, then organized the existing POS, invoice layout, language, and about settings into the new UI structure.
+- Added configurable report header layout settings with language, fonts, title, subtitle, logo visibility, margins, and live preview, then wired the reports page header to use those saved settings.
+- Added a real invoice printing pipeline using saved invoice layout settings, then wired both POS checkout and the invoice page print action to open print preview and send invoices to the printer.

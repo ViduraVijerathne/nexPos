@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/widgets/invoice_preview.dart';
+import '../../../../core/services/invoice_print_service.dart';
 import '../../data/invoice_local_repository.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
@@ -182,7 +183,15 @@ class _InvoicePageState extends State<InvoicePage> {
         shopInfo: setupState.shopInfo,
         settings: layoutSettings,
         preview: preview,
-        onPrint: () {
+        onPrint: () async {
+          await InvoicePrintService.printInvoice(
+            shopInfo: setupState.shopInfo,
+            settings: layoutSettings,
+            preview: preview,
+          );
+          if (!context.mounted) {
+            return;
+          }
           Navigator.of(context).pop();
           AppToast.success('Invoice sent to printer');
         },

@@ -42,6 +42,8 @@ dependencies:
   pinput: ^6.0.2
   file_picker: ^11.0.2
   path_provider: ^2.1.5
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
 dev_dependencies:
   flutter_test:

@@ -66,6 +66,39 @@ class InvoiceLayoutSettings {
   );
 }
 
+class ReportHeaderSettings {
+  const ReportHeaderSettings({
+    required this.title,
+    required this.subtitle,
+    required this.language,
+    required this.englishFontFamily,
+    required this.sinhalaFontFamily,
+    required this.showLogo,
+    required this.marginTop,
+    required this.marginBottom,
+  });
+
+  final String title;
+  final String subtitle;
+  final InvoiceLanguage language;
+  final String englishFontFamily;
+  final String sinhalaFontFamily;
+  final bool showLogo;
+  final double marginTop;
+  final double marginBottom;
+
+  static const ReportHeaderSettings defaults = ReportHeaderSettings(
+    title: '',
+    subtitle: 'Comprehensive business reports with real-time data.',
+    language: InvoiceLanguage.english,
+    englishFontFamily: '',
+    sinhalaFontFamily: 'Noto Sans Sinhala',
+    showLogo: true,
+    marginTop: 0,
+    marginBottom: 0,
+  );
+}
+
 class AppSettingsService {
   AppSettingsService._();
 
@@ -84,6 +117,21 @@ class AppSettingsService {
   static const String _invoiceMarginBottomKey =
       'settings.invoice_margin_bottom';
   static const String _invoiceMarginLeftKey = 'settings.invoice_margin_left';
+  static const String _reportHeaderTitleKey = 'settings.report_header_title';
+  static const String _reportHeaderSubtitleKey =
+      'settings.report_header_subtitle';
+  static const String _reportHeaderLanguageKey =
+      'settings.report_header_language';
+  static const String _reportHeaderEnglishFontKey =
+      'settings.report_header_english_font';
+  static const String _reportHeaderSinhalaFontKey =
+      'settings.report_header_sinhala_font';
+  static const String _reportHeaderShowLogoKey =
+      'settings.report_header_show_logo';
+  static const String _reportHeaderMarginTopKey =
+      'settings.report_header_margin_top';
+  static const String _reportHeaderMarginBottomKey =
+      'settings.report_header_margin_bottom';
 
   Future<PosTaxSettings> loadPosTaxSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -168,5 +216,59 @@ class AppSettingsService {
     await prefs.setDouble(_invoiceMarginRightKey, settings.marginRight);
     await prefs.setDouble(_invoiceMarginBottomKey, settings.marginBottom);
     await prefs.setDouble(_invoiceMarginLeftKey, settings.marginLeft);
+  }
+
+  Future<ReportHeaderSettings> loadReportHeaderSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    InvoiceLanguage readLanguage(String? raw) {
+      return InvoiceLanguage.values.firstWhere(
+        (item) => item.name == raw,
+        orElse: () => ReportHeaderSettings.defaults.language,
+      );
+    }
+
+    return ReportHeaderSettings(
+      title:
+          prefs.getString(_reportHeaderTitleKey) ??
+          ReportHeaderSettings.defaults.title,
+      subtitle:
+          prefs.getString(_reportHeaderSubtitleKey) ??
+          ReportHeaderSettings.defaults.subtitle,
+      language: readLanguage(prefs.getString(_reportHeaderLanguageKey)),
+      englishFontFamily:
+          prefs.getString(_reportHeaderEnglishFontKey) ??
+          ReportHeaderSettings.defaults.englishFontFamily,
+      sinhalaFontFamily:
+          prefs.getString(_reportHeaderSinhalaFontKey) ??
+          ReportHeaderSettings.defaults.sinhalaFontFamily,
+      showLogo:
+          prefs.getBool(_reportHeaderShowLogoKey) ??
+          ReportHeaderSettings.defaults.showLogo,
+      marginTop:
+          prefs.getDouble(_reportHeaderMarginTopKey) ??
+          ReportHeaderSettings.defaults.marginTop,
+      marginBottom:
+          prefs.getDouble(_reportHeaderMarginBottomKey) ??
+          ReportHeaderSettings.defaults.marginBottom,
+    );
+  }
+
+  Future<void> saveReportHeaderSettings(ReportHeaderSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_reportHeaderTitleKey, settings.title);
+    await prefs.setString(_reportHeaderSubtitleKey, settings.subtitle);
+    await prefs.setString(_reportHeaderLanguageKey, settings.language.name);
+    await prefs.setString(
+      _reportHeaderEnglishFontKey,
+      settings.englishFontFamily,
+    );
+    await prefs.setString(
+      _reportHeaderSinhalaFontKey,
+      settings.sinhalaFontFamily,
+    );
+    await prefs.setBool(_reportHeaderShowLogoKey, settings.showLogo);
+    await prefs.setDouble(_reportHeaderMarginTopKey, settings.marginTop);
+    await prefs.setDouble(_reportHeaderMarginBottomKey, settings.marginBottom);
   }
 }

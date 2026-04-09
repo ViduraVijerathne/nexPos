@@ -3,8 +3,41 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/invoice_preview.dart';
+import '../../../../core/widgets/report_header_preview.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
+
+enum _SettingsMenuSection {
+  profile,
+  notifications,
+  security,
+  languageRegion,
+  systemPreferences,
+  systemUpdates,
+  about,
+}
+
+extension on _SettingsMenuSection {
+  String get title => switch (this) {
+    _SettingsMenuSection.profile => 'Profile Settings',
+    _SettingsMenuSection.notifications => 'Notifications',
+    _SettingsMenuSection.security => 'Security',
+    _SettingsMenuSection.languageRegion => 'Language & Region',
+    _SettingsMenuSection.systemPreferences => 'System Preferences',
+    _SettingsMenuSection.systemUpdates => 'System Updates',
+    _SettingsMenuSection.about => 'About',
+  };
+
+  IconData get icon => switch (this) {
+    _SettingsMenuSection.profile => Icons.person_outline_rounded,
+    _SettingsMenuSection.notifications => Icons.notifications_none_rounded,
+    _SettingsMenuSection.security => Icons.lock_outline_rounded,
+    _SettingsMenuSection.languageRegion => Icons.language_rounded,
+    _SettingsMenuSection.systemPreferences => Icons.settings_outlined,
+    _SettingsMenuSection.systemUpdates => Icons.system_update_alt_rounded,
+    _SettingsMenuSection.about => Icons.info_outline_rounded,
+  };
+}
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -19,6 +52,14 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _marginRightController = TextEditingController();
   final TextEditingController _marginBottomController = TextEditingController();
   final TextEditingController _marginLeftController = TextEditingController();
+  final TextEditingController _reportHeaderTitleController =
+      TextEditingController();
+  final TextEditingController _reportHeaderSubtitleController =
+      TextEditingController();
+  final TextEditingController _reportHeaderTopMarginController =
+      TextEditingController();
+  final TextEditingController _reportHeaderBottomMarginController =
+      TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -35,6 +76,15 @@ class _SettingsPageState extends State<SettingsPage> {
   InvoiceLanguage _invoiceLanguage = InvoiceLayoutSettings.defaults.language;
   String _englishFontFamily = InvoiceLayoutSettings.defaults.englishFontFamily;
   String _sinhalaFontFamily = InvoiceLayoutSettings.defaults.sinhalaFontFamily;
+  InvoiceLanguage _reportHeaderLanguage =
+      ReportHeaderSettings.defaults.language;
+  String _reportHeaderEnglishFontFamily =
+      ReportHeaderSettings.defaults.englishFontFamily;
+  String _reportHeaderSinhalaFontFamily =
+      ReportHeaderSettings.defaults.sinhalaFontFamily;
+  bool _showReportLogo = ReportHeaderSettings.defaults.showLogo;
+  _SettingsMenuSection _selectedSection =
+      _SettingsMenuSection.systemPreferences;
 
   static const List<DropdownMenuItem<String>> _englishFontItems = [
     DropdownMenuItem(value: '', child: Text('System Default')),
@@ -65,6 +115,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _marginRightController.dispose();
     _marginBottomController.dispose();
     _marginLeftController.dispose();
+    _reportHeaderTitleController.dispose();
+    _reportHeaderSubtitleController.dispose();
+    _reportHeaderTopMarginController.dispose();
+    _reportHeaderBottomMarginController.dispose();
     super.dispose();
   }
 
@@ -76,6 +130,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosCustomerSettings();
       final invoiceSettings = await AppSettingsService.instance
           .loadInvoiceLayoutSettings();
+      final reportHeaderSettings = await AppSettingsService.instance
+          .loadReportHeaderSettings();
       final setupState = await SetupService.instance.loadState();
 
       if (!mounted) {
@@ -91,6 +147,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _invoiceLanguage = invoiceSettings.language;
         _englishFontFamily = invoiceSettings.englishFontFamily;
         _sinhalaFontFamily = invoiceSettings.sinhalaFontFamily;
+        _reportHeaderLanguage = reportHeaderSettings.language;
+        _reportHeaderEnglishFontFamily = reportHeaderSettings.englishFontFamily;
+        _reportHeaderSinhalaFontFamily = reportHeaderSettings.sinhalaFontFamily;
+        _showReportLogo = reportHeaderSettings.showLogo;
         _marginTopController.text = _formatNumber(invoiceSettings.marginTop);
         _marginRightController.text = _formatNumber(
           invoiceSettings.marginRight,
@@ -99,6 +159,14 @@ class _SettingsPageState extends State<SettingsPage> {
           invoiceSettings.marginBottom,
         );
         _marginLeftController.text = _formatNumber(invoiceSettings.marginLeft);
+        _reportHeaderTitleController.text = reportHeaderSettings.title;
+        _reportHeaderSubtitleController.text = reportHeaderSettings.subtitle;
+        _reportHeaderTopMarginController.text = _formatNumber(
+          reportHeaderSettings.marginTop,
+        );
+        _reportHeaderBottomMarginController.text = _formatNumber(
+          reportHeaderSettings.marginBottom,
+        );
         _isLoading = false;
       });
     } catch (error) {
@@ -116,6 +184,12 @@ class _SettingsPageState extends State<SettingsPage> {
     final marginRight = double.tryParse(_marginRightController.text.trim());
     final marginBottom = double.tryParse(_marginBottomController.text.trim());
     final marginLeft = double.tryParse(_marginLeftController.text.trim());
+    final reportHeaderMarginTop = double.tryParse(
+      _reportHeaderTopMarginController.text.trim(),
+    );
+    final reportHeaderMarginBottom = double.tryParse(
+      _reportHeaderBottomMarginController.text.trim(),
+    );
 
     if (taxPercent == null || taxPercent < 0 || taxPercent > 100) {
       AppToast.error('Enter a valid tax percentage between 0 and 100');
@@ -129,6 +203,14 @@ class _SettingsPageState extends State<SettingsPage> {
       marginLeft,
     ].any((value) => value == null || value < 0 || value > 100)) {
       AppToast.error('Enter valid print margins between 0 and 100');
+      return;
+    }
+
+    if ([
+      reportHeaderMarginTop,
+      reportHeaderMarginBottom,
+    ].any((value) => value == null || value < 0 || value > 100)) {
+      AppToast.error('Enter valid report header margins between 0 and 100');
       return;
     }
 
@@ -152,6 +234,18 @@ class _SettingsPageState extends State<SettingsPage> {
           marginRight: marginRight!,
           marginBottom: marginBottom!,
           marginLeft: marginLeft!,
+        ),
+      );
+      await AppSettingsService.instance.saveReportHeaderSettings(
+        ReportHeaderSettings(
+          title: _reportHeaderTitleController.text.trim(),
+          subtitle: _reportHeaderSubtitleController.text.trim(),
+          language: _reportHeaderLanguage,
+          englishFontFamily: _reportHeaderEnglishFontFamily,
+          sinhalaFontFamily: _reportHeaderSinhalaFontFamily,
+          showLogo: _showReportLogo,
+          marginTop: reportHeaderMarginTop!,
+          marginBottom: reportHeaderMarginBottom!,
         ),
       );
       if (!mounted) {
@@ -178,6 +272,22 @@ class _SettingsPageState extends State<SettingsPage> {
       _marginRightController.text = _formatNumber(defaults.marginRight);
       _marginBottomController.text = _formatNumber(defaults.marginBottom);
       _marginLeftController.text = _formatNumber(defaults.marginLeft);
+    });
+  }
+
+  void _resetReportHeaderDefaults() {
+    final defaults = ReportHeaderSettings.defaults;
+    setState(() {
+      _reportHeaderTitleController.text = defaults.title;
+      _reportHeaderSubtitleController.text = defaults.subtitle;
+      _reportHeaderLanguage = defaults.language;
+      _reportHeaderEnglishFontFamily = defaults.englishFontFamily;
+      _reportHeaderSinhalaFontFamily = defaults.sinhalaFontFamily;
+      _showReportLogo = defaults.showLogo;
+      _reportHeaderTopMarginController.text = _formatNumber(defaults.marginTop);
+      _reportHeaderBottomMarginController.text = _formatNumber(
+        defaults.marginBottom,
+      );
     });
   }
 
@@ -221,6 +331,21 @@ class _SettingsPageState extends State<SettingsPage> {
     balance: 500,
   );
 
+  ReportHeaderSettings get _currentReportHeaderSettings => ReportHeaderSettings(
+    title: _reportHeaderTitleController.text.trim(),
+    subtitle: _reportHeaderSubtitleController.text.trim(),
+    language: _reportHeaderLanguage,
+    englishFontFamily: _reportHeaderEnglishFontFamily,
+    sinhalaFontFamily: _reportHeaderSinhalaFontFamily,
+    showLogo: _showReportLogo,
+    marginTop:
+        double.tryParse(_reportHeaderTopMarginController.text.trim()) ??
+        ReportHeaderSettings.defaults.marginTop,
+    marginBottom:
+        double.tryParse(_reportHeaderBottomMarginController.text.trim()) ??
+        ReportHeaderSettings.defaults.marginBottom,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -229,318 +354,689 @@ class _SettingsPageState extends State<SettingsPage> {
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.primaryTeal),
             )
-          : SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Settings',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF2E3A4D),
-                    ),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2E3A4D),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Configure POS behavior, customer flow, and invoice printing.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF8090A4),
-                    ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Manage your system preferences and configurations.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF8090A4),
                   ),
-                  const SizedBox(height: 20),
-                  _SettingsSection(
-                    title: 'POS Tax Settings',
-                    description:
-                        'Enable or disable tax in the POS screen and change the tax percentage used during billing.',
-                    child: Column(
-                      children: [
-                        _SwitchTile(
-                          title: 'Show Tax In POS',
-                          description: _isTaxEnabled
-                              ? 'Tax row and tax amount are enabled in the billing summary.'
-                              : 'Tax is hidden by default until you enable it.',
-                          value: _isTaxEnabled,
-                          onChanged: (value) {
-                            setState(() => _isTaxEnabled = value);
+                ),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 375,
+                        child: _MenuCard(
+                          selectedSection: _selectedSection,
+                          onSelected: (section) {
+                            setState(() => _selectedSection = section);
                           },
                         ),
-                        const SizedBox(height: 16),
-                        const _FieldLabel('Tax Percentage'),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: 240,
-                          child: _NumberField(
-                            controller: _taxPercentController,
-                            suffixText: '%',
-                          ),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: _ContentCard(
+                          child: _buildSelectedSectionContent(),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 18),
-                  _SettingsSection(
-                    title: 'POS Customer Flow',
-                    description:
-                        'Control how POS creates a new customer during checkout when the typed mobile number is not already in the database.',
-                    child: _SwitchTile(
-                      title: 'Create Customer Only Contact Number',
-                      description: _createCustomerOnlyContact
-                          ? 'When POS needs a new customer, the entered mobile number alone will be used to create it.'
-                          : 'When POS needs a new customer, a full customer creation dialog will be shown.',
-                      value: _createCustomerOnlyContact,
-                      onChanged: (value) {
-                        setState(() => _createCustomerOnlyContact = value);
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  _SettingsSection(
-                    title: 'Invoice Layout Designer',
-                    description:
-                        'Create your own invoice design for 80mm thermal or A4 printing with layout, language, font, and margin controls.',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _FieldLabel('Paper Size'),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: InvoicePaperSize.values.map((size) {
-                            final selected = _paperSize == size;
-                            return Expanded(
-                              child: Padding(
-                                padding: EdgeInsets.only(
-                                  right: size == InvoicePaperSize.thermal80mm
-                                      ? 12
-                                      : 0,
-                                ),
-                                child: InkWell(
-                                  onTap: () =>
-                                      setState(() => _paperSize = size),
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: selected
-                                          ? const Color(0xFFE8FBF7)
-                                          : AppColors.white,
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: selected
-                                            ? AppColors.primaryTeal
-                                            : const Color(0xFFE3EAF2),
-                                        width: selected ? 2 : 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(
-                                          size == InvoicePaperSize.thermal80mm
-                                              ? Icons.receipt_long_outlined
-                                              : Icons.description_outlined,
-                                          color: AppColors.primaryTeal,
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          size.label,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF334156),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 18),
-                        const _FieldLabel('Invoice Language'),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 10,
-                          children: InvoiceLanguage.values.map((language) {
-                            final selected = _invoiceLanguage == language;
-                            return ChoiceChip(
-                              label: Text(language.label),
-                              selected: selected,
-                              onSelected: (_) {
-                                setState(() => _invoiceLanguage = language);
-                              },
-                              selectedColor: const Color(0xFFE8FBF7),
-                              side: BorderSide(
-                                color: selected
-                                    ? AppColors.primaryTeal
-                                    : const Color(0xFFE3EAF2),
-                              ),
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: selected
-                                    ? AppColors.primaryTeal
-                                    : const Color(0xFF445166),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const _FieldLabel('English Font'),
-                                  const SizedBox(height: 8),
-                                  _DropdownField(
-                                    value: _englishFontFamily,
-                                    items: _englishFontItems,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _englishFontFamily = value ?? '';
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const _FieldLabel('Sinhala Font'),
-                                  const SizedBox(height: 8),
-                                  _DropdownField(
-                                    value: _sinhalaFontFamily,
-                                    items: _sinhalaFontItems,
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _sinhalaFontFamily =
-                                            value ??
-                                            InvoiceLayoutSettings
-                                                .defaults
-                                                .sinhalaFontFamily;
-                                      });
-                                    },
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        const _FieldLabel('Printing Margins'),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _LabeledNumberField(
-                                label: 'Top',
-                                controller: _marginTopController,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _LabeledNumberField(
-                                label: 'Right',
-                                controller: _marginRightController,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _LabeledNumberField(
-                                label: 'Bottom',
-                                controller: _marginBottomController,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _LabeledNumberField(
-                                label: 'Left',
-                                controller: _marginLeftController,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            TextButton.icon(
-                              onPressed: _resetInvoiceLayoutDefaults,
-                              icon: const Icon(Icons.refresh_rounded, size: 16),
-                              label: const Text('Reset Default Layout'),
-                            ),
-                            const Spacer(),
-                            const Text(
-                              'Shop logo and title come from setup information.',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF8A98AD),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Live Invoice Preview',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF334156),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7FAFC),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE6EDF5)),
-                          ),
-                          child: Center(
-                            child: InvoicePreviewCard(
-                              shopInfo: _shopInfo,
-                              settings: _currentInvoiceSettings,
-                              preview: _sampleInvoice,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _saveSettings,
-                      child: Text(_isSaving ? 'Saving...' : 'Save Settings'),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+    );
+  }
+
+  Widget _buildSelectedSectionContent() {
+    return switch (_selectedSection) {
+      _SettingsMenuSection.profile => _InfoPanel(
+        title: 'Profile Settings',
+        description:
+            'Admin account and shop owner profile settings will appear here in a future update.',
+        icon: Icons.person_outline_rounded,
+      ),
+      _SettingsMenuSection.notifications => _InfoPanel(
+        title: 'Notifications',
+        description:
+            'Email alerts, low-stock notifications, and reminder controls are reserved for the upcoming notification module.',
+        icon: Icons.notifications_none_rounded,
+      ),
+      _SettingsMenuSection.security => _InfoPanel(
+        title: 'Security',
+        description:
+            'PIN policy, password rules, and access controls will be managed from this section as backend security options expand.',
+        icon: Icons.lock_outline_rounded,
+      ),
+      _SettingsMenuSection.languageRegion => _buildLanguageRegionSection(),
+      _SettingsMenuSection.systemPreferences =>
+        _buildSystemPreferencesSection(),
+      _SettingsMenuSection.systemUpdates => _InfoPanel(
+        title: 'System Updates',
+        description:
+            'Online update delivery is not supported yet. Local builds can still be updated manually by replacing the desktop application.',
+        icon: Icons.system_update_alt_rounded,
+      ),
+      _SettingsMenuSection.about => _buildAboutSection(),
+    };
+  }
+
+  Widget _buildSystemPreferencesSection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'System Preferences',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334156),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'POS Tax Settings',
+            child: Column(
+              children: [
+                _SwitchTile(
+                  title: 'Show Tax In POS',
+                  description: _isTaxEnabled
+                      ? 'Tax row and tax amount are enabled in the billing summary.'
+                      : 'Tax is hidden by default until you enable it.',
+                  value: _isTaxEnabled,
+                  onChanged: (value) {
+                    setState(() => _isTaxEnabled = value);
+                  },
+                ),
+                const SizedBox(height: 16),
+                const _FieldLabel('Tax Percentage'),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: 260,
+                  child: _NumberField(
+                    controller: _taxPercentController,
+                    suffixText: '%',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'POS Customer Flow',
+            child: _SwitchTile(
+              title: 'Create Customer Only Contact Number',
+              description: _createCustomerOnlyContact
+                  ? 'POS can create a customer quickly with just the mobile number.'
+                  : 'POS will ask for full customer details before creating a new customer.',
+              value: _createCustomerOnlyContact,
+              onChanged: (value) {
+                setState(() => _createCustomerOnlyContact = value);
+              },
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Invoice Paper & Margins',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _FieldLabel('Paper Size'),
+                const SizedBox(height: 10),
+                Row(
+                  children: InvoicePaperSize.values.map((size) {
+                    final selected = _paperSize == size;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: size == InvoicePaperSize.thermal80mm ? 12 : 0,
+                        ),
+                        child: _SelectableCard(
+                          selected: selected,
+                          icon: size == InvoicePaperSize.thermal80mm
+                              ? Icons.receipt_long_outlined
+                              : Icons.description_outlined,
+                          label: size.label,
+                          onTap: () => setState(() => _paperSize = size),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Top Margin',
+                        controller: _marginTopController,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Right Margin',
+                        controller: _marginRightController,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Bottom Margin',
+                        controller: _marginBottomController,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Left Margin',
+                        controller: _marginLeftController,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _saveSettings,
+              child: Text(_isSaving ? 'Saving...' : 'Save Settings'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLanguageRegionSection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Language & Region',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334156),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Invoice Language',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 10,
+                  children: InvoiceLanguage.values.map((language) {
+                    final selected = _invoiceLanguage == language;
+                    return ChoiceChip(
+                      label: Text(language.label),
+                      selected: selected,
+                      onSelected: (_) {
+                        setState(() => _invoiceLanguage = language);
+                      },
+                      selectedColor: const Color(0xFFE8FBF7),
+                      side: BorderSide(
+                        color: selected
+                            ? AppColors.primaryTeal
+                            : const Color(0xFFE3EAF2),
+                      ),
+                      labelStyle: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: selected
+                            ? AppColors.primaryTeal
+                            : const Color(0xFF445166),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('English Font'),
+                          const SizedBox(height: 8),
+                          _DropdownField(
+                            value: _englishFontFamily,
+                            items: _englishFontItems,
+                            onChanged: (value) {
+                              setState(() => _englishFontFamily = value ?? '');
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Sinhala Font'),
+                          const SizedBox(height: 8),
+                          _DropdownField(
+                            value: _sinhalaFontFamily,
+                            items: _sinhalaFontItems,
+                            onChanged: (value) {
+                              setState(() {
+                                _sinhalaFontFamily =
+                                    value ??
+                                    InvoiceLayoutSettings
+                                        .defaults
+                                        .sinhalaFontFamily;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Invoice Preview',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: _resetInvoiceLayoutDefaults,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Reset Default Layout'),
+                    ),
+                    const Spacer(),
+                    const Text(
+                      'Shop logo and title come from setup information.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8A98AD),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE6EDF5)),
+                  ),
+                  child: Center(
+                    child: InvoicePreviewCard(
+                      shopInfo: _shopInfo,
+                      settings: _currentInvoiceSettings,
+                      preview: _sampleInvoice,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Report Header Designer',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _FieldLabel('Header Title'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _reportHeaderTitleController,
+                  hintText: 'Leave empty to use shop name',
+                ),
+                const SizedBox(height: 14),
+                const _FieldLabel('Header Subtitle'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _reportHeaderSubtitleController,
+                  hintText: 'Enter report header subtitle',
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                _SwitchTile(
+                  title: 'Show Shop Logo',
+                  description:
+                      'Use the setup logo inside the reports header layout.',
+                  value: _showReportLogo,
+                  onChanged: (value) {
+                    setState(() => _showReportLogo = value);
+                  },
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  children: InvoiceLanguage.values.map((language) {
+                    final selected = _reportHeaderLanguage == language;
+                    return ChoiceChip(
+                      label: Text(language.label),
+                      selected: selected,
+                      onSelected: (_) {
+                        setState(() => _reportHeaderLanguage = language);
+                      },
+                      selectedColor: const Color(0xFFE8FBF7),
+                      side: BorderSide(
+                        color: selected
+                            ? AppColors.primaryTeal
+                            : const Color(0xFFE3EAF2),
+                      ),
+                      labelStyle: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: selected
+                            ? AppColors.primaryTeal
+                            : const Color(0xFF445166),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('English Font'),
+                          const SizedBox(height: 8),
+                          _DropdownField(
+                            value: _reportHeaderEnglishFontFamily,
+                            items: _englishFontItems,
+                            onChanged: (value) {
+                              setState(() {
+                                _reportHeaderEnglishFontFamily = value ?? '';
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Sinhala Font'),
+                          const SizedBox(height: 8),
+                          _DropdownField(
+                            value: _reportHeaderSinhalaFontFamily,
+                            items: _sinhalaFontItems,
+                            onChanged: (value) {
+                              setState(() {
+                                _reportHeaderSinhalaFontFamily =
+                                    value ??
+                                    ReportHeaderSettings
+                                        .defaults
+                                        .sinhalaFontFamily;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Top Margin',
+                        controller: _reportHeaderTopMarginController,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabeledNumberField(
+                        label: 'Bottom Margin',
+                        controller: _reportHeaderBottomMarginController,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: _resetReportHeaderDefaults,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Reset Report Header'),
+                    ),
+                    const Spacer(),
+                    const Text(
+                      'Preview updates the reports page header.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8A98AD),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE6EDF5)),
+                  ),
+                  child: Center(
+                    child: ReportHeaderPreviewCard(
+                      shopInfo: _shopInfo,
+                      settings: _currentReportHeaderSettings,
+                      fromDateLabel: 'Apr 01',
+                      toDateLabel: 'Apr 30',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: _isSaving ? null : _saveSettings,
+              child: Text(_isSaving ? 'Saving...' : 'Save Settings'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAboutSection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'About',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334156),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const _FieldLabel('Application Name'),
+          const SizedBox(height: 8),
+          const _ReadOnlyField(value: 'Nexpos'),
+          const SizedBox(height: 14),
+          const _FieldLabel('Version'),
+          const SizedBox(height: 8),
+          const _ReadOnlyField(value: '1.0.0'),
+          const SizedBox(height: 14),
+          const _FieldLabel('Developer'),
+          const SizedBox(height: 8),
+          const _ReadOnlyField(value: 'Nexpos Team'),
+          const SizedBox(height: 14),
+          const _FieldLabel('Website'),
+          const SizedBox(height: 8),
+          const _ReadOnlyField(value: 'https://nexpos.com'),
+          const SizedBox(height: 24),
+          _SettingsBlock(
+            title: 'Setup Information',
+            child: Column(
+              children: [
+                _InfoRow(label: 'Shop Name', value: _shopInfo.shopName),
+                _InfoRow(
+                  label: 'Contact Email',
+                  value: _shopInfo.contactEmail.isEmpty
+                      ? '-'
+                      : _shopInfo.contactEmail,
+                ),
+                _InfoRow(
+                  label: 'Contact Number',
+                  value: _shopInfo.contactNumber.isEmpty
+                      ? '-'
+                      : _shopInfo.contactNumber,
+                ),
+                _InfoRow(
+                  label: 'Address',
+                  value: _shopInfo.address.isEmpty ? '-' : _shopInfo.address,
+                  expandValue: true,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.title,
-    required this.description,
-    required this.child,
+class _MenuCard extends StatelessWidget {
+  const _MenuCard({required this.selectedSection, required this.onSelected});
+
+  final _SettingsMenuSection selectedSection;
+  final ValueChanged<_SettingsMenuSection> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE6EDF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SETTINGS MENU',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF8594AA),
+            ),
+          ),
+          const SizedBox(height: 18),
+          ..._SettingsMenuSection.values.map(
+            (section) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _MenuItem(
+                section: section,
+                isSelected: section == selectedSection,
+                onTap: () => onSelected(section),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MenuItem extends StatelessWidget {
+  const _MenuItem({
+    required this.section,
+    required this.isSelected,
+    required this.onTap,
   });
 
-  final String title;
-  final String description;
+  final _SettingsMenuSection section;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFD9F7F3) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? AppColors.primaryTeal : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              section.icon,
+              size: 20,
+              color: isSelected
+                  ? AppColors.primaryTeal
+                  : const Color(0xFF71829B),
+            ),
+            const SizedBox(width: 14),
+            Text(
+              section.title,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: isSelected
+                    ? AppColors.primaryTeal
+                    : const Color(0xFF4A586B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ContentCard extends StatelessWidget {
+  const _ContentCard({required this.child});
+
   final Widget child;
 
   @override
@@ -552,13 +1048,27 @@ class _SettingsSection extends StatelessWidget {
         color: AppColors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE6EDF5)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x120F172A),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _SettingsBlock extends StatelessWidget {
+  const _SettingsBlock({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FBFD),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE6EDF5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,23 +1076,117 @@ class _SettingsSection extends StatelessWidget {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
               color: Color(0xFF334156),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            description,
-            style: const TextStyle(
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF8A98AD),
-            ),
-          ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _SelectableCard extends StatelessWidget {
+  const _SelectableCard({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFE8FBF7) : AppColors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? AppColors.primaryTeal : const Color(0xFFE3EAF2),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: AppColors.primaryTeal),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF334156),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoPanel extends StatelessWidget {
+  const _InfoPanel({
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              height: 72,
+              width: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8FBF7),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Icon(icon, color: AppColors.primaryTeal, size: 34),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF334156),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF8090A4),
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -606,7 +1210,7 @@ class _SwitchTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFD),
+        color: AppColors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE6EDF5)),
       ),
@@ -701,6 +1305,47 @@ class _NumberField extends StatelessWidget {
   }
 }
 
+class _TextInputField extends StatelessWidget {
+  const _TextInputField({
+    required this.controller,
+    required this.hintText,
+    this.maxLines = 1,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        hintText: hintText,
+        filled: true,
+        fillColor: AppColors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+        ),
+      ),
+    );
+  }
+}
+
 class _LabeledNumberField extends StatelessWidget {
   const _LabeledNumberField({required this.label, required this.controller});
 
@@ -764,6 +1409,83 @@ class _DropdownField extends StatelessWidget {
         ),
       ),
       items: items,
+    );
+  }
+}
+
+class _ReadOnlyField extends StatelessWidget {
+  const _ReadOnlyField({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      readOnly: true,
+      controller: TextEditingController(text: value),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: AppColors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.expandValue = false,
+  });
+
+  final String label;
+  final String value;
+  final bool expandValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: expandValue
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF6E7E94),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334156),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

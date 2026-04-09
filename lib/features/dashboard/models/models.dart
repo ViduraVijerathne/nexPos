@@ -818,6 +818,7 @@ class InsightDashboardData {
 class ReportSummaryData {
   const ReportSummaryData({
     required this.totalRevenue,
+    required this.totalTax,
     required this.totalOrders,
     required this.averageOrderValue,
     required this.stockValue,
@@ -826,6 +827,7 @@ class ReportSummaryData {
   });
 
   final double totalRevenue;
+  final double totalTax;
   final int totalOrders;
   final double averageOrderValue;
   final double stockValue;
@@ -886,6 +888,7 @@ class ReportDashboardData {
   const ReportDashboardData({
     required this.summary,
     required this.salesPoints,
+    required this.taxPoints,
     required this.lowStockRows,
     required this.stockValuationRows,
     required this.topCustomers,
@@ -895,6 +898,7 @@ class ReportDashboardData {
 
   final ReportSummaryData summary;
   final List<ReportSalesPoint> salesPoints;
+  final List<ReportSalesPoint> taxPoints;
   final List<ReportLowStockRow> lowStockRows;
   final List<ReportStockValuationRow> stockValuationRows;
   final List<ReportTopCustomerRow> topCustomers;

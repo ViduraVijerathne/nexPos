@@ -59,6 +59,10 @@ class ReportLocalRepository {
         0,
         (sum, invoice) => sum + invoice.totalAmount,
       ),
+      totalTax: filteredInvoices.fold<double>(
+        0,
+        (sum, invoice) => sum + invoice.tax,
+      ),
       totalOrders: filteredInvoices.length,
       averageOrderValue: filteredInvoices.isEmpty
           ? 0
@@ -81,6 +85,11 @@ class ReportLocalRepository {
     return ReportDashboardData(
       summary: summary,
       salesPoints: _buildSalesPoints(
+        filteredInvoices,
+        normalizedFrom,
+        normalizedTo,
+      ),
+      taxPoints: _buildTaxPoints(
         filteredInvoices,
         normalizedFrom,
         normalizedTo,
@@ -114,6 +123,33 @@ class ReportLocalRepository {
           .fold<double>(0, (sum, invoice) => sum + invoice.totalAmount);
 
       points.add(ReportSalesPoint(label: _formatAxisDate(date), value: total));
+    }
+    return points;
+  }
+
+  List<ReportSalesPoint> _buildTaxPoints(
+    List<InvoiceEntity> invoices,
+    DateTime fromDate,
+    DateTime toDate,
+  ) {
+    final points = <ReportSalesPoint>[];
+    for (
+      var date = DateTime(fromDate.year, fromDate.month, fromDate.day);
+      !date.isAfter(toDate);
+      date = date.add(const Duration(days: 1))
+    ) {
+      final totalTax = invoices
+          .where(
+            (invoice) =>
+                invoice.issuedAt.year == date.year &&
+                invoice.issuedAt.month == date.month &&
+                invoice.issuedAt.day == date.day,
+          )
+          .fold<double>(0, (sum, invoice) => sum + invoice.tax);
+
+      points.add(
+        ReportSalesPoint(label: _formatAxisDate(date), value: totalTax),
+      );
     }
     return points;
   }

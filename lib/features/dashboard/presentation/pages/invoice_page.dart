@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
+import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/invoice_local_repository.dart';
 import '../../models/models.dart';
+import '../../../settings/services/app_settings_service.dart';
+import '../../../setup/services/setup_service.dart';
 
 class InvoicePage extends StatefulWidget {
   const InvoicePage({super.key});
@@ -134,14 +137,57 @@ class _InvoicePageState extends State<InvoicePage> {
         invoice: record,
         onPrint: () {
           Navigator.of(context).pop();
-          AppToast.success('Invoice sent to printer');
+          _printInvoice(record);
         },
       ),
     );
   }
 
-  void _printInvoice(InvoiceRecord invoice) {
-    AppToast.success('Printing ${invoice.invoiceId}');
+  Future<void> _printInvoice(InvoiceRecord invoice) async {
+    final setupState = await SetupService.instance.loadState();
+    final layoutSettings = await AppSettingsService.instance
+        .loadInvoiceLayoutSettings();
+    if (!mounted) {
+      return;
+    }
+
+    final preview = InvoicePreviewData(
+      invoiceNumber: invoice.invoiceId,
+      customerName: invoice.customerName,
+      customerMobile: invoice.customerCode == 'walk-in'
+          ? ''
+          : invoice.customerCode,
+      dateTimeText: invoice.date,
+      items: invoice.items
+          .map(
+            (item) => InvoicePreviewLine(
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+            ),
+          )
+          .toList(),
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      total: invoice.amount,
+      paymentMethod: invoice.paymentMethod,
+      paidAmount: invoice.amount,
+      balance: 0,
+    );
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => InvoicePrintPreviewDialog(
+        shopInfo: setupState.shopInfo,
+        settings: layoutSettings,
+        preview: preview,
+        onPrint: () {
+          Navigator.of(context).pop();
+          AppToast.success('Invoice sent to printer');
+        },
+      ),
+    );
   }
 
   @override

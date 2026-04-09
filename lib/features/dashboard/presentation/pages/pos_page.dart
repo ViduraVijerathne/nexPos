@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../data/customer_local_repository.dart';
 import '../../data/pos_local_repository.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
@@ -19,6 +20,8 @@ class PosPage extends StatefulWidget {
 
 class _PosPageState extends State<PosPage> {
   final PosLocalRepository _repository = const PosLocalRepository();
+  final CustomerLocalRepository _customerRepository =
+      const CustomerLocalRepository();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
@@ -43,6 +46,9 @@ class _PosPageState extends State<PosPage> {
   PosTaxSettings _taxSettings = const PosTaxSettings(
     isTaxEnabled: false,
     taxPercent: 10,
+  );
+  PosCustomerSettings _customerSettings = const PosCustomerSettings(
+    createCustomerOnlyContact: false,
   );
 
   @override
@@ -77,13 +83,17 @@ class _PosPageState extends State<PosPage> {
   Future<void> _initializePage() async {
     try {
       await _repository.initialize();
+      await _customerRepository.initialize();
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
+      final customerSettings = await AppSettingsService.instance
+          .loadPosCustomerSettings();
       await _loadCatalog();
       await _loadCustomers();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
+          _customerSettings = customerSettings;
         });
       }
       if (mounted) {
@@ -179,6 +189,17 @@ class _PosPageState extends State<PosPage> {
       _customerController.text = _selectedCustomer.searchLabel;
       _showCustomerSuggestions = false;
     });
+  }
+
+  bool get _hasManualCustomerEntry {
+    final entered = _customerController.text.trim();
+    if (entered.isEmpty) {
+      return false;
+    }
+    if (entered == PosLocalRepository.walkInCustomer.searchLabel) {
+      return false;
+    }
+    return entered != _selectedCustomer.searchLabel;
   }
 
   void _addCatalogItemToCart(PosCatalogItem item) {
@@ -282,9 +303,17 @@ class _PosPageState extends State<PosPage> {
     setState(() => _isProcessing = true);
 
     try {
+      final checkoutCustomer = await _resolveCheckoutCustomer();
+      if (checkoutCustomer == null) {
+        if (mounted) {
+          setState(() => _isProcessing = false);
+        }
+        return;
+      }
+
       final result = await _repository.processSale(
         items: _cartItems,
-        customer: _selectedCustomer,
+        customer: checkoutCustomer,
         paymentMethod: _selectedPaymentMethod.label,
         amountPaid: _amountPaid,
         cashierName: 'Admin User',
@@ -324,6 +353,94 @@ class _PosPageState extends State<PosPage> {
       setState(() => _isProcessing = false);
       AppToast.error('Failed to process payment: $error');
     }
+  }
+
+  Future<PosCustomerOption?> _resolveCheckoutCustomer() async {
+    if (!_hasManualCustomerEntry) {
+      return _selectedCustomer;
+    }
+
+    final enteredContact = _customerController.text.trim();
+    final existingCustomer = await _customerRepository.fetchCustomerByPhone(
+      enteredContact,
+    );
+
+    if (existingCustomer != null) {
+      final customer = PosCustomerOption(
+        id: existingCustomer.id,
+        name: existingCustomer.name,
+        phone: existingCustomer.phone,
+        email: existingCustomer.email,
+      );
+      if (mounted) {
+        setState(() {
+          _selectedCustomer = customer;
+          _customerController.text = customer.searchLabel;
+          _showCustomerSuggestions = false;
+        });
+      }
+      return customer;
+    }
+
+    if (_customerSettings.createCustomerOnlyContact) {
+      final created = await _customerRepository.saveCustomer(
+        CustomerRecord(
+          id: 0,
+          name: enteredContact,
+          email: '',
+          phone: enteredContact,
+          address: '',
+          joinDate: '',
+          invoices: const [],
+        ),
+      );
+
+      final customer = PosCustomerOption(
+        id: created.id,
+        name: created.name,
+        phone: created.phone,
+        email: created.email,
+      );
+      if (mounted) {
+        setState(() {
+          _selectedCustomer = customer;
+          _customerController.text = customer.searchLabel;
+          _showCustomerSuggestions = false;
+        });
+      }
+      await _loadCustomers();
+      AppToast.success('Customer created successfully');
+      return customer;
+    }
+
+    final created = await showDialog<CustomerRecord>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) =>
+          PosCustomerCreateDialog(initialPhone: enteredContact),
+    );
+
+    if (created == null) {
+      return null;
+    }
+
+    final saved = await _customerRepository.saveCustomer(created);
+    final customer = PosCustomerOption(
+      id: saved.id,
+      name: saved.name,
+      phone: saved.phone,
+      email: saved.email,
+    );
+    if (mounted) {
+      setState(() {
+        _selectedCustomer = customer;
+        _customerController.text = customer.searchLabel;
+        _showCustomerSuggestions = false;
+      });
+    }
+    await _loadCustomers();
+    AppToast.success('Customer created successfully');
+    return customer;
   }
 
   @override
@@ -462,6 +579,207 @@ class _PosHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class PosCustomerCreateDialog extends StatefulWidget {
+  const PosCustomerCreateDialog({super.key, required this.initialPhone});
+
+  final String initialPhone;
+
+  @override
+  State<PosCustomerCreateDialog> createState() =>
+      _PosCustomerCreateDialogState();
+}
+
+class _PosCustomerCreateDialogState extends State<PosCustomerCreateDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _addressController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _emailController = TextEditingController();
+    _phoneController = TextEditingController(text: widget.initialPhone);
+    _addressController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_nameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty ||
+        _phoneController.text.trim().isEmpty ||
+        _addressController.text.trim().isEmpty) {
+      AppToast.error('Fill all required customer fields');
+      return;
+    }
+
+    Navigator.of(context).pop(
+      CustomerRecord(
+        id: 0,
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        address: _addressController.text.trim(),
+        joinDate: '',
+        invoices: const [],
+      ),
+    );
+  }
+
+  InputDecoration _fieldDecoration({
+    required String hintText,
+    required IconData prefixIcon,
+  }) {
+    return InputDecoration(
+      hintText: hintText,
+      prefixIcon: Icon(prefixIcon, color: const Color(0xFF91A0B5), size: 20),
+      filled: true,
+      fillColor: AppColors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.primaryTeal, width: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Container(
+        width: 780,
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x250F172A),
+              blurRadius: 36,
+              offset: Offset(0, 18),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 14, 18),
+              child: Row(
+                children: [
+                  const Text(
+                    'Add New Customer',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2E3A4D),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE8EDF4)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _nameController,
+                    decoration: _fieldDecoration(
+                      hintText: 'Enter customer name',
+                      prefixIcon: Icons.person_outline_rounded,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _emailController,
+                          decoration: _fieldDecoration(
+                            hintText: 'email@example.com',
+                            prefixIcon: Icons.mail_outline_rounded,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextField(
+                          controller: _phoneController,
+                          decoration: _fieldDecoration(
+                            hintText: '+94 7x xxx xxxx',
+                            prefixIcon: Icons.call_outlined,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: _addressController,
+                    maxLines: 4,
+                    decoration: _fieldDecoration(
+                      hintText: 'Enter full address',
+                      prefixIcon: Icons.location_on_outlined,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 18),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF9FBFD),
+                border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(18),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _submit,
+                    child: const Text('Add Customer'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

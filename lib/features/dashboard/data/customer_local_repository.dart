@@ -99,17 +99,39 @@ class CustomerLocalRepository {
     return _mapCustomerEntityToRecord(customer, invoices);
   }
 
+  Future<CustomerRecord?> fetchCustomerByPhone(String phone) async {
+    final isar = await AppDatabase.instance;
+    final trimmedPhone = phone.trim();
+    if (trimmedPhone.isEmpty) {
+      return null;
+    }
+
+    final customer = await isar.customerEntitys
+        .filter()
+        .phoneEqualTo(trimmedPhone, caseSensitive: false)
+        .findFirst();
+    if (customer == null) {
+      return null;
+    }
+
+    final invoices = await _fetchInvoicesForCustomer(isar, customer);
+    return _mapCustomerEntityToRecord(customer, invoices);
+  }
+
   Future<CustomerRecord> saveCustomer(CustomerRecord customer) async {
     final isar = await AppDatabase.instance;
 
-    final existingByEmail = await isar.customerEntitys
-        .filter()
-        .emailEqualTo(customer.email.trim(), caseSensitive: false)
-        .findFirst();
-    if (existingByEmail != null && existingByEmail.id != customer.id) {
-      throw CustomerLocalRepositoryException(
-        'A customer with this email already exists',
-      );
+    final trimmedEmail = customer.email.trim();
+    if (trimmedEmail.isNotEmpty) {
+      final existingByEmail = await isar.customerEntitys
+          .filter()
+          .emailEqualTo(trimmedEmail, caseSensitive: false)
+          .findFirst();
+      if (existingByEmail != null && existingByEmail.id != customer.id) {
+        throw CustomerLocalRepositoryException(
+          'A customer with this email already exists',
+        );
+      }
     }
 
     final existing = customer.id <= 0
@@ -120,7 +142,7 @@ class CustomerLocalRepository {
     final entity = CustomerEntity()
       ..id = customer.id > 0 ? customer.id : Isar.autoIncrement
       ..name = customer.name.trim()
-      ..email = customer.email.trim()
+      ..email = trimmedEmail
       ..phone = customer.phone.trim()
       ..address = customer.address.trim()
       ..joinDate = existing?.joinDate ?? now

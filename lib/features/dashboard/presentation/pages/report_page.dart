@@ -147,6 +147,11 @@ class _ReportPageState extends State<ReportPage> {
             points: data.salesPoints,
             onExport: () => _showExportToast('Daily sales summary'),
           ),
+          const SizedBox(height: 18),
+          _TaxTrendCard(
+            points: data.taxPoints,
+            onExport: () => _showExportToast('Tax report'),
+          ),
           const SizedBox(height: 22),
           const _SectionBanner(
             title: 'Inventory Reports',
@@ -277,6 +282,11 @@ class _ReportSummaryCards extends StatelessWidget {
         note: '${summary.totalOrders} orders',
       ),
       _SummaryCardData(
+        label: 'Tax Collected',
+        value: 'Rs ${summary.totalTax.toStringAsFixed(2)}',
+        note: 'For selected duration',
+      ),
+      _SummaryCardData(
         label: 'Avg. Order Value',
         value: 'Rs ${summary.averageOrderValue.toStringAsFixed(2)}',
         note: 'Per transaction',
@@ -393,6 +403,62 @@ class _DailySalesSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           SizedBox(height: 260, child: _SalesBarChart(points: points)),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaxTrendCard extends StatelessWidget {
+  const _TaxTrendCard({required this.points, required this.onExport});
+
+  final List<ReportSalesPoint> points;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tax Collection Trend',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF374457),
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Tax collected for the selected duration',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8A97AA),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _ExportButton(onTap: onExport),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 260,
+            child: _TrendLineChart(
+              points: points,
+              lineColor: const Color(0xFF9B28BE),
+              fillColor: const Color(0x229B28BE),
+            ),
+          ),
         ],
       ),
     );

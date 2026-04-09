@@ -129,3 +129,6 @@
 - Linked the stock details dialog to related records so clicking the product opens a product info dialog and clicking the GRN ID opens the related GRN details view.
 - Added a real settings page with POS tax controls, including a tax enable/disable switch and editable tax percentage stored in shared preferences.
 - Updated the POS page to load tax settings dynamically, hide tax by default, and use the configured tax percentage when calculating totals and saving invoices.
+- Added POS customer-creation checkout logic so manually entered customers can be created during payment, with a new settings toggle for contact-number-only customer creation and phone-prefill for the full dialog flow.
+- Added an invoice layout designer to the settings page with 80mm thermal and A4 templates, language switching, separate English/Sinhala font controls, margin settings, and a live preview that uses the setup shop logo and shop name.
+- Updated invoice printing to open a configurable print preview dialog that follows the saved invoice layout settings before sending the invoice to the printer.

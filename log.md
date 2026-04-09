@@ -141,3 +141,4 @@
 - Added a real-time theme system with multiple light theme styles and accent color selection, then wired the settings page to update the app theme instantly and persist the selected theme.
 - Added a POS invoice printing behavior setting so cashiers can choose between previewing the invoice first or printing instantly right after `Process Payment`.
 - Added a GitHub Actions workflow to build the Windows desktop app, run analysis/tests, and upload a packaged Windows release artifact automatically.
+- Updated CI analysis settings to exclude generated files and prevent GitHub Actions from failing on non-fatal analyzer warnings and infos during the Windows build workflow.

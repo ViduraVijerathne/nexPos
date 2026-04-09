@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'grn_repository.dart';
 
 class GrnLocalRepositoryException implements Exception {
   GrnLocalRepositoryException(this.message);
@@ -13,7 +14,7 @@ class GrnLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class GrnLocalRepository {
+class GrnLocalRepository implements GrnRepository {
   const GrnLocalRepository();
 
   static const int pageSize = 10;

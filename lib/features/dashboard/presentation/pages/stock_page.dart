@@ -7,8 +7,17 @@ import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/grn_local_repository.dart';
+import '../../data/grn_remote_repository.dart';
+import '../../data/grn_repository.dart';
+import '../../data/grn_repository_factory.dart';
 import '../../data/product_local_repository.dart';
+import '../../data/product_remote_repository.dart';
+import '../../data/product_repository.dart';
+import '../../data/product_repository_factory.dart';
 import '../../data/stock_local_repository.dart';
+import '../../data/stock_remote_repository.dart';
+import '../../data/stock_repository.dart';
+import '../../data/stock_repository_factory.dart';
 import '../../models/models.dart';
 import 'grn_page.dart';
 
@@ -27,10 +36,9 @@ class _StockPageState extends State<StockPage> {
   final TextEditingController _grnSearchController = TextEditingController();
   final TextEditingController _qtyLessController = TextEditingController();
   final TextEditingController _qtyGreaterController = TextEditingController();
-  final StockLocalRepository _repository = const StockLocalRepository();
-  final GrnLocalRepository _grnRepository = const GrnLocalRepository();
-  final ProductLocalRepository _productRepository =
-      const ProductLocalRepository();
+  StockRepository? _repository;
+  GrnRepository? _grnRepository;
+  ProductRepository? _productRepository;
 
   String _selectedStatusFilter = 'All';
   bool _isFilterExpanded = true;
@@ -46,7 +54,12 @@ class _StockPageState extends State<StockPage> {
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
+  int _pageSize = 10;
   bool _isLoading = true;
+  bool _isOpeningDialog = false;
+  String? _viewingStockKey;
+  String? _editingStockKey;
+  String? _deactivatingStockKey;
   Timer? _filterDebounce;
 
   @override
@@ -68,9 +81,18 @@ class _StockPageState extends State<StockPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _grnRepository.initialize();
-      await _productRepository.initialize();
+      final repository = await StockRepositoryFactory.create();
+      final grnRepository = await GrnRepositoryFactory.create();
+      final productRepository = await ProductRepositoryFactory.create();
+      await repository.initialize();
+      await grnRepository.initialize();
+      await productRepository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _repository = repository;
+      _grnRepository = grnRepository;
+      _productRepository = productRepository;
       await _reloadSuggestions();
       await _loadStocks();
     } catch (error) {
@@ -79,13 +101,17 @@ class _StockPageState extends State<StockPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load stocks: $error');
+      AppToast.error('Failed to load stocks: ${_readableError(error)}');
     }
   }
 
   Future<void> _reloadSuggestions() async {
-    final products = await _repository.fetchProductSuggestions();
-    final grns = await _repository.fetchGrnSuggestions();
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+    final products = await repository.fetchProductSuggestions();
+    final grns = await repository.fetchGrnSuggestions();
 
     if (!mounted) {
       return;
@@ -98,10 +124,14 @@ class _StockPageState extends State<StockPage> {
   }
 
   Future<void> _loadStocks({int? targetPage}) async {
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
     setState(() => _isLoading = true);
 
     try {
-      final result = await _repository.fetchStocks(
+      final result = await repository.fetchStocks(
         page: targetPage ?? _currentPage,
         barcodeQuery: _barcodeSearchController.text.trim(),
         productQuery: _productSearchController.text.trim(),
@@ -121,6 +151,7 @@ class _StockPageState extends State<StockPage> {
         _currentPage = result.currentPage;
         _totalPages = result.totalPages;
         _totalCount = result.totalCount;
+        _pageSize = result.pageSize;
         _isLoading = false;
       });
     } catch (error) {
@@ -129,7 +160,7 @@ class _StockPageState extends State<StockPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load stocks: $error');
+      AppToast.error('Failed to load stocks: ${_readableError(error)}');
     }
   }
 
@@ -145,141 +176,190 @@ class _StockPageState extends State<StockPage> {
   }
 
   Future<void> _openStockDialog({StockRecord? stock}) async {
-    final freshProducts = await _repository.fetchProductSuggestions();
-    final freshGrns = await _repository.fetchGrnSuggestions();
-
-    if (!mounted) {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Stock service is still loading. Please try again.');
       return;
     }
 
     setState(() {
-      _productSuggestions = freshProducts;
-      _grnSuggestions = freshGrns;
+      if (stock == null) {
+        _isOpeningDialog = true;
+      } else {
+        _editingStockKey = stock.cloudId ?? '${stock.id ?? stock.barcode}';
+      }
     });
 
-    final result = await showDialog<StockRecord>(
+    try {
+      final freshProducts = await repository.fetchProductSuggestions();
+      final freshGrns = await repository.fetchGrnSuggestions();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _productSuggestions = freshProducts;
+        _grnSuggestions = freshGrns;
+      });
+
+      final result = await showDialog<StockRecord>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return StockFormDialog(
+            repository: repository,
+            initialStock: stock,
+            products: freshProducts,
+            grns: freshGrns,
+          );
+        },
+      );
+
+      if (result == null) {
+        return;
+      }
+
+      await _reloadSuggestions();
+      await _loadStocks(targetPage: stock == null ? 1 : _currentPage);
+    } catch (error) {
+      if (mounted) {
+        AppToast.error('Failed to open stock form: ${_readableError(error)}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningDialog = false;
+          _editingStockKey = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _showStockDetails(StockRecord stock) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Stock service is still loading. Please try again.');
+      return;
+    }
+
+    final stockKey = stock.cloudId ?? '${stock.id ?? stock.barcode}';
+    setState(() => _viewingStockKey = stockKey);
+    try {
+      final record = await repository.fetchStockDetails(stock);
+      if (!mounted || record == null) {
+        if (mounted) {
+          setState(() => _viewingStockKey = null);
+        }
+        AppToast.error('Stock details not found');
+        return;
+      }
+
+      setState(() => _viewingStockKey = null);
+      showDialog<void>(
+        context: context,
+        builder: (context) => StockDetailsDialog(
+          stock: record,
+          onViewGrn: record.grnId == 'Not Assigned'
+              ? null
+              : () => _showLinkedGrnDetails(record.grnId),
+          onViewProduct: () => _showLinkedProductDetails(record.product),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _viewingStockKey = null);
+      }
+      AppToast.error('Failed to load stock details: ${_readableError(error)}');
+    }
+  }
+
+  Future<void> _showLinkedProductDetails(String productName) async {
+    final productRepository = _productRepository;
+    if (productRepository == null) {
+      AppToast.error('Product service is still loading. Please try again.');
+      return;
+    }
+    try {
+      final product = await productRepository.fetchProductByName(productName);
+      if (!mounted || product == null) {
+        AppToast.error('Product details not found');
+        return;
+      }
+
+      showDialog<void>(
+        context: context,
+        builder: (context) => ProductInfoDialog(product: product),
+      );
+    } catch (error) {
+      AppToast.error(
+        'Failed to load product details: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _showLinkedGrnDetails(String grnId) async {
+    final grnRepository = _grnRepository;
+    if (grnRepository == null) {
+      AppToast.error('GRN service is still loading. Please try again.');
+      return;
+    }
+    try {
+      final grn = await grnRepository.fetchGrnById(grnId);
+      if (!mounted || grn == null) {
+        AppToast.error('GRN details not found');
+        return;
+      }
+
+      showDialog<void>(
+        context: context,
+        builder: (context) => GrnDetailsDialog(
+          record: grn,
+          onPayDue: () => _showPayDueForLinkedGrn(grn),
+          onAddPendingToStock: () => _addPendingItemsToStockForLinkedGrn(grn),
+        ),
+      );
+    } catch (error) {
+      AppToast.error('Failed to load GRN details: ${_readableError(error)}');
+    }
+  }
+
+  Future<void> _showPayDueForLinkedGrn(GrnRecord record) async {
+    final result = await showDialog<PayDueResult>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return StockFormDialog(
-          initialStock: stock,
-          products: freshProducts,
-          grns: freshGrns,
-        );
-      },
+      builder: (context) => PayDueDialog(record: record),
     );
-
     if (result == null) {
       return;
     }
 
     try {
-      await _repository.saveStock(result);
-      await _reloadSuggestions();
-      await _loadStocks(targetPage: stock == null ? 1 : _currentPage);
-
-      AppToast.success(
-        stock == null
-            ? 'Stock added successfully'
-            : 'Stock updated successfully',
+      final updated = await _grnRepository!.recordDuePayment(
+        grnId: record.id,
+        amount: result.amount,
+        method: result.method,
       );
-    } on StockLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
-    } catch (error) {
-      AppToast.error('Failed to save stock: $error');
-    }
-  }
-
-  Future<void> _showStockDetails(StockRecord stock) async {
-    final record = stock.id == null
-        ? null
-        : await _repository.fetchStockById(stock.id!);
-    if (!mounted || record == null) {
-      AppToast.error('Stock details not found');
-      return;
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => StockDetailsDialog(
-        stock: record,
-        onViewGrn: record.grnId == 'Not Assigned'
-            ? null
-            : () => _showLinkedGrnDetails(record.grnId),
-        onViewProduct: () => _showLinkedProductDetails(record.product),
-      ),
-    );
-  }
-
-  Future<void> _showLinkedProductDetails(String productName) async {
-    final product = await _productRepository.fetchProductByName(productName);
-    if (!mounted || product == null) {
-      AppToast.error('Product details not found');
-      return;
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => ProductInfoDialog(product: product),
-    );
-  }
-
-  Future<void> _showLinkedGrnDetails(String grnId) async {
-    final grn = await _grnRepository.fetchGrnById(grnId);
-    if (!mounted || grn == null) {
-      AppToast.error('GRN details not found');
-      return;
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (context) => GrnDetailsDialog(
-        record: grn,
-        onPayDue: () => _showPayDueForLinkedGrn(grn),
-        onAddPendingToStock: () => _addPendingItemsToStockForLinkedGrn(grn),
-      ),
-    );
-  }
-
-  void _showPayDueForLinkedGrn(GrnRecord record) {
-    showDialog<PayDueResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => PayDueDialog(record: record),
-    ).then((result) async {
-      if (result == null) {
+      await _loadStocks(targetPage: _currentPage);
+      if (!mounted || updated == null) {
+        AppToast.error('Failed to update GRN payment');
         return;
       }
 
-      try {
-        final updated = await _grnRepository.recordDuePayment(
-          grnId: record.id,
-          amount: result.amount,
-          method: result.method,
-        );
-        await _loadStocks(targetPage: _currentPage);
-        if (!mounted || updated == null) {
-          AppToast.error('Failed to update GRN payment');
-          return;
-        }
-
-        AppToast.success('Payment recorded successfully');
-        await Navigator.of(context).maybePop();
-        if (!mounted) {
-          return;
-        }
-        _showLinkedGrnDetails(updated.id);
-      } on GrnLocalRepositoryException catch (error) {
-        AppToast.error(error.message);
-      } catch (error) {
-        AppToast.error('Failed to record payment: $error');
+      AppToast.success('Payment recorded successfully');
+      await Navigator.of(context).maybePop();
+      if (!mounted) {
+        return;
       }
-    });
+      _showLinkedGrnDetails(updated.id);
+    } catch (error) {
+      AppToast.error('Failed to record payment: ${_readableError(error)}');
+    }
   }
 
   Future<void> _addPendingItemsToStockForLinkedGrn(GrnRecord record) async {
     try {
-      final updated = await _grnRepository.addPendingItemsToStock(record.id);
+      final updated = await _grnRepository!.addPendingItemsToStock(record.id);
       await _loadStocks(targetPage: _currentPage);
       if (!mounted || updated == null) {
         AppToast.error('Failed to add GRN items to stock');
@@ -292,22 +372,53 @@ class _StockPageState extends State<StockPage> {
         return;
       }
       _showLinkedGrnDetails(updated.id);
-    } on GrnLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
     } catch (error) {
-      AppToast.error('Failed to add items to stock: $error');
+      AppToast.error('Failed to add items to stock: ${_readableError(error)}');
     }
   }
 
   Future<void> _deactivateStock(StockRecord stock) async {
-    if (stock.id == null) {
-      AppToast.error('Stock record not found');
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Stock service is still loading. Please try again.');
       return;
     }
 
-    await _repository.deactivateStock(stock.id!);
-    await _loadStocks(targetPage: _currentPage);
-    AppToast.success('Stock deactivated successfully');
+    final stockKey = stock.cloudId ?? '${stock.id ?? stock.barcode}';
+    setState(() => _deactivatingStockKey = stockKey);
+    try {
+      await repository.deactivateStock(stock);
+      await _loadStocks(targetPage: _currentPage);
+      AppToast.success('Stock deactivated successfully');
+    } catch (error) {
+      AppToast.error('Failed to deactivate stock: ${_readableError(error)}');
+    } finally {
+      if (mounted) {
+        setState(() => _deactivatingStockKey = null);
+      }
+    }
+  }
+
+  String _readableError(Object error) {
+    if (error is StockLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is StockRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is GrnLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is GrnRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is ProductLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is ProductRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
   }
 
   String get _footerText {
@@ -315,7 +426,7 @@ class _StockPageState extends State<StockPage> {
       return 'Showing 0 to 0 of 0 stocks';
     }
 
-    final start = ((_currentPage - 1) * StockLocalRepository.pageSize) + 1;
+    final start = ((_currentPage - 1) * _pageSize) + 1;
     final end = (start + _stocks.length) - 1;
     return 'Showing $start to $end of $_totalCount stocks';
   }
@@ -333,9 +444,12 @@ class _StockPageState extends State<StockPage> {
               const Expanded(child: _StockHeader()),
               const SizedBox(width: 16),
               _ActionButton(
-                label: 'Add New Stock',
+                label: _isOpeningDialog ? 'Loading...' : 'Add New Stock',
                 icon: Icons.add,
-                onPressed: () => _openStockDialog(),
+                onPressed: _repository == null || _isOpeningDialog
+                    ? null
+                    : () => _openStockDialog(),
+                isLoading: _isOpeningDialog,
               ),
             ],
           ),
@@ -363,16 +477,15 @@ class _StockPageState extends State<StockPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
+                ? const _StockTableSkeleton()
                 : _StockTableCard(
                     stocks: _stocks,
                     footerText: _footerText,
                     currentPage: _currentPage,
                     totalPages: _totalPages,
+                    viewingStockKey: _viewingStockKey,
+                    editingStockKey: _editingStockKey,
+                    deactivatingStockKey: _deactivatingStockKey,
                     onView: _showStockDetails,
                     onEdit: (stock) => _openStockDialog(stock: stock),
                     onDelete: _deactivateStock,
@@ -393,11 +506,13 @@ class _StockPageState extends State<StockPage> {
 class StockFormDialog extends StatefulWidget {
   const StockFormDialog({
     super.key,
+    required this.repository,
     this.initialStock,
     required this.products,
     required this.grns,
   });
 
+  final StockRepository repository;
   final StockRecord? initialStock;
   final List<String> products;
   final List<String> grns;
@@ -422,6 +537,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
   bool _isActive = true;
   bool _showProductSuggestions = false;
   bool _showGrnSuggestions = false;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.initialStock != null;
 
@@ -499,7 +615,10 @@ class _StockFormDialogState extends State<StockFormDialog> {
     });
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
     final isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
       return;
@@ -511,25 +630,42 @@ class _StockFormDialogState extends State<StockFormDialog> {
         ? int.tryParse(_availableQtyController.text.trim()) ?? 0
         : initialQuantity;
 
-    Navigator.of(context).pop(
-      StockRecord(
-        id: widget.initialStock?.id,
-        barcode: _barcodeController.text.trim(),
-        product: _productController.text.trim(),
-        initialQty: initialQuantity,
-        availableQty: availableQuantity,
-        buyingPrice: double.tryParse(_buyingPriceController.text.trim()) ?? 0,
-        sellingPrice: double.tryParse(_sellingPriceController.text.trim()) ?? 0,
-        maxDiscount: double.tryParse(_maxDiscountController.text.trim()) ?? 0,
-        status: _isActive ? StockStatus.active : StockStatus.inactive,
-        grnId: _grnController.text.trim().isEmpty
-            ? 'Not Assigned'
-            : _grnController.text.trim(),
-        expiryDate: _expiryDateController.text.trim().isEmpty
-            ? null
-            : _expiryDateController.text.trim(),
-      ),
+    final stock = StockRecord(
+      id: widget.initialStock?.id,
+      cloudId: widget.initialStock?.cloudId,
+      barcode: _barcodeController.text.trim(),
+      product: _productController.text.trim(),
+      initialQty: initialQuantity,
+      availableQty: availableQuantity,
+      buyingPrice: double.tryParse(_buyingPriceController.text.trim()) ?? 0,
+      sellingPrice: double.tryParse(_sellingPriceController.text.trim()) ?? 0,
+      maxDiscount: double.tryParse(_maxDiscountController.text.trim()) ?? 0,
+      status: _isActive ? StockStatus.active : StockStatus.inactive,
+      grnId: _grnController.text.trim().isEmpty
+          ? 'Not Assigned'
+          : _grnController.text.trim(),
+      expiryDate: _expiryDateController.text.trim().isEmpty
+          ? null
+          : _expiryDateController.text.trim(),
     );
+
+    setState(() => _isSubmitting = true);
+    try {
+      final saved = await widget.repository.saveStock(stock);
+      if (!mounted) {
+        return;
+      }
+      AppToast.success(
+        _isEditing ? 'Stock updated successfully' : 'Stock added successfully',
+      );
+      Navigator.of(context).pop(saved);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      AppToast.error('Failed to save stock: $error');
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -567,7 +703,9 @@ class _StockFormDialogState extends State<StockFormDialog> {
                   ),
                   const Spacer(),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     icon: const Icon(
                       Icons.close_rounded,
                       color: Color(0xFF8090A4),
@@ -836,7 +974,9 @@ class _StockFormDialogState extends State<StockFormDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isSubmitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(100, 40),
                       side: const BorderSide(color: Color(0xFFE0E7F0)),
@@ -849,15 +989,24 @@ class _StockFormDialogState extends State<StockFormDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _submit,
+                    onPressed: _isSubmitting ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(130, 40),
                       backgroundColor: const Color(0xFF36B4AE),
                     ),
-                    child: Text(
-                      _isEditing ? 'Update Stock' : 'Add Stock',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _isEditing ? 'Update Stock' : 'Add Stock',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
                   ),
                 ],
               ),
@@ -876,6 +1025,41 @@ class _StockFormDialogState extends State<StockFormDialog> {
       return 'Enter a valid number';
     }
     return null;
+  }
+}
+
+class _StockTableSkeleton extends StatelessWidget {
+  const _StockTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: _panelDecoration(),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.35, end: 0.9),
+        duration: const Duration(milliseconds: 900),
+        curve: Curves.easeInOut,
+        builder: (context, opacity, child) {
+          return Opacity(opacity: opacity, child: child);
+        },
+        child: Column(
+          children: [
+            for (var i = 0; i < 8; i++) ...[
+              Container(
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F7FB),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              if (i != 7) const SizedBox(height: 12),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1516,6 +1700,9 @@ class _StockTableCard extends StatelessWidget {
     required this.footerText,
     required this.currentPage,
     required this.totalPages,
+    required this.viewingStockKey,
+    required this.editingStockKey,
+    required this.deactivatingStockKey,
     required this.onView,
     required this.onEdit,
     required this.onDelete,
@@ -1527,6 +1714,9 @@ class _StockTableCard extends StatelessWidget {
   final String footerText;
   final int currentPage;
   final int totalPages;
+  final String? viewingStockKey;
+  final String? editingStockKey;
+  final String? deactivatingStockKey;
   final Future<void> Function(StockRecord) onView;
   final Future<void> Function(StockRecord) onEdit;
   final Future<void> Function(StockRecord) onDelete;
@@ -1582,8 +1772,13 @@ class _StockTableCard extends StatelessWidget {
                         const Divider(height: 1, color: Color(0xFFF0F4F8)),
                     itemBuilder: (context, index) {
                       final stock = stocks[index];
+                      final stockKey =
+                          stock.cloudId ?? '${stock.id ?? stock.barcode}';
                       return _StockTableRow(
                         stock: stock,
+                        isViewing: viewingStockKey == stockKey,
+                        isEditing: editingStockKey == stockKey,
+                        isDeleting: deactivatingStockKey == stockKey,
                         onView: () => onView(stock),
                         onEdit: () => onEdit(stock),
                         onDelete: () => onDelete(stock),
@@ -1660,12 +1855,18 @@ class _StockTableHeader extends StatelessWidget {
 class _StockTableRow extends StatelessWidget {
   const _StockTableRow({
     required this.stock,
+    required this.isViewing,
+    required this.isEditing,
+    required this.isDeleting,
     required this.onView,
     required this.onEdit,
     required this.onDelete,
   });
 
   final StockRecord stock;
+  final bool isViewing;
+  final bool isEditing;
+  final bool isDeleting;
   final VoidCallback onView;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -1802,18 +2003,21 @@ class _StockTableRow extends StatelessWidget {
                 _ActionIconButton(
                   icon: Icons.remove_red_eye_outlined,
                   color: const Color(0xFF36B4AE),
+                  isLoading: isViewing,
                   onTap: onView,
                 ),
                 const SizedBox(width: 8),
                 _ActionIconButton(
                   icon: Icons.edit_outlined,
                   color: const Color(0xFF5E88FF),
+                  isLoading: isEditing,
                   onTap: onEdit,
                 ),
                 const SizedBox(width: 8),
                 _ActionIconButton(
                   icon: Icons.delete_outline_rounded,
                   color: const Color(0xFFFA6A6A),
+                  isLoading: isDeleting,
                   onTap: onDelete,
                 ),
               ],
@@ -2118,11 +2322,13 @@ class _ActionButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -2135,7 +2341,16 @@ class _ActionButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        icon: Icon(icon, size: 16),
+        icon: isLoading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon, size: 16),
         label: Text(
           label,
           style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
@@ -2150,18 +2365,26 @@ class _ActionIconButton extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.onTap,
+    this.isLoading = false,
   });
 
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       borderRadius: BorderRadius.circular(999),
-      child: Icon(icon, size: 18, color: color),
+      child: isLoading
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: color),
+            )
+          : Icon(icon, size: 18, color: color),
     );
   }
 }

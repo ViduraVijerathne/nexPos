@@ -7,6 +7,9 @@ import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/grn_local_repository.dart';
+import '../../data/grn_remote_repository.dart';
+import '../../data/grn_repository.dart';
+import '../../data/grn_repository_factory.dart';
 import '../../models/models.dart';
 
 class GrnPage extends StatefulWidget {
@@ -22,15 +25,16 @@ class _GrnPageState extends State<GrnPage> {
   final TextEditingController _dateFromController = TextEditingController();
   final TextEditingController _dateToController = TextEditingController();
   final TextEditingController _dueAboveController = TextEditingController();
-  final GrnLocalRepository _repository = const GrnLocalRepository();
-
+  GrnRepository? _repository;
   List<String> _productSuggestions = <String>[];
   List<String> _supplierSuggestions = <String>[];
   List<GrnRecord> _grns = <GrnRecord>[];
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
+  int _pageSize = 10;
   bool _isLoading = true;
+  String? _loadingGrnId;
   Timer? _filterDebounce;
 
   @override
@@ -51,22 +55,31 @@ class _GrnPageState extends State<GrnPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
+      final repository = await GrnRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _repository = repository;
       await _reloadSuggestions();
-      await _loadGrns();
+      await _loadGrns(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load GRNs: $error');
+      AppToast.error('Failed to load GRNs: ${_readableError(error)}');
     }
   }
 
   Future<void> _reloadSuggestions() async {
-    final products = await _repository.fetchProductSuggestions();
-    final suppliers = await _repository.fetchSupplierSuggestions();
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+    final products = await repository.fetchProductSuggestions();
+    final suppliers = await repository.fetchSupplierSuggestions();
 
     if (!mounted) {
       return;
@@ -78,11 +91,19 @@ class _GrnPageState extends State<GrnPage> {
     });
   }
 
-  Future<void> _loadGrns({int? targetPage}) async {
+  Future<void> _loadGrns({
+    int? targetPage,
+    GrnRepository? repositoryOverride,
+  }) async {
+    final repository = repositoryOverride ?? _repository;
+    if (repository == null) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final result = await _repository.fetchGrns(
+      final result = await repository.fetchGrns(
         page: targetPage ?? _currentPage,
         supplierQuery: _supplierSearchController.text.trim(),
         dateFrom: _dateFromController.text.trim(),
@@ -99,6 +120,7 @@ class _GrnPageState extends State<GrnPage> {
         _currentPage = result.currentPage;
         _totalPages = result.totalPages;
         _totalCount = result.totalCount;
+        _pageSize = result.pageSize;
         _isLoading = false;
       });
     } catch (error) {
@@ -107,7 +129,7 @@ class _GrnPageState extends State<GrnPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load GRNs: $error');
+      AppToast.error('Failed to load GRNs: ${_readableError(error)}');
     }
   }
 
@@ -123,10 +145,17 @@ class _GrnPageState extends State<GrnPage> {
   }
 
   Future<void> _openCreateGrnDialog() async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('GRN service is still loading. Please try again.');
+      return;
+    }
+
     final result = await showDialog<GrnDialogResult>(
       context: context,
       barrierDismissible: false,
       builder: (context) => CreateGrnDialog(
+        repository: repository,
         productSuggestions: _productSuggestions,
         supplierSuggestions: _supplierSuggestions,
       ),
@@ -136,43 +165,65 @@ class _GrnPageState extends State<GrnPage> {
       return;
     }
 
-    try {
-      await _repository.saveGrn(result.record, addToStock: result.addToStock);
-      await _reloadSuggestions();
-      await _loadGrns(targetPage: 1);
+    await _reloadSuggestions();
+    await _loadGrns(targetPage: 1);
 
-      AppToast.success(
-        result.addToStock
-            ? 'GRN saved and stock added successfully'
-            : 'GRN created successfully',
-      );
-    } on GrnLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
-    } catch (error) {
-      AppToast.error('Failed to save GRN: $error');
-    }
+    AppToast.success(
+      result.addToStock
+          ? 'GRN saved and stock added successfully'
+          : 'GRN created successfully',
+    );
   }
 
   Future<void> _showGrnDetails(GrnRecord record) async {
-    final freshRecord = await _repository.fetchGrnById(record.id);
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('GRN service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _loadingGrnId = record.id);
+    GrnRecord? freshRecord;
+    try {
+      freshRecord = await repository.fetchGrnById(record.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _loadingGrnId = null);
+        AppToast.error('Failed to load GRN details: ${_readableError(error)}');
+      }
+      return;
+    }
+
     if (!mounted || freshRecord == null) {
+      if (mounted) {
+        setState(() => _loadingGrnId = null);
+      }
       AppToast.error('GRN details not found');
       return;
     }
 
+    final resolvedRecord = freshRecord;
+    setState(() => _loadingGrnId = null);
+
     showDialog<void>(
       context: context,
       builder: (context) => GrnDetailsDialog(
-        record: freshRecord,
-        onPayDue: () => _showPayDueDialog(freshRecord),
-        onAddPendingToStock: () => _addPendingItemsToStock(freshRecord),
+        record: resolvedRecord,
+        onPayDue: () => _showPayDueDialog(resolvedRecord),
+        onAddPendingToStock: () => _addPendingItemsToStock(resolvedRecord),
       ),
     );
   }
 
   Future<void> _addPendingItemsToStock(GrnRecord record) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('GRN service is still loading. Please try again.');
+      return;
+    }
+
     try {
-      final updated = await _repository.addPendingItemsToStock(record.id);
+      final updated = await repository.addPendingItemsToStock(record.id);
       await _loadGrns(targetPage: _currentPage);
       if (!mounted || updated == null) {
         AppToast.error('Failed to add GRN items to stock');
@@ -185,47 +236,58 @@ class _GrnPageState extends State<GrnPage> {
         return;
       }
       _showGrnDetails(updated);
-    } on GrnLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
     } catch (error) {
-      AppToast.error('Failed to add items to stock: $error');
+      AppToast.error('Failed to add items to stock: ${_readableError(error)}');
     }
   }
 
-  void _showPayDueDialog(GrnRecord record) {
-    showDialog<PayDueResult>(
+  Future<void> _showPayDueDialog(GrnRecord record) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('GRN service is still loading. Please try again.');
+      return;
+    }
+
+    final result = await showDialog<PayDueResult>(
       context: context,
       barrierDismissible: false,
       builder: (context) => PayDueDialog(record: record),
-    ).then((result) async {
-      if (result == null) {
+    );
+    if (result == null) {
+      return;
+    }
+
+    try {
+      final updated = await repository.recordDuePayment(
+        grnId: record.id,
+        amount: result.amount,
+        method: result.method,
+      );
+      await _loadGrns(targetPage: _currentPage);
+      if (!mounted || updated == null) {
+        AppToast.error('Failed to update GRN payment');
         return;
       }
 
-      try {
-        final updated = await _repository.recordDuePayment(
-          grnId: record.id,
-          amount: result.amount,
-          method: result.method,
-        );
-        await _loadGrns(targetPage: _currentPage);
-        if (!mounted || updated == null) {
-          AppToast.error('Failed to update GRN payment');
-          return;
-        }
-
-        AppToast.success('Payment recorded successfully');
-        await Navigator.of(context).maybePop();
-        if (!mounted) {
-          return;
-        }
-        _showGrnDetails(updated);
-      } on GrnLocalRepositoryException catch (error) {
-        AppToast.error(error.message);
-      } catch (error) {
-        AppToast.error('Failed to record payment: $error');
+      AppToast.success('Payment recorded successfully');
+      await Navigator.of(context).maybePop();
+      if (!mounted) {
+        return;
       }
-    });
+      _showGrnDetails(updated);
+    } catch (error) {
+      AppToast.error('Failed to record payment: ${_readableError(error)}');
+    }
+  }
+
+  String _readableError(Object error) {
+    if (error is GrnLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is GrnRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
   }
 
   String get _footerText {
@@ -233,7 +295,7 @@ class _GrnPageState extends State<GrnPage> {
       return 'Showing 0 to 0 of 0 GRNs';
     }
 
-    final start = ((_currentPage - 1) * GrnLocalRepository.pageSize) + 1;
+    final start = ((_currentPage - 1) * _pageSize) + 1;
     final end = (start + _grns.length) - 1;
     return 'Showing $start to $end of $_totalCount GRNs';
   }
@@ -253,7 +315,7 @@ class _GrnPageState extends State<GrnPage> {
               _ActionButton(
                 label: 'New GRN',
                 icon: Icons.add,
-                onPressed: _openCreateGrnDialog,
+                onPressed: _repository == null ? null : _openCreateGrnDialog,
               ),
             ],
           ),
@@ -269,16 +331,13 @@ class _GrnPageState extends State<GrnPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
+                ? const _GrnTableSkeleton()
                 : _GrnTableCard(
                     records: _grns,
                     footerText: _footerText,
                     currentPage: _currentPage,
                     totalPages: _totalPages,
+                    loadingGrnId: _loadingGrnId,
                     onView: _showGrnDetails,
                     onPreviousPage: _currentPage > 1
                         ? () => _loadGrns(targetPage: _currentPage - 1)
@@ -294,13 +353,51 @@ class _GrnPageState extends State<GrnPage> {
   }
 }
 
+class _GrnTableSkeleton extends StatelessWidget {
+  const _GrnTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: _panelDecoration(),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.35, end: 0.9),
+        duration: const Duration(milliseconds: 900),
+        curve: Curves.easeInOut,
+        builder: (context, opacity, child) {
+          return Opacity(opacity: opacity, child: child);
+        },
+        child: Column(
+          children: [
+            const SizedBox(height: 4),
+            for (var index = 0; index < 7; index++) ...[
+              Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F7FB),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              if (index != 6) const SizedBox(height: 12),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class CreateGrnDialog extends StatefulWidget {
   const CreateGrnDialog({
     super.key,
+    required this.repository,
     required this.productSuggestions,
     required this.supplierSuggestions,
   });
 
+  final GrnRepository repository;
   final List<String> productSuggestions;
   final List<String> supplierSuggestions;
 
@@ -328,6 +425,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
   bool _showSupplierSuggestions = false;
   bool _showProductSuggestions = false;
   final List<GrnItem> _items = [];
+  bool _isSaving = false;
 
   List<String> get _matchingSuppliers {
     final query = _supplierController.text.trim().toLowerCase();
@@ -418,7 +516,11 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
     });
   }
 
-  void _saveGrn({required bool addToStock}) {
+  Future<void> _saveGrn({required bool addToStock}) async {
+    if (_isSaving) {
+      return;
+    }
+
     if (_supplierController.text.trim().isEmpty || _items.isEmpty) {
       AppToast.error('Add supplier and at least one GRN item');
       return;
@@ -436,9 +538,25 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
       paymentMethod: _paymentMethod,
     );
 
-    Navigator.of(
-      context,
-    ).pop(GrnDialogResult(record: record, addToStock: addToStock));
+    setState(() => _isSaving = true);
+    try {
+      final saved = await widget.repository.saveGrn(
+        record,
+        addToStock: addToStock,
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(
+        context,
+      ).pop(GrnDialogResult(record: saved, addToStock: addToStock));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      AppToast.error('Failed to save GRN: $error');
+      setState(() => _isSaving = false);
+    }
   }
 
   String _generateStockBarcode() {
@@ -459,7 +577,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
           children: [
             _DialogHeader(
               title: 'Create New GRN',
-              onClose: () => Navigator.of(context).pop(),
+              onClose: _isSaving ? null : () => Navigator.of(context).pop(),
             ),
             const Divider(height: 1, color: Color(0xFFE8EDF4)),
             Flexible(
@@ -908,12 +1026,14 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _items.isEmpty
+                    onPressed: _items.isEmpty || _isSaving
                         ? null
                         : () => _saveGrn(addToStock: false),
                     style: ElevatedButton.styleFrom(
@@ -927,14 +1047,23 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    child: const Text(
-                      'Save GRN',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Save GRN',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    onPressed: _items.isEmpty
+                    onPressed: _items.isEmpty || _isSaving
                         ? null
                         : () => _saveGrn(addToStock: true),
                     style: ElevatedButton.styleFrom(
@@ -948,10 +1077,19 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                    label: const Text(
-                      'Save & Add to Stock',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.inventory_2_outlined, size: 16),
+                    label: Text(
+                      _isSaving ? 'Please wait...' : 'Save & Add to Stock',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
                 ],
@@ -964,7 +1102,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
   }
 }
 
-class GrnDetailsDialog extends StatelessWidget {
+class GrnDetailsDialog extends StatefulWidget {
   const GrnDetailsDialog({
     super.key,
     required this.record,
@@ -973,11 +1111,48 @@ class GrnDetailsDialog extends StatelessWidget {
   });
 
   final GrnRecord record;
-  final VoidCallback onPayDue;
-  final VoidCallback onAddPendingToStock;
+  final Future<void> Function() onPayDue;
+  final Future<void> Function() onAddPendingToStock;
+
+  @override
+  State<GrnDetailsDialog> createState() => _GrnDetailsDialogState();
+}
+
+class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
+  bool _isPayingDue = false;
+  bool _isAddingStock = false;
+
+  Future<void> _handlePayDue() async {
+    if (_isPayingDue) {
+      return;
+    }
+    setState(() => _isPayingDue = true);
+    try {
+      await widget.onPayDue();
+    } finally {
+      if (mounted) {
+        setState(() => _isPayingDue = false);
+      }
+    }
+  }
+
+  Future<void> _handleAddPendingToStock() async {
+    if (_isAddingStock) {
+      return;
+    }
+    setState(() => _isAddingStock = true);
+    try {
+      await widget.onAddPendingToStock();
+    } finally {
+      if (mounted) {
+        setState(() => _isAddingStock = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final record = widget.record;
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
@@ -1095,30 +1270,58 @@ class GrnDetailsDialog extends StatelessWidget {
                       if (record.items.any((item) => !item.inStock)) ...[
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: onAddPendingToStock,
+                            onPressed: _isAddingStock
+                                ? null
+                                : _handleAddPendingToStock,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF48BB78),
                             ),
-                            icon: const Icon(
-                              Icons.inventory_2_outlined,
-                              size: 16,
+                            icon: _isAddingStock
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: 16,
+                                  ),
+                            label: Text(
+                              _isAddingStock
+                                  ? 'Adding to Stock...'
+                                  : 'Add Pending Items to Stock',
                             ),
-                            label: const Text('Add Pending Items to Stock'),
                           ),
                         ),
                         const SizedBox(width: 12),
                       ],
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: record.dueAmount <= 0 ? null : onPayDue,
+                          onPressed: record.dueAmount <= 0 || _isPayingDue
+                              ? null
+                              : _handlePayDue,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF36B4AE),
                           ),
-                          icon: const Icon(
-                            Icons.attach_money_rounded,
-                            size: 16,
+                          icon: _isPayingDue
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.attach_money_rounded,
+                                  size: 16,
+                                ),
+                          label: Text(
+                            _isPayingDue ? 'Processing...' : 'Pay Due Amount',
                           ),
-                          label: const Text('Pay Due Amount'),
                         ),
                       ),
                     ],
@@ -1574,6 +1777,7 @@ class _GrnTableCard extends StatelessWidget {
     required this.footerText,
     required this.currentPage,
     required this.totalPages,
+    required this.loadingGrnId,
     required this.onView,
     required this.onPreviousPage,
     required this.onNextPage,
@@ -1583,6 +1787,7 @@ class _GrnTableCard extends StatelessWidget {
   final String footerText;
   final int currentPage;
   final int totalPages;
+  final String? loadingGrnId;
   final Future<void> Function(GrnRecord) onView;
   final VoidCallback? onPreviousPage;
   final VoidCallback? onNextPage;
@@ -1629,6 +1834,7 @@ class _GrnTableCard extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final record = records[index];
                       final highlighted = index == 3;
+                      final isLoading = loadingGrnId == record.id;
                       return Container(
                         color: highlighted ? const Color(0xFFF7FAFC) : null,
                         padding: const EdgeInsets.symmetric(
@@ -1701,14 +1907,26 @@ class _GrnTableCard extends StatelessWidget {
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: OutlinedButton.icon(
-                                  onPressed: () {
-                                    onView(record);
-                                  },
-                                  icon: const Icon(
-                                    Icons.remove_red_eye_outlined,
-                                    size: 14,
+                                  onPressed: isLoading
+                                      ? null
+                                      : () {
+                                          onView(record);
+                                        },
+                                  icon: isLoading
+                                      ? const SizedBox(
+                                          width: 14,
+                                          height: 14,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.remove_red_eye_outlined,
+                                          size: 14,
+                                        ),
+                                  label: Text(
+                                    isLoading ? 'Loading...' : 'View',
                                   ),
-                                  label: const Text('View'),
                                   style: OutlinedButton.styleFrom(
                                     minimumSize: const Size(64, 32),
                                     side: const BorderSide(
@@ -2086,7 +2304,7 @@ class _ActionButton extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -2226,7 +2444,7 @@ class _DialogHeader extends StatelessWidget {
   const _DialogHeader({required this.title, required this.onClose});
 
   final String title;
-  final VoidCallback onClose;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -2354,18 +2572,4 @@ BoxDecoration _dialogDecoration() {
       ),
     ],
   );
-}
-
-extension on GrnItem {
-  GrnItem copyWithInStock(bool inStock) {
-    return GrnItem(
-      product: product,
-      stockBarcode: stockBarcode,
-      quantity: quantity,
-      buyingPrice: buyingPrice,
-      sellingPrice: sellingPrice,
-      maxDiscount: maxDiscount,
-      inStock: inStock,
-    );
-  }
 }

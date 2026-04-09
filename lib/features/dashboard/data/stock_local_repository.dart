@@ -3,6 +3,7 @@ import 'package:isar/isar.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'stock_repository.dart';
 
 class StockLocalRepositoryException implements Exception {
   StockLocalRepositoryException(this.message);
@@ -13,7 +14,7 @@ class StockLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class StockLocalRepository {
+class StockLocalRepository implements StockRepository {
   const StockLocalRepository();
 
   static const int pageSize = 10;
@@ -131,6 +132,15 @@ class StockLocalRepository {
     return _mapEntityToRecord(entity);
   }
 
+  @override
+  Future<StockRecord?> fetchStockDetails(StockRecord stock) async {
+    final stockId = stock.id;
+    if (stockId == null) {
+      return null;
+    }
+    return fetchStockById(stockId);
+  }
+
   Future<StockRecord> saveStock(StockRecord stock) async {
     final isar = await AppDatabase.instance;
     final trimmedBarcode = stock.barcode.trim();
@@ -177,7 +187,7 @@ class StockLocalRepository {
     return _mapEntityToRecord(entity..id = savedId);
   }
 
-  Future<StockRecord?> deactivateStock(int stockId) async {
+  Future<StockRecord?> deactivateStockById(int stockId) async {
     final isar = await AppDatabase.instance;
     final entity = await isar.stockEntitys.get(stockId);
     if (entity == null) {
@@ -193,6 +203,15 @@ class StockLocalRepository {
     });
 
     return _mapEntityToRecord(entity);
+  }
+
+  @override
+  Future<StockRecord?> deactivateStock(StockRecord stock) async {
+    final stockId = stock.id;
+    if (stockId == null) {
+      return null;
+    }
+    return deactivateStockById(stockId);
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {
@@ -465,6 +484,7 @@ class StockLocalRepository {
   StockRecord _mapEntityToRecord(StockEntity entity) {
     return StockRecord(
       id: entity.id,
+      cloudId: null,
       barcode: entity.barcode,
       product: entity.productName,
       initialQty: entity.initialQuantity,

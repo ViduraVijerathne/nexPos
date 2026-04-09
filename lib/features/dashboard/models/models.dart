@@ -95,6 +95,7 @@ enum StockStatus {
 class StockRecord {
   const StockRecord({
     this.id,
+    this.cloudId,
     required this.barcode,
     required this.product,
     required this.initialQty,
@@ -108,6 +109,7 @@ class StockRecord {
   });
 
   final int? id;
+  final String? cloudId;
   final String barcode;
   final String product;
   final int initialQty;
@@ -121,6 +123,7 @@ class StockRecord {
 
   StockRecord copyWith({
     int? id,
+    String? cloudId,
     String? barcode,
     String? product,
     int? initialQty,
@@ -134,6 +137,7 @@ class StockRecord {
   }) {
     return StockRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       barcode: barcode ?? this.barcode,
       product: product ?? this.product,
       initialQty: initialQty ?? this.initialQty,
@@ -361,6 +365,28 @@ class GrnItem {
   final bool inStock;
 
   double get subtotal => quantity * buyingPrice;
+
+  GrnItem copyWith({
+    String? product,
+    String? stockBarcode,
+    int? quantity,
+    double? buyingPrice,
+    double? sellingPrice,
+    double? maxDiscount,
+    bool? inStock,
+  }) {
+    return GrnItem(
+      product: product ?? this.product,
+      stockBarcode: stockBarcode ?? this.stockBarcode,
+      quantity: quantity ?? this.quantity,
+      buyingPrice: buyingPrice ?? this.buyingPrice,
+      sellingPrice: sellingPrice ?? this.sellingPrice,
+      maxDiscount: maxDiscount ?? this.maxDiscount,
+      inStock: inStock ?? this.inStock,
+    );
+  }
+
+  GrnItem copyWithInStock(bool value) => copyWith(inStock: value);
 }
 
 class PaymentHistory {

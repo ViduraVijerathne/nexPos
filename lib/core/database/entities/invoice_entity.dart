@@ -43,6 +43,7 @@ class InvoiceEntity {
   late DateTime createdAt;
   DateTime? updatedAt;
 
-  double get subtotal => totalAmount / 1.10;
+  double get subtotal =>
+      items.fold<double>(0, (sum, item) => sum + item.subtotal);
   double get tax => totalAmount - subtotal;
 }

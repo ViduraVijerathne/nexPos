@@ -13,6 +13,7 @@ import 'invoice_page.dart';
 import 'pos_page.dart';
 import 'product_page.dart';
 import 'report_page.dart';
+import 'settings_page.dart';
 import 'stock_page.dart';
 import 'supplier_page.dart';
 
@@ -40,25 +41,23 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   DashboardSection _selectedSection = DashboardSection.pos;
+  late final Map<DashboardSection, int> _pageVersions = {
+    for (final section in DashboardSection.values) section: 0,
+  };
 
-  late final Map<DashboardSection, Widget> _pages = {
-    DashboardSection.insight: const InsightPage(),
-    DashboardSection.pos: const PosPage(),
-    DashboardSection.products: const ProductPage(),
-    DashboardSection.stocks: const StockPage(),
-    DashboardSection.grn: const GrnPage(),
-    DashboardSection.supplies: const SupplierPage(),
-    DashboardSection.customers: const CustomerPage(),
-    DashboardSection.invoice: const InvoicePage(),
-    DashboardSection.reports: const ReportPage(),
-    DashboardSection.extensions: const ExtensionPage(),
-    DashboardSection.settings: const ComingSoonPage(
-      title: 'Settings',
-      description:
-          'Control application preferences, roles, and business details.',
-      icon: Icons.settings_outlined,
-    ),
-    DashboardSection.backups: const BackupPage(),
+  late final Map<DashboardSection, Widget Function()> _pageBuilders = {
+    DashboardSection.insight: () => const InsightPage(),
+    DashboardSection.pos: () => const PosPage(),
+    DashboardSection.products: () => const ProductPage(),
+    DashboardSection.stocks: () => const StockPage(),
+    DashboardSection.grn: () => const GrnPage(),
+    DashboardSection.supplies: () => const SupplierPage(),
+    DashboardSection.customers: () => const CustomerPage(),
+    DashboardSection.invoice: () => const InvoicePage(),
+    DashboardSection.reports: () => const ReportPage(),
+    DashboardSection.extensions: () => const ExtensionPage(),
+    DashboardSection.settings: () => const SettingsPage(),
+    DashboardSection.backups: () => const BackupPage(),
   };
 
   static const _navItems = [
@@ -110,7 +109,10 @@ class _DashboardPageState extends State<DashboardPage> {
             items: _navItems,
             selectedSection: _selectedSection,
             onSectionSelected: (section) {
-              setState(() => _selectedSection = section);
+              setState(() {
+                _selectedSection = section;
+                _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
+              });
             },
             onLogout: () {
               AppToast.info('Logged out successfully');
@@ -128,7 +130,14 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: IndexedStack(
                     index: DashboardSection.values.indexOf(_selectedSection),
                     children: DashboardSection.values
-                        .map((section) => _pages[section]!)
+                        .map(
+                          (section) => KeyedSubtree(
+                            key: ValueKey<String>(
+                              '${section.name}-${_pageVersions[section]}',
+                            ),
+                            child: _pageBuilders[section]!(),
+                          ),
+                        )
                         .toList(),
                   ),
                 ),

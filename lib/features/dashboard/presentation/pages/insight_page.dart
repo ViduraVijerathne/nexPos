@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../../../core/widgets/app_date_field.dart';
 import '../../data/insight_local_repository.dart';
 import '../../models/models.dart';
 
@@ -53,7 +54,7 @@ class _InsightPageState extends State<InsightPage> {
   }
 
   Future<void> _pickFromDate() async {
-    final selected = await showDatePicker(
+    final selected = await showAppDatePicker(
       context: context,
       initialDate: _fromDate,
       firstDate: DateTime(2020),
@@ -74,7 +75,7 @@ class _InsightPageState extends State<InsightPage> {
   }
 
   Future<void> _pickToDate() async {
-    final selected = await showDatePicker(
+    final selected = await showAppDatePicker(
       context: context,
       initialDate: _toDate,
       firstDate: DateTime(2020),

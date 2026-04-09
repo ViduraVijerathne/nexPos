@@ -111,3 +111,21 @@
 - Added restore flow for local backups plus external `.isar` backup import with application reload after restore.
 - Added a `Backup Every Login` toggle and wired successful login flow to create an automatic backup when enabled.
 - Fixed macOS backup export entitlement configuration by cleaning duplicate sandbox keys and keeping explicit user-selected read/write permissions in both debug and release entitlements.
+- Cleared local macOS app data on request to start the POS system from a fresh database and setup state.
+- Updated PIN login so validation runs automatically as soon as the 4th digit is entered, with a guard to prevent duplicate submissions from the keypad and keyboard input.
+- Fixed first-login fresh-database crashes by making supplier and GRN seed/init flows safe when no sample data exists, so empty-state pages load without `No element` or range errors.
+- Updated the stock add/edit dialog to reload product and GRN suggestions from Isar every time it opens, so newly created products appear immediately without needing an app restart.
+- Fixed stale data across dashboard modules by rebuilding the selected page whenever the sidebar navigation changes, so GRN, stock, supplier, invoice, and other pages always reload fresh Isar data without requiring an app restart.
+- Added a reusable app-wide date picker helper and date field widget, then applied the new calendar-style date input flow to GRN, invoice, stock expiry, customer invoice filter, insight, and reports date selectors.
+- Fixed the product category autosuggest so clicking a suggested category now selects it reliably instead of the suggestion list closing before the tap is processed.
+- Cleaned the GRN create dialog numeric inputs so they now open empty with placeholder hints instead of prefilled `0` and `0.00` values.
+- Applied the same placeholder-only numeric input pattern to the stock add dialog, while still keeping saved values visible in edit mode.
+- Added a `Generate` button for the GRN item stock barcode field so stock barcodes can be created quickly from the dialog just like the other add forms.
+- Fixed the GRN dialog footer button styling so `Save GRN` and `Save & Add to Stock` now look clearly active when enabled, with separate disabled colors only when there are no items.
+- Fixed GRN creation so the initial paid amount is now recorded into payment history immediately, instead of only updating the summary totals.
+- Fixed the GRN pay-due flow so the old details dialog is closed before the refreshed details dialog opens, preventing duplicate stacked GRN detail modals.
+- Added an `Add Pending Items to Stock` action in the GRN details dialog so pending GRN items can be stocked later and the dialog refreshes immediately with updated item status.
+- Simplified the stock add dialog by removing the separate `Available Quantity` field in add mode and automatically saving available quantity equal to the entered initial quantity.
+- Linked the stock details dialog to related records so clicking the product opens a product info dialog and clicking the GRN ID opens the related GRN details view.
+- Added a real settings page with POS tax controls, including a tax enable/disable switch and editable tax percentage stored in shared preferences.
+- Updated the POS page to load tax settings dynamically, hide tax by default, and use the configured tax percentage when calculating totals and saving invoices.

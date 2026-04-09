@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/grn_local_repository.dart';
@@ -164,8 +165,31 @@ class _GrnPageState extends State<GrnPage> {
       builder: (context) => GrnDetailsDialog(
         record: freshRecord,
         onPayDue: () => _showPayDueDialog(freshRecord),
+        onAddPendingToStock: () => _addPendingItemsToStock(freshRecord),
       ),
     );
+  }
+
+  Future<void> _addPendingItemsToStock(GrnRecord record) async {
+    try {
+      final updated = await _repository.addPendingItemsToStock(record.id);
+      await _loadGrns(targetPage: _currentPage);
+      if (!mounted || updated == null) {
+        AppToast.error('Failed to add GRN items to stock');
+        return;
+      }
+
+      AppToast.success('Pending GRN items added to stock');
+      await Navigator.of(context).maybePop();
+      if (!mounted) {
+        return;
+      }
+      _showGrnDetails(updated);
+    } on GrnLocalRepositoryException catch (error) {
+      AppToast.error(error.message);
+    } catch (error) {
+      AppToast.error('Failed to add items to stock: $error');
+    }
   }
 
   void _showPayDueDialog(GrnRecord record) {
@@ -191,6 +215,10 @@ class _GrnPageState extends State<GrnPage> {
         }
 
         AppToast.success('Payment recorded successfully');
+        await Navigator.of(context).maybePop();
+        if (!mounted) {
+          return;
+        }
         _showGrnDetails(updated);
       } on GrnLocalRepositoryException catch (error) {
         AppToast.error(error.message);
@@ -287,26 +315,14 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
   final TextEditingController _dateController = TextEditingController(
     text: DateTime.now().toIso8601String().split('T').first,
   );
-  final TextEditingController _discountController = TextEditingController(
-    text: '0',
-  );
-  final TextEditingController _paidAmountController = TextEditingController(
-    text: '0',
-  );
+  final TextEditingController _discountController = TextEditingController();
+  final TextEditingController _paidAmountController = TextEditingController();
   final TextEditingController _productController = TextEditingController();
   final TextEditingController _stockBarcodeController = TextEditingController();
-  final TextEditingController _quantityController = TextEditingController(
-    text: '0',
-  );
-  final TextEditingController _buyingPriceController = TextEditingController(
-    text: '0.00',
-  );
-  final TextEditingController _sellingPriceController = TextEditingController(
-    text: '0.00',
-  );
-  final TextEditingController _maxDiscountController = TextEditingController(
-    text: '0.00',
-  );
+  final TextEditingController _quantityController = TextEditingController();
+  final TextEditingController _buyingPriceController = TextEditingController();
+  final TextEditingController _sellingPriceController = TextEditingController();
+  final TextEditingController _maxDiscountController = TextEditingController();
 
   String _paymentMethod = 'Cash';
   bool _showSupplierSuggestions = false;
@@ -394,10 +410,10 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
       _items.add(item);
       _productController.clear();
       _stockBarcodeController.clear();
-      _quantityController.text = '0';
-      _buyingPriceController.text = '0.00';
-      _sellingPriceController.text = '0.00';
-      _maxDiscountController.text = '0.00';
+      _quantityController.clear();
+      _buyingPriceController.clear();
+      _sellingPriceController.clear();
+      _maxDiscountController.clear();
       _showProductSuggestions = false;
     });
   }
@@ -488,9 +504,10 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                           Expanded(
                             child: _LabeledField(
                               label: 'Date *',
-                              child: _DialogTextField(
+                              child: AppDateField(
                                 controller: _dateController,
-                                hintText: '2026-04-08',
+                                hintText: 'Select GRN date',
+                                decoration: _dialogFieldDecoration(),
                               ),
                             ),
                           ),
@@ -597,9 +614,51 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                 Expanded(
                                   child: _LabeledField(
                                     label: 'Stock Barcode',
-                                    child: _DialogTextField(
-                                      controller: _stockBarcodeController,
-                                      hintText: 'Auto-generated if empty',
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: _DialogTextField(
+                                            controller: _stockBarcodeController,
+                                            hintText: 'Auto-generated if empty',
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        SizedBox(
+                                          height: 40,
+                                          child: ElevatedButton.icon(
+                                            onPressed: () {
+                                              setState(() {
+                                                _stockBarcodeController.text =
+                                                    _generateStockBarcode();
+                                              });
+                                            },
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(
+                                                0xFF36B4AE,
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 14,
+                                                  ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                            icon: const Icon(
+                                              Icons.view_stream_rounded,
+                                              size: 16,
+                                            ),
+                                            label: const Text(
+                                              'Generate',
+                                              style: TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
@@ -858,9 +917,20 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                         ? null
                         : () => _saveGrn(addToStock: false),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFADB7C5),
+                      backgroundColor: const Color(0xFF36B4AE),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFD6DDE7),
+                      disabledForegroundColor: const Color(0xFF98A5B7),
+                      elevation: 0,
+                      minimumSize: const Size(110, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    child: const Text('Save GRN'),
+                    child: const Text(
+                      'Save GRN',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
@@ -868,10 +938,21 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                         ? null
                         : () => _saveGrn(addToStock: true),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF8FDDD6),
+                      backgroundColor: const Color(0xFF2FAE87),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFFD6DDE7),
+                      disabledForegroundColor: const Color(0xFF98A5B7),
+                      elevation: 0,
+                      minimumSize: const Size(178, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     icon: const Icon(Icons.inventory_2_outlined, size: 16),
-                    label: const Text('Save & Add to Stock'),
+                    label: const Text(
+                      'Save & Add to Stock',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ],
               ),
@@ -888,10 +969,12 @@ class GrnDetailsDialog extends StatelessWidget {
     super.key,
     required this.record,
     required this.onPayDue,
+    required this.onAddPendingToStock,
   });
 
   final GrnRecord record;
   final VoidCallback onPayDue;
+  final VoidCallback onAddPendingToStock;
 
   @override
   Widget build(BuildContext context) {
@@ -1007,16 +1090,38 @@ class GrnDetailsDialog extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: record.dueAmount <= 0 ? null : onPayDue,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF36B4AE),
+                  Row(
+                    children: [
+                      if (record.items.any((item) => !item.inStock)) ...[
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: onAddPendingToStock,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF48BB78),
+                            ),
+                            icon: const Icon(
+                              Icons.inventory_2_outlined,
+                              size: 16,
+                            ),
+                            label: const Text('Add Pending Items to Stock'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: record.dueAmount <= 0 ? null : onPayDue,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF36B4AE),
+                          ),
+                          icon: const Icon(
+                            Icons.attach_money_rounded,
+                            size: 16,
+                          ),
+                          label: const Text('Pay Due Amount'),
+                        ),
                       ),
-                      icon: const Icon(Icons.attach_money_rounded, size: 16),
-                      label: const Text('Pay Due Amount'),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 18),
                   const Align(
@@ -1411,9 +1516,10 @@ class _GrnFilterCard extends StatelessWidget {
               Expanded(
                 child: _LabeledField(
                   label: 'Date From',
-                  child: _FilterTextField(
+                  child: AppDateField(
                     controller: dateFromController,
                     hintText: 'yyyy-mm-dd',
+                    decoration: _filterFieldDecoration(),
                     onChanged: (_) => onChanged(),
                   ),
                 ),
@@ -1422,9 +1528,10 @@ class _GrnFilterCard extends StatelessWidget {
               Expanded(
                 child: _LabeledField(
                   label: 'Date To',
-                  child: _FilterTextField(
+                  child: AppDateField(
                     controller: dateToController,
                     hintText: 'yyyy-mm-dd',
+                    decoration: _filterFieldDecoration(),
                     onChanged: (_) => onChanged(),
                   ),
                 ),
@@ -2106,28 +2213,10 @@ class _FilterTextField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      decoration: InputDecoration(
+      decoration: _filterFieldDecoration(
         hintText: hintText,
         prefixText: prefixText,
-        prefixIcon: prefixIcon == null
-            ? null
-            : Icon(prefixIcon, color: const Color(0xFF95A2B5), size: 18),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 1.6),
-        ),
+        prefixIcon: prefixIcon,
       ),
     );
   }
@@ -2211,6 +2300,33 @@ InputDecoration _dialogFieldDecoration({String? hintText}) {
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+    ),
+  );
+}
+
+InputDecoration _filterFieldDecoration({
+  String? hintText,
+  IconData? prefixIcon,
+  String? prefixText,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    prefixText: prefixText,
+    prefixIcon: prefixIcon == null
+        ? null
+        : Icon(prefixIcon, color: const Color(0xFF95A2B5), size: 18),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 1.6),
     ),
   );
 }

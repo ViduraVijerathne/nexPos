@@ -301,53 +301,65 @@ class SupplierLocalRepository {
       //   ..createdAt = now,
     ];
 
+    if (supplierSeeds.isEmpty) {
+      return;
+    }
+
     late final List<int> supplierIds;
     await isar.writeTxn(() async {
       supplierIds = await isar.supplierEntitys.putAll(supplierSeeds);
     });
 
     final grnSeeds = <GrnEntity>[
-      _seedGrn(
-        code: 'ya5Rw466RR08',
-        supplierId: supplierIds[0],
-        supplierName: 'apple',
-        date: now.subtract(const Duration(days: 2)),
-        subTotal: 5929,
-        discount: 0,
-        paidAmount: 333,
-        itemsCount: 1,
-      ),
-      _seedGrn(
-        code: 'EblchgQGfpvBfWjY4hrO',
-        supplierId: supplierIds[0],
-        supplierName: 'apple',
-        date: now.subtract(const Duration(days: 5)),
-        subTotal: 693,
-        discount: 0,
-        paidAmount: 0,
-        itemsCount: 2,
-      ),
-      _seedGrn(
-        code: '5r4MH2V6SVrTcnQM73vY',
-        supplierId: supplierIds[0],
-        supplierName: 'apple',
-        date: now.subtract(const Duration(days: 1)),
-        subTotal: 59829,
-        discount: 0,
-        paidAmount: 59829,
-        itemsCount: 3,
-      ),
-      _seedGrn(
-        code: 'sup2GRN0001',
-        supplierId: supplierIds[1],
-        supplierName: 'sahan',
-        date: now.subtract(const Duration(days: 3)),
-        subTotal: 1200,
-        discount: 100,
-        paidAmount: 600,
-        itemsCount: 2,
-      ),
+      if (supplierIds.isNotEmpty)
+        _seedGrn(
+          code: 'ya5Rw466RR08',
+          supplierId: supplierIds[0],
+          supplierName: 'apple',
+          date: now.subtract(const Duration(days: 2)),
+          subTotal: 5929,
+          discount: 0,
+          paidAmount: 333,
+          itemsCount: 1,
+        ),
+      if (supplierIds.isNotEmpty)
+        _seedGrn(
+          code: 'EblchgQGfpvBfWjY4hrO',
+          supplierId: supplierIds[0],
+          supplierName: 'apple',
+          date: now.subtract(const Duration(days: 5)),
+          subTotal: 693,
+          discount: 0,
+          paidAmount: 0,
+          itemsCount: 2,
+        ),
+      if (supplierIds.isNotEmpty)
+        _seedGrn(
+          code: '5r4MH2V6SVrTcnQM73vY',
+          supplierId: supplierIds[0],
+          supplierName: 'apple',
+          date: now.subtract(const Duration(days: 1)),
+          subTotal: 59829,
+          discount: 0,
+          paidAmount: 59829,
+          itemsCount: 3,
+        ),
+      if (supplierIds.length > 1)
+        _seedGrn(
+          code: 'sup2GRN0001',
+          supplierId: supplierIds[1],
+          supplierName: 'sahan',
+          date: now.subtract(const Duration(days: 3)),
+          subTotal: 1200,
+          discount: 100,
+          paidAmount: 600,
+          itemsCount: 2,
+        ),
     ];
+
+    if (grnSeeds.isEmpty) {
+      return;
+    }
 
     await isar.writeTxn(() async {
       await isar.grnEntitys.putAll(grnSeeds);

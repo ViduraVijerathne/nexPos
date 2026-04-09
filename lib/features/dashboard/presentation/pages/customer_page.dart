@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../../../core/widgets/app_date_field.dart';
 import '../../data/customer_local_repository.dart';
 import '../../models/models.dart';
 
@@ -956,12 +957,11 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                         ),
                         const SizedBox(width: 14),
                         Expanded(
-                          child: TextField(
+                          child: AppDateField(
                             controller: _invoiceDateController,
                             onChanged: (_) => _refreshInvoiceFilters(),
-                            decoration: _fieldDecoration(
-                              hintText: 'yyyy-mm-dd',
-                            ),
+                            hintText: 'yyyy-mm-dd',
+                            decoration: _fieldDecoration(),
                           ),
                         ),
                       ],

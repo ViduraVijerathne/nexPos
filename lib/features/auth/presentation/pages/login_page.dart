@@ -27,6 +27,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _isBootLoading = true;
   bool _isLoading = false;
+  bool _isPinAutoSubmitting = false;
   bool _rememberMe = false;
   LoginMethod _loginMethod = LoginMethod.emailPassword;
   String _adminEmail = '';
@@ -123,6 +124,22 @@ class _LoginPageState extends State<LoginPage> {
     await _openDashboard();
   }
 
+  Future<void> _tryAutoValidatePin(String value) async {
+    if (_loginMethod != LoginMethod.pin ||
+        value.length != 4 ||
+        _isLoading ||
+        _isPinAutoSubmitting) {
+      return;
+    }
+
+    _isPinAutoSubmitting = true;
+    try {
+      await _handlePinLogin();
+    } finally {
+      _isPinAutoSubmitting = false;
+    }
+  }
+
   Future<void> _openDashboard() async {
     try {
       final automaticBackup = await BackupService.instance
@@ -182,6 +199,8 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _pinController.text = '${_pinController.text}$digit';
     });
+
+    _tryAutoValidatePin(_pinController.text);
   }
 
   void _removePinDigit() {
@@ -502,6 +521,7 @@ class _LoginPageState extends State<LoginPage> {
           length: 4,
           autofocus: true,
           keyboardType: TextInputType.number,
+          onChanged: _tryAutoValidatePin,
           defaultPinTheme: baseTheme,
           focusedPinTheme: baseTheme.copyWith(
             decoration: baseTheme.decoration!.copyWith(

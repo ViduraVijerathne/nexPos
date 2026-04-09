@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../data/pos_local_repository.dart';
 import '../../models/models.dart';
+import '../../../settings/services/app_settings_service.dart';
 
 enum PosPaymentMethod { cash, card, upi }
 
@@ -17,8 +18,6 @@ class PosPage extends StatefulWidget {
 }
 
 class _PosPageState extends State<PosPage> {
-  static const double _taxRate = 0.10;
-
   final PosLocalRepository _repository = const PosLocalRepository();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
@@ -41,6 +40,10 @@ class _PosPageState extends State<PosPage> {
   bool _showCustomerSuggestions = false;
   bool _isLoading = true;
   bool _isProcessing = false;
+  PosTaxSettings _taxSettings = const PosTaxSettings(
+    isTaxEnabled: false,
+    taxPercent: 10,
+  );
 
   @override
   void initState() {
@@ -63,7 +66,8 @@ class _PosPageState extends State<PosPage> {
 
   double get _subtotal =>
       _cartItems.fold<double>(0, (sum, item) => sum + item.subtotal);
-  double get _tax => _subtotal * _taxRate;
+  double get _tax =>
+      _taxSettings.isTaxEnabled ? _subtotal * _taxSettings.taxRate : 0;
   double get _total => _subtotal + _tax;
   double get _amountPaid => double.tryParse(_amountController.text.trim()) ?? 0;
   double get _balance => _amountPaid - _total;
@@ -73,8 +77,15 @@ class _PosPageState extends State<PosPage> {
   Future<void> _initializePage() async {
     try {
       await _repository.initialize();
+      final taxSettings = await AppSettingsService.instance
+          .loadPosTaxSettings();
       await _loadCatalog();
       await _loadCustomers();
+      if (mounted) {
+        setState(() {
+          _taxSettings = taxSettings;
+        });
+      }
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _searchFocusNode.requestFocus();
@@ -277,6 +288,7 @@ class _PosPageState extends State<PosPage> {
         paymentMethod: _selectedPaymentMethod.label,
         amountPaid: _amountPaid,
         cashierName: 'Admin User',
+        taxAmount: _tax,
       );
 
       if (!mounted) {
@@ -378,6 +390,9 @@ class _PosPageState extends State<PosPage> {
                           subtotal: _subtotal,
                           tax: _tax,
                           total: _total,
+                          taxLabel: _taxSettings.isTaxEnabled
+                              ? 'Tax (${_taxSettings.taxPercent % 1 == 0 ? _taxSettings.taxPercent.toStringAsFixed(0) : _taxSettings.taxPercent.toStringAsFixed(2)}%)'
+                              : null,
                           balance: _balance,
                           canProcessPayment: _canProcessPayment,
                           isProcessing: _isProcessing,
@@ -603,6 +618,7 @@ class _CurrentOrderPanel extends StatelessWidget {
     required this.subtotal,
     required this.tax,
     required this.total,
+    required this.taxLabel,
     required this.balance,
     required this.canProcessPayment,
     required this.isProcessing,
@@ -629,6 +645,7 @@ class _CurrentOrderPanel extends StatelessWidget {
   final double subtotal;
   final double tax;
   final double total;
+  final String? taxLabel;
   final double balance;
   final bool canProcessPayment;
   final bool isProcessing;
@@ -720,11 +737,13 @@ class _CurrentOrderPanel extends StatelessWidget {
             label: 'Subtotal',
             value: 'Rs ${subtotal.toStringAsFixed(2)}',
           ),
-          const SizedBox(height: 10),
-          _SummaryRow(
-            label: 'Tax (10%)',
-            value: 'Rs ${tax.toStringAsFixed(2)}',
-          ),
+          if (taxLabel != null) ...[
+            const SizedBox(height: 10),
+            _SummaryRow(
+              label: taxLabel!,
+              value: 'Rs ${tax.toStringAsFixed(2)}',
+            ),
+          ],
           const SizedBox(height: 14),
           const Divider(color: Color(0xFFEDF2F7), height: 1),
           const SizedBox(height: 14),

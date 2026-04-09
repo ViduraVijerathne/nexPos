@@ -392,8 +392,14 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     _selectedStatus = initial?.status ?? ProductStatus.active;
 
     _categoryFocusNode.addListener(() {
-      if (!_categoryFocusNode.hasFocus && mounted) {
-        setState(() => _showCategorySuggestions = false);
+      if (!_categoryFocusNode.hasFocus) {
+        Future<void>.delayed(const Duration(milliseconds: 120), () {
+          if (!mounted || _categoryFocusNode.hasFocus) {
+            return;
+          }
+
+          setState(() => _showCategorySuggestions = false);
+        });
       }
     });
 

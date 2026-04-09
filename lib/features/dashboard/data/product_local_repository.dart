@@ -137,6 +137,25 @@ class ProductLocalRepository {
     return category.name;
   }
 
+  Future<ProductRecord?> fetchProductByName(String productName) async {
+    final isar = await AppDatabase.instance;
+    final trimmedName = productName.trim();
+    if (trimmedName.isEmpty) {
+      return null;
+    }
+
+    final entity = await isar.productEntitys
+        .filter()
+        .nameEqualTo(trimmedName, caseSensitive: false)
+        .findFirst();
+
+    if (entity == null) {
+      return null;
+    }
+
+    return _mapEntityToRecord(entity);
+  }
+
   Future<ProductRecord> saveProduct(ProductRecord product) async {
     final isar = await AppDatabase.instance;
     final normalizedCategory = product.category.trim();

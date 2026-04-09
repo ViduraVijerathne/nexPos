@@ -168,13 +168,14 @@ class PosLocalRepository {
     required String paymentMethod,
     required double amountPaid,
     required String cashierName,
+    required double taxAmount,
   }) async {
     if (items.isEmpty) {
       throw PosLocalRepositoryException('Add at least one item to the cart');
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
-    final total = subtotal + (subtotal * 0.10);
+    final total = subtotal + taxAmount;
     if (amountPaid < total) {
       throw PosLocalRepositoryException(
         'Paid amount must be equal to or greater than total',

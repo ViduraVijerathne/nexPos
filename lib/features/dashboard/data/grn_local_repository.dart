@@ -137,6 +137,20 @@ class GrnLocalRepository {
         .toList();
 
     final now = DateTime.now();
+    final initialPaymentHistory =
+        existing?.paymentHistory ??
+        (record.paidAmount > 0
+            ? <GrnPaymentEmbedded>[
+                GrnPaymentEmbedded()
+                  ..paidAt = now
+                  ..amount = record.paidAmount
+                  ..method = record.paymentMethod
+                  ..remainingBalance = (record.total - record.paidAmount).clamp(
+                    0,
+                    double.infinity,
+                  ),
+              ]
+            : <GrnPaymentEmbedded>[]);
     final entity = GrnEntity()
       ..id = existing?.id ?? Isar.autoIncrement
       ..code = record.id
@@ -148,7 +162,7 @@ class GrnLocalRepository {
       ..paidAmount = record.paidAmount
       ..paymentMethod = record.paymentMethod
       ..items = items
-      ..paymentHistory = existing?.paymentHistory ?? <GrnPaymentEmbedded>[]
+      ..paymentHistory = initialPaymentHistory
       ..createdAt = existing?.createdAt ?? now
       ..updatedAt = existing == null ? null : now;
 
@@ -211,6 +225,47 @@ class GrnLocalRepository {
       ..updatedAt = DateTime.now();
 
     await isar.writeTxn(() async {
+      await isar.grnEntitys.put(entity);
+    });
+
+    return _mapGrnEntityToRecord(entity);
+  }
+
+  Future<GrnRecord?> addPendingItemsToStock(String grnId) async {
+    final isar = await AppDatabase.instance;
+    final entity = await isar.grnEntitys
+        .filter()
+        .codeEqualTo(grnId)
+        .findFirst();
+    if (entity == null) {
+      return null;
+    }
+
+    final pendingItems = entity.items.where((item) => !item.inStock).toList();
+    if (pendingItems.isEmpty) {
+      return _mapGrnEntityToRecord(entity);
+    }
+
+    final now = DateTime.now();
+    await isar.writeTxn(() async {
+      for (final item in pendingItems) {
+        final stock = StockEntity()
+          ..barcode = item.stockBarcode
+          ..productName = item.productName
+          ..productBarcode = item.productBarcode
+          ..grnCode = entity.code
+          ..initialQuantity = item.quantity
+          ..availableQuantity = item.quantity
+          ..buyingPrice = item.buyingPrice
+          ..sellingPrice = item.sellingPrice
+          ..maxDiscount = item.maxDiscount
+          ..status = StockEntityStatus.active
+          ..createdAt = now;
+        await isar.stockEntitys.put(stock);
+        item.inStock = true;
+      }
+
+      entity.updatedAt = now;
       await isar.grnEntitys.put(entity);
     });
 
@@ -302,6 +357,10 @@ class GrnLocalRepository {
     }
 
     final suppliers = await isar.supplierEntitys.where().findAll();
+    if (suppliers.isEmpty) {
+      return;
+    }
+
     final appleSupplier = suppliers.firstWhere(
       (supplier) => supplier.supplierName.toLowerCase() == 'apple',
       orElse: () => suppliers.first,
@@ -446,6 +505,10 @@ class GrnLocalRepository {
       //   payments: const [],
       // ),
     ];
+
+    if (seedGrns.isEmpty) {
+      return;
+    }
 
     await isar.writeTxn(() async {
       await isar.grnEntitys.putAll(seedGrns);

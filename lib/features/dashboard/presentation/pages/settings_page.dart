@@ -76,6 +76,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isSaving = false;
   bool _isTaxEnabled = false;
   bool _createCustomerOnlyContact = false;
+  bool _grnAddItemOnEnter = true;
   PosInvoicePrintMode _posInvoicePrintMode = PosInvoicePrintMode.preview;
   PosShortcutSettings _posShortcutSettings = PosShortcutSettings.defaults;
   ShopInfo _shopInfo = const ShopInfo(
@@ -158,6 +159,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final grnEntrySettings = await AppSettingsService.instance
+          .loadGrnEntrySettings();
       final posPrintSettings = await AppSettingsService.instance
           .loadPosPrintSettings();
       final posShortcutSettings = await AppSettingsService.instance
@@ -176,6 +179,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _isTaxEnabled = taxSettings.isTaxEnabled;
         _taxPercentController.text = _formatNumber(taxSettings.taxPercent);
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
+        _grnAddItemOnEnter = grnEntrySettings.addItemOnEnter;
         _posInvoicePrintMode = posPrintSettings.invoicePrintMode;
         _posShortcutSettings = posShortcutSettings;
         _shopInfo = setupState.shopInfo;
@@ -276,6 +280,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       await AppSettingsService.instance.savePosCustomerSettings(
         createCustomerOnlyContact: _createCustomerOnlyContact,
+      );
+      await AppSettingsService.instance.saveGrnEntrySettings(
+        addItemOnEnter: _grnAddItemOnEnter,
       );
       await AppSettingsService.instance.savePosPrintSettings(
         invoicePrintMode: _posInvoicePrintMode,
@@ -603,6 +610,20 @@ class _SettingsPageState extends State<SettingsPage> {
               value: _createCustomerOnlyContact,
               onChanged: (value) {
                 setState(() => _createCustomerOnlyContact = value);
+              },
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'GRN Quick Entry',
+            child: _SwitchTile(
+              title: 'Add Item On Enter',
+              description: _grnAddItemOnEnter
+                  ? 'When all item fields are filled in the GRN dialog, pressing Enter will add the item instantly.'
+                  : 'Cashiers must click `Add Item to GRN` manually in the GRN dialog.',
+              value: _grnAddItemOnEnter,
+              onChanged: (value) {
+                setState(() => _grnAddItemOnEnter = value);
               },
             ),
           ),

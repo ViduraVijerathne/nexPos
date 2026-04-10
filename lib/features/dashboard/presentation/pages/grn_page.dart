@@ -6,11 +6,15 @@ import 'package:flutter/material.dart';
 import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../../settings/services/app_settings_service.dart';
 import '../../data/grn_local_repository.dart';
 import '../../data/grn_remote_repository.dart';
 import '../../data/grn_repository.dart';
 import '../../data/grn_repository_factory.dart';
+import '../../data/supplier_repository.dart';
+import '../../data/supplier_repository_factory.dart';
 import '../../models/models.dart';
+import 'supplier_page.dart' show SupplierFormDialog;
 
 class GrnPage extends StatefulWidget {
   const GrnPage({super.key});
@@ -425,9 +429,23 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
   bool _showSupplierSuggestions = false;
   bool _showProductSuggestions = false;
   final List<GrnItem> _items = [];
+  SupplierRepository? _supplierRepository;
+  List<SupplierRecord> _supplierMatches = <SupplierRecord>[];
   bool _isSaving = false;
+  bool _isLoadingSupplierSuggestions = false;
+  bool _isCreatingSupplier = false;
+  bool _addItemOnEnter = true;
+  Timer? _supplierDebounce;
 
   List<String> get _matchingSuppliers {
+    if (_supplierMatches.isNotEmpty) {
+      return _supplierMatches
+          .map((supplier) => supplier.supplierName)
+          .toSet()
+          .take(6)
+          .toList();
+    }
+
     final query = _supplierController.text.trim().toLowerCase();
     if (query.isEmpty) {
       return widget.supplierSuggestions.take(6).toList();
@@ -438,6 +456,11 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
         .take(6)
         .toList();
   }
+
+  bool get _showAddSupplierAction =>
+      _supplierController.text.trim().isNotEmpty &&
+      !_isLoadingSupplierSuggestions &&
+      _matchingSuppliers.isEmpty;
 
   List<String> get _matchingProducts {
     final query = _productController.text.trim().toLowerCase();
@@ -459,7 +482,14 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
   double get _dueAmount => _total - _paidAmount;
 
   @override
+  void initState() {
+    super.initState();
+    _initializeSupplierSearch();
+  }
+
+  @override
   void dispose() {
+    _supplierDebounce?.cancel();
     _supplierController.dispose();
     _dateController.dispose();
     _discountController.dispose();
@@ -471,6 +501,148 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
     _sellingPriceController.dispose();
     _maxDiscountController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initializeSupplierSearch() async {
+    _loadGrnEntrySettings();
+    try {
+      final repository = await SupplierRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _supplierRepository = repository;
+      await _loadSupplierMatches();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isLoadingSupplierSuggestions = false);
+    }
+  }
+
+  Future<void> _loadGrnEntrySettings() async {
+    final settings = await AppSettingsService.instance.loadGrnEntrySettings();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _addItemOnEnter = settings.addItemOnEnter);
+  }
+
+  void _scheduleSupplierSearch([String? value]) {
+    _supplierDebounce?.cancel();
+    final query = (value ?? _supplierController.text).trim();
+
+    setState(() {
+      _showSupplierSuggestions = true;
+      _isLoadingSupplierSuggestions = true;
+    });
+
+    _supplierDebounce = Timer(
+      const Duration(milliseconds: 220),
+      () => _loadSupplierMatches(query: query),
+    );
+  }
+
+  Future<void> _loadSupplierMatches({String? query}) async {
+    final normalizedQuery = (query ?? _supplierController.text).trim();
+    final repository = _supplierRepository;
+    if (repository == null) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isLoadingSupplierSuggestions = false);
+      return;
+    }
+
+    try {
+      final result = await repository.fetchSuppliers(
+        page: 1,
+        searchQuery: normalizedQuery.isEmpty ? null : normalizedQuery,
+      );
+      if (!mounted || normalizedQuery != _supplierController.text.trim()) {
+        return;
+      }
+
+      setState(() {
+        _supplierMatches = result.suppliers.take(6).toList();
+        _isLoadingSupplierSuggestions = false;
+      });
+    } catch (_) {
+      if (!mounted || normalizedQuery != _supplierController.text.trim()) {
+        return;
+      }
+
+      setState(() {
+        _supplierMatches = <SupplierRecord>[];
+        _isLoadingSupplierSuggestions = false;
+      });
+    }
+  }
+
+  Future<void> _openCreateSupplierDialog() async {
+    if (_isCreatingSupplier) {
+      return;
+    }
+
+    final query = _supplierController.text.trim();
+    if (query.isEmpty) {
+      AppToast.error('Type a supplier name or phone number first');
+      return;
+    }
+
+    var repository = _supplierRepository;
+    if (repository == null) {
+      try {
+        repository = await SupplierRepositoryFactory.create();
+        await repository.initialize();
+        if (!mounted) {
+          return;
+        }
+        _supplierRepository = repository;
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        AppToast.error('Failed to open supplier form: $error');
+        return;
+      }
+    }
+
+    final isPhoneOnly = RegExp(r'^\d+$').hasMatch(query);
+    final supplierRepository = repository!;
+
+    setState(() => _isCreatingSupplier = true);
+    final saved = await showDialog<SupplierRecord>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => SupplierFormDialog(
+        repository: supplierRepository,
+        prefilledSupplierName: isPhoneOnly ? null : query,
+        prefilledContactNumber: isPhoneOnly ? query : null,
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _isCreatingSupplier = false);
+
+    if (saved == null) {
+      return;
+    }
+
+    await _loadSupplierMatches(query: saved.supplierName);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _supplierController.text = saved.supplierName;
+      _showSupplierSuggestions = false;
+    });
+    AppToast.success('Supplier added successfully');
   }
 
   void _addItem() {
@@ -514,6 +686,23 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
       _maxDiscountController.clear();
       _showProductSuggestions = false;
     });
+  }
+
+  bool get _isItemFormReadyForSubmit {
+    final hasProduct = _productController.text.trim().isNotEmpty;
+    final quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
+    final buyingPrice =
+        double.tryParse(_buyingPriceController.text.trim()) ?? -1;
+    final sellingPrice =
+        double.tryParse(_sellingPriceController.text.trim()) ?? -1;
+    return hasProduct && quantity > 0 && buyingPrice >= 0 && sellingPrice >= 0;
+  }
+
+  void _tryAddItemFromKeyboard() {
+    if (!_addItemOnEnter || !_isItemFormReadyForSubmit) {
+      return;
+    }
+    _addItem();
   }
 
   Future<void> _saveGrn({required bool addToStock}) async {
@@ -599,15 +788,22 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                     'Type supplier name, company or contact...',
                                 suggestions: _matchingSuppliers,
                                 showSuggestions: _showSupplierSuggestions,
+                                isLoading: _isLoadingSupplierSuggestions,
+                                emptyActionLabel: _showAddSupplierAction
+                                    ? 'Add New Supplier'
+                                    : null,
+                                emptyActionHelper: _showAddSupplierAction
+                                    ? 'No supplier found for this search'
+                                    : null,
+                                isEmptyActionLoading: _isCreatingSupplier,
+                                onEmptyActionTap: _showAddSupplierAction
+                                    ? _openCreateSupplierDialog
+                                    : null,
                                 onChanged: (_) {
-                                  setState(
-                                    () => _showSupplierSuggestions = true,
-                                  );
+                                  _scheduleSupplierSearch();
                                 },
                                 onTap: () {
-                                  setState(
-                                    () => _showSupplierSuggestions = true,
-                                  );
+                                  _scheduleSupplierSearch();
                                 },
                                 onSelect: (value) {
                                   setState(() {
@@ -708,6 +904,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                     'Type product name, barcode or category...',
                                 suggestions: _matchingProducts,
                                 showSuggestions: _showProductSuggestions,
+                                onSubmitted: (_) => _tryAddItemFromKeyboard(),
                                 onChanged: (_) {
                                   setState(
                                     () => _showProductSuggestions = true,
@@ -738,6 +935,8 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                           child: _DialogTextField(
                                             controller: _stockBarcodeController,
                                             hintText: 'Auto-generated if empty',
+                                            onSubmitted: (_) =>
+                                                _tryAddItemFromKeyboard(),
                                           ),
                                         ),
                                         const SizedBox(width: 8),
@@ -788,6 +987,8 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                       controller: _quantityController,
                                       hintText: '0',
                                       keyboardType: TextInputType.number,
+                                      onSubmitted: (_) =>
+                                          _tryAddItemFromKeyboard(),
                                     ),
                                   ),
                                 ),
@@ -803,6 +1004,8 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                       controller: _buyingPriceController,
                                       hintText: '0.00',
                                       keyboardType: TextInputType.number,
+                                      onSubmitted: (_) =>
+                                          _tryAddItemFromKeyboard(),
                                     ),
                                   ),
                                 ),
@@ -814,6 +1017,8 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                       controller: _sellingPriceController,
                                       hintText: '0.00',
                                       keyboardType: TextInputType.number,
+                                      onSubmitted: (_) =>
+                                          _tryAddItemFromKeyboard(),
                                     ),
                                   ),
                                 ),
@@ -826,6 +1031,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                 controller: _maxDiscountController,
                                 hintText: '0.00',
                                 keyboardType: TextInputType.number,
+                                onSubmitted: (_) => _tryAddItemFromKeyboard(),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -1996,6 +2202,12 @@ class _SuggestionField extends StatelessWidget {
     required this.onChanged,
     required this.onTap,
     required this.onSelect,
+    this.onSubmitted,
+    this.isLoading = false,
+    this.emptyActionLabel,
+    this.emptyActionHelper,
+    this.onEmptyActionTap,
+    this.isEmptyActionLoading = false,
   });
 
   final TextEditingController controller;
@@ -2005,6 +2217,12 @@ class _SuggestionField extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onTap;
   final ValueChanged<String> onSelect;
+  final ValueChanged<String>? onSubmitted;
+  final bool isLoading;
+  final String? emptyActionLabel;
+  final String? emptyActionHelper;
+  final VoidCallback? onEmptyActionTap;
+  final bool isEmptyActionLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -2016,8 +2234,12 @@ class _SuggestionField extends StatelessWidget {
           hintText: hintText,
           onChanged: onChanged,
           onTap: onTap,
+          onSubmitted: onSubmitted,
         ),
-        if (showSuggestions && suggestions.isNotEmpty) ...[
+        if (showSuggestions &&
+            (isLoading ||
+                suggestions.isNotEmpty ||
+                onEmptyActionTap != null)) ...[
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
@@ -2035,27 +2257,94 @@ class _SuggestionField extends StatelessWidget {
             ),
             child: Column(
               children: [
-                for (final suggestion in suggestions)
-                  InkWell(
-                    onTap: () => onSelect(suggestion),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          suggestion,
-                          style: const TextStyle(
-                            fontSize: 14,
+                if (isLoading)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Loading suppliers...',
+                          style: TextStyle(
+                            fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF445166),
+                            color: Color(0xFF718096),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (!isLoading && suggestions.isNotEmpty)
+                  for (final suggestion in suggestions)
+                    InkWell(
+                      onTap: () => onSelect(suggestion),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            suggestion,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF445166),
+                            ),
                           ),
                         ),
                       ),
                     ),
+                if (!isLoading &&
+                    suggestions.isEmpty &&
+                    onEmptyActionTap != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        emptyActionHelper ?? 'No matching results found',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF7A869A),
+                        ),
+                      ),
+                    ),
                   ),
+                  InkWell(
+                    onTap: isEmptyActionLoading ? null : onEmptyActionTap,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 4, 14, 14),
+                      child: Row(
+                        children: [
+                          if (isEmptyActionLoading) ...[
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          Text(
+                            '+ ${emptyActionLabel ?? 'Add New'}',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF36B4AE),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2478,6 +2767,7 @@ class _DialogTextField extends StatelessWidget {
     this.keyboardType,
     this.onChanged,
     this.onTap,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -2485,6 +2775,7 @@ class _DialogTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onTap;
+  final ValueChanged<String>? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -2493,6 +2784,8 @@ class _DialogTextField extends StatelessWidget {
       keyboardType: keyboardType,
       onChanged: onChanged,
       onTap: onTap,
+      onSubmitted: onSubmitted,
+      textInputAction: TextInputAction.done,
       decoration: _dialogFieldDecoration(hintText: hintText),
     );
   }

@@ -843,10 +843,14 @@ class SupplierFormDialog extends StatefulWidget {
     super.key,
     this.initialSupplier,
     required this.repository,
+    this.prefilledSupplierName,
+    this.prefilledContactNumber,
   });
 
   final SupplierRecord? initialSupplier;
   final SupplierRepository repository;
+  final String? prefilledSupplierName;
+  final String? prefilledContactNumber;
 
   @override
   State<SupplierFormDialog> createState() => _SupplierFormDialogState();
@@ -870,13 +874,13 @@ class _SupplierFormDialogState extends State<SupplierFormDialog> {
     super.initState();
     final supplier = widget.initialSupplier;
     _supplierNameController = TextEditingController(
-      text: supplier?.supplierName ?? '',
+      text: supplier?.supplierName ?? widget.prefilledSupplierName ?? '',
     );
     _companyNameController = TextEditingController(
       text: supplier?.companyName ?? '',
     );
     _contactNumberController = TextEditingController(
-      text: supplier?.contactNumber ?? '',
+      text: supplier?.contactNumber ?? widget.prefilledContactNumber ?? '',
     );
     _companyContactController = TextEditingController(
       text: supplier?.companyContact ?? '',

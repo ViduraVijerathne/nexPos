@@ -1,6 +1,7 @@
 import 'package:isar/isar.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/services/change_log_service.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'stock_repository.dart';
@@ -162,12 +163,20 @@ class StockLocalRepository implements StockRepository {
       );
     }
 
+    ProductEntity? linkedProduct;
+    if (stock.product.trim().isNotEmpty) {
+      linkedProduct = await isar.productEntitys
+          .filter()
+          .nameEqualTo(stock.product.trim(), caseSensitive: false)
+          .findFirst();
+    }
+
     final now = DateTime.now();
     final entity = StockEntity()
       ..id = stock.id ?? Isar.autoIncrement
       ..barcode = trimmedBarcode
       ..productName = stock.product.trim()
-      ..productBarcode = null
+      ..productBarcode = linkedProduct?.barcode
       ..grnCode = stock.grnId == 'Not Assigned' ? null : stock.grnId.trim()
       ..initialQuantity = stock.initialQty
       ..availableQuantity = stock.availableQty
@@ -183,8 +192,23 @@ class StockLocalRepository implements StockRepository {
     await isar.writeTxn(() async {
       savedId = await isar.stockEntitys.put(entity);
     });
-
-    return _mapEntityToRecord(entity..id = savedId);
+    final savedRecord = _mapEntityToRecord(entity..id = savedId);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.stock,
+      entityId: '${savedRecord.id ?? savedRecord.barcode}',
+      action: existing == null ? 'create' : 'update',
+      title: existing == null
+          ? 'Created stock ${savedRecord.barcode}'
+          : 'Updated stock ${savedRecord.barcode}',
+      details: {
+        'product': savedRecord.product,
+        'barcode': savedRecord.barcode,
+        'quantity': savedRecord.availableQty,
+        'status': savedRecord.status.name,
+        'grnId': savedRecord.grnId,
+      },
+    );
+    return savedRecord;
   }
 
   Future<StockRecord?> deactivateStockById(int stockId) async {
@@ -201,8 +225,19 @@ class StockLocalRepository implements StockRepository {
     await isar.writeTxn(() async {
       await isar.stockEntitys.put(entity);
     });
-
-    return _mapEntityToRecord(entity);
+    final savedRecord = _mapEntityToRecord(entity);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.stock,
+      entityId: '${savedRecord.id ?? savedRecord.barcode}',
+      action: 'deactivate',
+      title: 'Deactivated stock ${savedRecord.barcode}',
+      details: {
+        'product': savedRecord.product,
+        'barcode': savedRecord.barcode,
+        'status': savedRecord.status.name,
+      },
+    );
+    return savedRecord;
   }
 
   @override

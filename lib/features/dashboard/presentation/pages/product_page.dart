@@ -8,7 +8,14 @@ import '../../data/product_local_repository.dart';
 import '../../data/product_remote_repository.dart';
 import '../../data/product_repository.dart';
 import '../../data/product_repository_factory.dart';
+import '../../data/grn_repository.dart';
+import '../../data/grn_repository_factory.dart';
+import '../../data/stock_local_repository.dart';
+import '../../data/stock_remote_repository.dart';
+import '../../data/stock_repository.dart';
+import '../../data/stock_repository_factory.dart';
 import '../../models/models.dart';
+import 'stock_page.dart';
 
 class ProductPage extends StatefulWidget {
   const ProductPage({super.key});
@@ -21,6 +28,8 @@ class _ProductPageState extends State<ProductPage> {
   final TextEditingController _searchController = TextEditingController();
 
   ProductRepository? _repository;
+  StockRepository? _stockRepository;
+  GrnRepository? _grnRepository;
   ProductFilter _selectedFilter = ProductFilter.name;
   List<ProductRecord> _products = <ProductRecord>[];
   int _currentPage = 1;
@@ -28,6 +37,8 @@ class _ProductPageState extends State<ProductPage> {
   int _totalCount = 0;
   int _pageSize = 10;
   bool _isLoading = true;
+  String? _viewingProductKey;
+  String? _deactivatingProductKey;
   Timer? _searchDebounce;
 
   @override
@@ -46,12 +57,18 @@ class _ProductPageState extends State<ProductPage> {
   Future<void> _initializePage() async {
     try {
       final repository = await ProductRepositoryFactory.create();
+      final stockRepository = await StockRepositoryFactory.create();
+      final grnRepository = await GrnRepositoryFactory.create();
       await repository.initialize();
+      await stockRepository.initialize();
+      await grnRepository.initialize();
       if (!mounted) {
         return;
       }
 
       _repository = repository;
+      _stockRepository = stockRepository;
+      _grnRepository = grnRepository;
       await _loadProducts(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
@@ -139,7 +156,14 @@ class _ProductPageState extends State<ProductPage> {
     }
 
     try {
-      await repository.saveProduct(result.product);
+      final savedProduct = await repository.saveProduct(result.product);
+      if (result.openingStock != null) {
+        final stockRepository = await StockRepositoryFactory.create();
+        await stockRepository.initialize();
+        await stockRepository.saveStock(
+          result.openingStock!.copyWith(product: savedProduct.name),
+        );
+      }
       await _loadProducts(targetPage: product == null ? 1 : _currentPage);
 
       if (result.createdCategory) {
@@ -148,11 +172,75 @@ class _ProductPageState extends State<ProductPage> {
 
       AppToast.success(
         product == null
-            ? 'Product added successfully'
+            ? result.openingStock == null
+                  ? 'Product added successfully'
+                  : 'Product and opening stock created successfully'
             : 'Product updated successfully',
       );
     } catch (error) {
       AppToast.error('Failed to save product: ${_readableError(error)}');
+    }
+  }
+
+  Future<void> _showProductDetails(ProductRecord product) async {
+    final stockRepository = _stockRepository;
+    final grnRepository = _grnRepository;
+    if (stockRepository == null || grnRepository == null) {
+      AppToast.error(
+        'Product details service is still loading. Please try again.',
+      );
+      return;
+    }
+
+    final productKey = product.cloudId ?? '${product.id ?? product.barcode}';
+    setState(() => _viewingProductKey = productKey);
+    try {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _viewingProductKey = null);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => ProductDetailsDialog(
+          product: product,
+          stockRepository: stockRepository,
+          grnRepository: grnRepository,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingProductKey = null);
+      AppToast.error(
+        'Failed to load product details: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _deactivateProduct(ProductRecord product) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Product service is still loading. Please try again.');
+      return;
+    }
+
+    final productKey = product.cloudId ?? '${product.id ?? product.barcode}';
+    setState(() => _deactivatingProductKey = productKey);
+    try {
+      await repository.saveProduct(
+        product.copyWith(status: ProductStatus.inactive),
+      );
+      await _loadProducts(targetPage: _currentPage);
+      AppToast.success('Product deactivated successfully');
+    } catch (error) {
+      AppToast.error('Failed to deactivate product: ${_readableError(error)}');
+    } finally {
+      if (mounted) {
+        setState(() => _deactivatingProductKey = null);
+      }
     }
   }
 
@@ -161,6 +249,12 @@ class _ProductPageState extends State<ProductPage> {
       return error.message;
     }
     if (error is ProductRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is StockLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is StockRemoteRepositoryException) {
       return error.message;
     }
     return error.toString();
@@ -302,8 +396,18 @@ class _ProductPageState extends State<ProductPage> {
                               return _ProductTableRow(
                                 product: product,
                                 isHighlighted: index.isEven,
+                                isViewLoading:
+                                    _viewingProductKey ==
+                                    (product.cloudId ??
+                                        '${product.id ?? product.barcode}'),
+                                isDeactivateLoading:
+                                    _deactivatingProductKey ==
+                                    (product.cloudId ??
+                                        '${product.id ?? product.barcode}'),
+                                onView: () => _showProductDetails(product),
                                 onEdit: () =>
                                     _openProductDialog(product: product),
+                                onDeactivate: () => _deactivateProduct(product),
                               );
                             },
                           ),
@@ -385,6 +489,11 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   late final TextEditingController _barcodeController;
   late final TextEditingController _categoryController;
   late final TextEditingController _lowStockController;
+  late final TextEditingController _openingStockBarcodeController;
+  late final TextEditingController _openingStockQtyController;
+  late final TextEditingController _openingStockBuyingPriceController;
+  late final TextEditingController _openingStockSellingPriceController;
+  late final TextEditingController _openingStockMaxDiscountController;
 
   late String _selectedUnit;
   late ProductStatus _selectedStatus;
@@ -395,6 +504,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
   bool _isCreatingCategory = false;
   bool _createdCategory = false;
   bool _isSubmitting = false;
+  bool _createOpeningStock = false;
 
   bool get _isEditing => widget.initialProduct != null;
 
@@ -419,6 +529,11 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     _lowStockController = TextEditingController(
       text: initial?.lowStock.toString() ?? '50',
     );
+    _openingStockBarcodeController = TextEditingController();
+    _openingStockQtyController = TextEditingController();
+    _openingStockBuyingPriceController = TextEditingController();
+    _openingStockSellingPriceController = TextEditingController();
+    _openingStockMaxDiscountController = TextEditingController();
     _selectedUnit = initial?.unit ?? 'ITEMS';
     _selectedStatus = initial?.status ?? ProductStatus.active;
 
@@ -444,6 +559,11 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     _barcodeController.dispose();
     _categoryController.dispose();
     _lowStockController.dispose();
+    _openingStockBarcodeController.dispose();
+    _openingStockQtyController.dispose();
+    _openingStockBuyingPriceController.dispose();
+    _openingStockSellingPriceController.dispose();
+    _openingStockMaxDiscountController.dispose();
     super.dispose();
   }
 
@@ -477,6 +597,14 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     setState(() {
       _barcodeController.text =
           '890${timestamp.substring(timestamp.length - 10)}';
+    });
+  }
+
+  void _generateOpeningStockBarcode() {
+    final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
+    setState(() {
+      _openingStockBarcodeController.text =
+          'STK-${timestamp.substring(timestamp.length - 12)}';
     });
   }
 
@@ -548,6 +676,58 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         status: _selectedStatus,
       );
 
+      StockRecord? openingStock;
+      if (!_isEditing && _createOpeningStock) {
+        final openingQty = int.tryParse(_openingStockQtyController.text.trim());
+        final buyingPrice = double.tryParse(
+          _openingStockBuyingPriceController.text.trim(),
+        );
+        final sellingPrice = double.tryParse(
+          _openingStockSellingPriceController.text.trim(),
+        );
+        final maxDiscount = double.tryParse(
+          _openingStockMaxDiscountController.text.trim(),
+        );
+
+        if (_openingStockBarcodeController.text.trim().isEmpty) {
+          throw ProductLocalRepositoryException(
+            'Opening stock barcode is required',
+          );
+        }
+        if (openingQty == null || openingQty <= 0) {
+          throw ProductLocalRepositoryException(
+            'Enter a valid opening stock quantity',
+          );
+        }
+        if (buyingPrice == null || buyingPrice < 0) {
+          throw ProductLocalRepositoryException(
+            'Enter a valid opening buying price',
+          );
+        }
+        if (sellingPrice == null || sellingPrice < 0) {
+          throw ProductLocalRepositoryException(
+            'Enter a valid opening selling price',
+          );
+        }
+        if (maxDiscount == null || maxDiscount < 0) {
+          throw ProductLocalRepositoryException(
+            'Enter a valid opening max discount',
+          );
+        }
+
+        openingStock = StockRecord(
+          barcode: _openingStockBarcodeController.text.trim(),
+          product: _nameController.text.trim(),
+          initialQty: openingQty,
+          availableQty: openingQty,
+          buyingPrice: buyingPrice,
+          sellingPrice: sellingPrice,
+          maxDiscount: maxDiscount,
+          status: StockStatus.active,
+          grnId: 'Not Assigned',
+        );
+      }
+
       if (!mounted) {
         return;
       }
@@ -556,6 +736,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         ProductDialogResult(
           product: product,
           createdCategory: _createdCategory,
+          openingStock: openingStock,
         ),
       );
     } catch (error) {
@@ -574,6 +755,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Container(
         width: 540,
+        constraints: const BoxConstraints(maxHeight: 760),
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.circular(18),
@@ -614,154 +796,360 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
               ),
             ),
             const Divider(height: 1, color: Color(0xFFE8EDF4)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _FormLabel('Product Name *'),
-                    const SizedBox(height: 8),
-                    _DialogTextField(
-                      controller: _nameController,
-                      hintText: 'Enter product name',
-                      prefixIcon: Icons.inventory_2_outlined,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Product name is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FormLabel('Product Barcode *'),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _DialogTextField(
-                            controller: _barcodeController,
-                            hintText: 'Enter barcode number',
-                            prefixIcon: Icons.view_stream_rounded,
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Barcode is required';
-                              }
-                              return null;
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          height: 40,
-                          child: ElevatedButton.icon(
-                            onPressed: _generateBarcode,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF36B4AE),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            icon: const Icon(
-                              Icons.view_stream_rounded,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              'Generate',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                              ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _FormLabel('Product Name *'),
+                      const SizedBox(height: 8),
+                      _DialogTextField(
+                        controller: _nameController,
+                        hintText: 'Enter product name',
+                        prefixIcon: Icons.inventory_2_outlined,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Product name is required';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FormLabel('Product Barcode *'),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DialogTextField(
+                              controller: _barcodeController,
+                              hintText: 'Enter barcode number',
+                              prefixIcon: Icons.view_stream_rounded,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Barcode is required';
+                                }
+                                return null;
+                              },
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            height: 40,
+                            child: ElevatedButton.icon(
+                              onPressed: _generateBarcode,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF36B4AE),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              icon: const Icon(
+                                Icons.view_stream_rounded,
+                                size: 16,
+                              ),
+                              label: const Text(
+                                'Generate',
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      _FormLabel('Category *'),
+                      const SizedBox(height: 8),
+                      _CategoryAutocompleteField(
+                        controller: _categoryController,
+                        focusNode: _categoryFocusNode,
+                        suggestions: _categorySuggestions,
+                        showSuggestions: _showCategorySuggestions,
+                        isLoadingSuggestions: _isLoadingSuggestions,
+                        shouldOfferCreate: _shouldOfferCreateCategory,
+                        isCreatingCategory: _isCreatingCategory,
+                        onChanged: (value) async {
+                          setState(() => _showCategorySuggestions = true);
+                          await _loadCategorySuggestions(value);
+                        },
+                        onTap: () async {
+                          setState(() => _showCategorySuggestions = true);
+                          await _loadCategorySuggestions(
+                            _categoryController.text,
+                          );
+                        },
+                        onSelectSuggestion: (category) {
+                          setState(() {
+                            _categoryController.text = category;
+                            _showCategorySuggestions = false;
+                          });
+                        },
+                        onCreateCategory: _createCategory,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Category is required';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FormLabel('Unit *'),
+                      const SizedBox(height: 8),
+                      _DialogDropdown<String>(
+                        value: _selectedUnit,
+                        prefixIcon: Icons.inventory_2_outlined,
+                        items: const ['ITEMS', 'KG', 'L', 'PACKETS', 'M'],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _selectedUnit = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FormLabel('Low Stock Quantity *'),
+                      const SizedBox(height: 8),
+                      _DialogTextField(
+                        controller: _lowStockController,
+                        hintText: '50',
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Low stock quantity is required';
+                          }
+                          final parsed = int.tryParse(value.trim());
+                          if (parsed == null) {
+                            return 'Enter a valid number';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      _FormLabel('Active Status'),
+                      const SizedBox(height: 8),
+                      _DialogDropdown<ProductStatus>(
+                        value: _selectedStatus,
+                        prefixIcon: Icons.layers_outlined,
+                        items: ProductStatus.values,
+                        itemLabelBuilder: (status) => status.label,
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _selectedStatus = value);
+                          }
+                        },
+                      ),
+                      if (!_isEditing) ...[
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    _createOpeningStock = !_createOpeningStock;
+                                    if (_createOpeningStock &&
+                                        _openingStockBarcodeController.text
+                                            .trim()
+                                            .isEmpty) {
+                                      _generateOpeningStockBarcode();
+                                    }
+                                  });
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(42),
+                                  side: BorderSide(
+                                    color: _createOpeningStock
+                                        ? const Color(0xFF36B4AE)
+                                        : const Color(0xFFE0E7F0),
+                                  ),
+                                  foregroundColor: _createOpeningStock
+                                      ? const Color(0xFF36B4AE)
+                                      : const Color(0xFF344256),
+                                ),
+                                icon: Icon(
+                                  _createOpeningStock
+                                      ? Icons.check_circle_outline_rounded
+                                      : Icons.add_box_outlined,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _createOpeningStock
+                                      ? 'Opening Stock Enabled'
+                                      : 'Create Opening Stock',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        if (_createOpeningStock) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FCFB),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFDCEEEB),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Opening Stock Details',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF334156),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                _FormLabel('Stock Barcode *'),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _DialogTextField(
+                                        controller:
+                                            _openingStockBarcodeController,
+                                        hintText: 'Enter stock barcode',
+                                        prefixIcon: Icons.qr_code_2_rounded,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    SizedBox(
+                                      height: 40,
+                                      child: ElevatedButton.icon(
+                                        onPressed: _generateOpeningStockBarcode,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(
+                                            0xFF36B4AE,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.qr_code_rounded,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Generate',
+                                          style: TextStyle(
+                                            fontSize: 13.5,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FormLabel('Initial Quantity *'),
+                                          const SizedBox(height: 8),
+                                          _DialogTextField(
+                                            controller:
+                                                _openingStockQtyController,
+                                            hintText: 'Enter quantity',
+                                            keyboardType: TextInputType.number,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FormLabel('Buying Price *'),
+                                          const SizedBox(height: 8),
+                                          _DialogTextField(
+                                            controller:
+                                                _openingStockBuyingPriceController,
+                                            hintText: 'Enter buying price',
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FormLabel('Selling Price *'),
+                                          const SizedBox(height: 8),
+                                          _DialogTextField(
+                                            controller:
+                                                _openingStockSellingPriceController,
+                                            hintText: 'Enter selling price',
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FormLabel('Max Discount *'),
+                                          const SizedBox(height: 8),
+                                          _DialogTextField(
+                                            controller:
+                                                _openingStockMaxDiscountController,
+                                            hintText: 'Enter max discount',
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
-                    ),
-                    const SizedBox(height: 14),
-                    _FormLabel('Category *'),
-                    const SizedBox(height: 8),
-                    _CategoryAutocompleteField(
-                      controller: _categoryController,
-                      focusNode: _categoryFocusNode,
-                      suggestions: _categorySuggestions,
-                      showSuggestions: _showCategorySuggestions,
-                      isLoadingSuggestions: _isLoadingSuggestions,
-                      shouldOfferCreate: _shouldOfferCreateCategory,
-                      isCreatingCategory: _isCreatingCategory,
-                      onChanged: (value) async {
-                        setState(() => _showCategorySuggestions = true);
-                        await _loadCategorySuggestions(value);
-                      },
-                      onTap: () async {
-                        setState(() => _showCategorySuggestions = true);
-                        await _loadCategorySuggestions(
-                          _categoryController.text,
-                        );
-                      },
-                      onSelectSuggestion: (category) {
-                        setState(() {
-                          _categoryController.text = category;
-                          _showCategorySuggestions = false;
-                        });
-                      },
-                      onCreateCategory: _createCategory,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Category is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FormLabel('Unit *'),
-                    const SizedBox(height: 8),
-                    _DialogDropdown<String>(
-                      value: _selectedUnit,
-                      prefixIcon: Icons.inventory_2_outlined,
-                      items: const ['ITEMS', 'KG', 'L', 'PACKETS', 'M'],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _selectedUnit = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FormLabel('Low Stock Quantity *'),
-                    const SizedBox(height: 8),
-                    _DialogTextField(
-                      controller: _lowStockController,
-                      hintText: '50',
-                      keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Low stock quantity is required';
-                        }
-                        final parsed = int.tryParse(value.trim());
-                        if (parsed == null) {
-                          return 'Enter a valid number';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    _FormLabel('Active Status'),
-                    const SizedBox(height: 8),
-                    _DialogDropdown<ProductStatus>(
-                      value: _selectedStatus,
-                      prefixIcon: Icons.layers_outlined,
-                      items: ProductStatus.values,
-                      itemLabelBuilder: (status) => status.label,
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _selectedStatus = value);
-                        }
-                      },
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -910,13 +1298,13 @@ class _ProductTableHeader extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Row(
         children: [
-          Expanded(flex: 33, child: _HeaderText('Product Name')),
-          Expanded(flex: 21, child: _HeaderText('Barcode')),
+          Expanded(flex: 28, child: _HeaderText('Product Name')),
+          Expanded(flex: 18, child: _HeaderText('Barcode')),
           Expanded(flex: 12, child: _HeaderText('Category')),
-          Expanded(flex: 12, child: _HeaderText('Unit')),
-          Expanded(flex: 12, child: _HeaderText('Low Stock')),
-          Expanded(flex: 10, child: _HeaderText('Status')),
-          Expanded(flex: 12, child: _HeaderText('Actions')),
+          Expanded(flex: 10, child: _HeaderText('Unit')),
+          Expanded(flex: 10, child: _HeaderText('Low Stock')),
+          Expanded(flex: 8, child: _HeaderText('Status')),
+          Expanded(flex: 20, child: _HeaderText('Actions')),
         ],
       ),
     );
@@ -945,12 +1333,20 @@ class _ProductTableRow extends StatelessWidget {
   const _ProductTableRow({
     required this.product,
     required this.isHighlighted,
+    required this.isViewLoading,
+    required this.isDeactivateLoading,
+    required this.onView,
     required this.onEdit,
+    required this.onDeactivate,
   });
 
   final ProductRecord product;
   final bool isHighlighted;
+  final bool isViewLoading;
+  final bool isDeactivateLoading;
+  final VoidCallback onView;
   final VoidCallback onEdit;
+  final VoidCallback onDeactivate;
 
   @override
   Widget build(BuildContext context) {
@@ -962,7 +1358,7 @@ class _ProductTableRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            flex: 33,
+            flex: 28,
             child: Row(
               children: [
                 Container(
@@ -993,7 +1389,7 @@ class _ProductTableRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 21,
+            flex: 18,
             child: Row(
               children: [
                 const Icon(
@@ -1027,7 +1423,7 @@ class _ProductTableRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 12,
+            flex: 10,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
@@ -1048,7 +1444,7 @@ class _ProductTableRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 12,
+            flex: 10,
             child: Text(
               '${product.lowStock}',
               style: const TextStyle(
@@ -1059,7 +1455,7 @@ class _ProductTableRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 10,
+            flex: 8,
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
@@ -1087,26 +1483,777 @@ class _ProductTableRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            flex: 12,
+            flex: 20,
             child: Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: onEdit,
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(60, 32),
-                  side: const BorderSide(color: Color(0xFFE1E8F1)),
-                  foregroundColor: const Color(0xFF445166),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                ),
-                icon: const Icon(Icons.edit_outlined, size: 14),
-                label: const Text(
-                  'Edit',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-                ),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: isViewLoading ? null : onView,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(62, 32),
+                      side: const BorderSide(color: Color(0xFFE1E8F1)),
+                      foregroundColor: const Color(0xFF445166),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon: isViewLoading
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.visibility_outlined, size: 14),
+                    label: Text(
+                      isViewLoading ? 'Loading' : 'View',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onEdit,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(60, 32),
+                      side: const BorderSide(color: Color(0xFFE1E8F1)),
+                      foregroundColor: const Color(0xFF445166),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon: const Icon(Icons.edit_outlined, size: 14),
+                    label: const Text(
+                      'Edit',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: isDeactivateLoading ? null : onDeactivate,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(72, 32),
+                      side: const BorderSide(color: Color(0xFFF1D2D2)),
+                      foregroundColor: const Color(0xFFF56565),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon: isDeactivateLoading
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Color(0xFFF56565),
+                            ),
+                          )
+                        : const Icon(Icons.delete_outline_rounded, size: 14),
+                    label: Text(
+                      isDeactivateLoading ? 'Removing' : 'Delete',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class ProductDetailsDialog extends StatefulWidget {
+  const ProductDetailsDialog({
+    super.key,
+    required this.product,
+    required this.stockRepository,
+    required this.grnRepository,
+  });
+
+  final ProductRecord product;
+  final StockRepository stockRepository;
+  final GrnRepository grnRepository;
+
+  @override
+  State<ProductDetailsDialog> createState() => _ProductDetailsDialogState();
+}
+
+class _ProductDetailsDialogState extends State<ProductDetailsDialog> {
+  List<StockRecord> _stocks = <StockRecord>[];
+  bool _isLoadingStocks = true;
+  String? _viewingStockKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStocks();
+  }
+
+  Future<void> _loadStocks() async {
+    setState(() => _isLoadingStocks = true);
+    try {
+      final allStocks = <StockRecord>[];
+      var page = 1;
+      var totalPages = 1;
+
+      do {
+        final result = await widget.stockRepository.fetchStocks(
+          page: page,
+          productQuery: widget.product.name,
+          statusFilter: 'Active',
+        );
+        allStocks.addAll(
+          result.stocks.where(
+            (stock) =>
+                stock.status == StockStatus.active &&
+                stock.product.trim().toLowerCase() ==
+                    widget.product.name.trim().toLowerCase(),
+          ),
+        );
+        totalPages = result.totalPages;
+        page += 1;
+      } while (page <= totalPages);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _stocks = allStocks;
+        _isLoadingStocks = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _stocks = <StockRecord>[];
+        _isLoadingStocks = false;
+      });
+    }
+  }
+
+  Future<void> _showGrnDetails(String grnId) async {
+    if (grnId.trim().isEmpty || grnId == 'Not Assigned') {
+      AppToast.error('This stock item is not linked to a GRN');
+      return;
+    }
+    final record = await widget.grnRepository.fetchGrnById(grnId);
+    if (!mounted || record == null) {
+      AppToast.error('GRN details not found');
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _ReadOnlyGrnDetailsDialog(record: record),
+    );
+  }
+
+  Future<void> _showStockDetails(StockRecord stock) async {
+    final stockKey = stock.cloudId ?? '${stock.id ?? stock.barcode}';
+    setState(() => _viewingStockKey = stockKey);
+    try {
+      final freshStock = await widget.stockRepository.fetchStockDetails(stock);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingStockKey = null);
+      if (freshStock == null) {
+        AppToast.error('Stock details not found');
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => StockDetailsDialog(
+          stock: freshStock,
+          onViewGrn: () => _showGrnDetails(freshStock.grnId),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingStockKey = null);
+      AppToast.error('Failed to load stock details: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final product = widget.product;
+    final isActive = product.status == ProductStatus.active;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 820,
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 32,
+              offset: Offset(0, 16),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFF36B4AE),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: Row(
+                children: [
+                  const Text(
+                    'Product Details',
+                    style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Product Name',
+                          value: product.name,
+                          icon: Icons.inventory_2_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Barcode',
+                          value: product.barcode,
+                          icon: Icons.qr_code_2_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Category',
+                          value: product.category,
+                          icon: Icons.sell_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Unit',
+                          value: product.unit,
+                          icon: Icons.straighten_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Low Stock Quantity',
+                          value: '${product.lowStock}',
+                          icon: Icons.warning_amber_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Status',
+                          value: product.status.label,
+                          icon: isActive
+                              ? Icons.check_circle_outline_rounded
+                              : Icons.block_outlined,
+                          valueColor: isActive
+                              ? const Color(0xFF36B4AE)
+                              : const Color(0xFFF56565),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Active Stocks',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF334156),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE8EDF4)),
+                    ),
+                    child: Column(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(flex: 26, child: _HeaderText('Barcode')),
+                              Expanded(flex: 12, child: _HeaderText('Qty')),
+                              Expanded(flex: 16, child: _HeaderText('Buying')),
+                              Expanded(flex: 16, child: _HeaderText('Selling')),
+                              Expanded(flex: 14, child: _HeaderText('GRN')),
+                              Expanded(flex: 16, child: _HeaderText('Actions')),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFEFF3F8)),
+                        if (_isLoadingStocks)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF36B4AE),
+                            ),
+                          )
+                        else if (_stocks.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text(
+                              'No active stocks found for this product',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF8A98AD),
+                              ),
+                            ),
+                          )
+                        else
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 260),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: _stocks.length,
+                              separatorBuilder: (_, _) => const Divider(
+                                height: 1,
+                                color: Color(0xFFF0F4F8),
+                              ),
+                              itemBuilder: (context, index) {
+                                final stock = _stocks[index];
+                                final stockKey =
+                                    stock.cloudId ??
+                                    '${stock.id ?? stock.barcode}';
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 26,
+                                        child: Text(
+                                          stock.barcode,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF526177),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 12,
+                                        child: Text(
+                                          '${stock.availableQty}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF445166),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 16,
+                                        child: Text(
+                                          'Rs ${stock.buyingPrice.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF7E8CA1),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 16,
+                                        child: Text(
+                                          'Rs ${stock.sellingPrice.toStringAsFixed(2)}',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF36B4AE),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 14,
+                                        child: Text(
+                                          stock.grnId,
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF7E8CA1),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 16,
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: OutlinedButton.icon(
+                                            onPressed:
+                                                _viewingStockKey == stockKey
+                                                ? null
+                                                : () =>
+                                                      _showStockDetails(stock),
+                                            style: OutlinedButton.styleFrom(
+                                              minimumSize: const Size(60, 32),
+                                              side: const BorderSide(
+                                                color: Color(0xFFE1E8F1),
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                  ),
+                                            ),
+                                            icon: _viewingStockKey == stockKey
+                                                ? const SizedBox(
+                                                    width: 14,
+                                                    height: 14,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  )
+                                                : const Icon(
+                                                    Icons.visibility_outlined,
+                                                    size: 14,
+                                                  ),
+                                            label: Text(
+                                              _viewingStockKey == stockKey
+                                                  ? 'Loading'
+                                                  : 'View',
+                                              style: const TextStyle(
+                                                fontSize: 12.5,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductInfoTile extends StatelessWidget {
+  const _ProductInfoTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.valueColor = const Color(0xFF334156),
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: const Color(0xFF8A98AD)),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF8A98AD),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReadOnlyGrnDetailsDialog extends StatelessWidget {
+  const _ReadOnlyGrnDetailsDialog({required this.record});
+
+  final GrnRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 720,
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x30000000),
+              blurRadius: 28,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFF36B4AE),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'GRN Details',
+                        style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ID: ${record.id}',
+                        style: const TextStyle(
+                          color: Color(0xFFE6FFFA),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Supplier',
+                          value: record.supplier,
+                          icon: Icons.local_shipping_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Date',
+                          value: record.date,
+                          icon: Icons.calendar_today_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Sub Total',
+                          value: 'Rs ${record.subTotal.toStringAsFixed(2)}',
+                          icon: Icons.payments_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _ProductInfoTile(
+                          label: 'Due Amount',
+                          value: 'Rs ${record.dueAmount.toStringAsFixed(2)}',
+                          icon: Icons.warning_amber_rounded,
+                          valueColor: record.dueAmount > 0
+                              ? const Color(0xFFF56565)
+                              : const Color(0xFF36B4AE),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE8EDF4)),
+                    ),
+                    child: Column(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(flex: 30, child: _HeaderText('Product')),
+                              Expanded(flex: 12, child: _HeaderText('Qty')),
+                              Expanded(flex: 18, child: _HeaderText('Buying')),
+                              Expanded(flex: 18, child: _HeaderText('Selling')),
+                              Expanded(flex: 22, child: _HeaderText('Status')),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFEFF3F8)),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 260),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: record.items.length,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              color: Color(0xFFF0F4F8),
+                            ),
+                            itemBuilder: (context, index) {
+                              final item = record.items[index];
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 30,
+                                      child: Text(
+                                        item.product,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF526177),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 12,
+                                      child: Text('${item.quantity}'),
+                                    ),
+                                    Expanded(
+                                      flex: 18,
+                                      child: Text(
+                                        'Rs ${item.buyingPrice.toStringAsFixed(2)}',
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 18,
+                                      child: Text(
+                                        'Rs ${item.sellingPrice.toStringAsFixed(2)}',
+                                      ),
+                                    ),
+                                    Expanded(
+                                      flex: 22,
+                                      child: Text(
+                                        item.inStock ? 'In Stock' : 'Pending',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: item.inStock
+                                              ? const Color(0xFF36B4AE)
+                                              : const Color(0xFFF59E0B),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

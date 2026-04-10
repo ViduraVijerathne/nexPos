@@ -199,3 +199,12 @@
 - Restructured the POS screen into three columns so the product list is slightly smaller, cart items are shown in their own dedicated column, and customer/payment/summary controls are isolated in a separate checkout column for clearer cashier workflow.
 - Added configurable POS keyboard shortcuts so cashiers can focus product search, customer search, and amount paid fields or trigger `Process Payment` with function keys.
 - Added a new POS shortcuts settings block under system preferences, with persistent function-key mappings and validation to prevent duplicate shortcut assignments.
+- Extended the add product dialog with a `Create Opening Stock` option so a new product can immediately create its first stock record during the same save flow.
+- Expanded the product table actions with `View`, `Edit`, and soft `Delete`, and added a product details dialog that shows full product info plus active stocks with drill-down access to stock details and linked GRN details.
+- Fixed product update propagation so editing a product now pushes the new product name/barcode into related stock records and GRN item entries in both offline and online modes.
+- Added a common change log service to maintain audit entries for product, stock, and GRN create/update/deactivate/payment/add-to-stock actions.
+- Extended the GRN create dialog supplier autosuggest so it now searches suppliers by name, company, email, and phone using the supplier repository instead of only matching a static name list.
+- Added a `Add New Supplier` empty-state action inside the GRN supplier suggestion box and wired it to the existing supplier create dialog so a cashier can register a missing supplier without leaving the GRN flow.
+- Added smart GRN supplier prefill behavior so numeric-only search input is passed into the supplier dialog as the contact number, while mixed text input is treated as the supplier name and prefilled accordingly.
+- Added a new GRN quick-entry setting so pressing `Enter` in the GRN add-item fields can instantly trigger `Add Item to GRN`, with the setting stored in app preferences and enabled by default.
+- Updated the GRN add-item form so product, stock barcode, quantity, buying price, selling price, and max discount fields can all trigger keyboard submit when the item form is complete, speeding up cashier-style stock entry.

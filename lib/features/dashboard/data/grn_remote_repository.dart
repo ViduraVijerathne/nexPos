@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/services/change_log_service.dart';
 import '../models/models.dart';
 import 'grn_repository.dart';
 
@@ -200,8 +201,22 @@ class GrnRemoteRepository implements GrnRepository {
         );
       }
     }
-
-    return (await fetchGrnById(record.id))!;
+    final savedRecord = (await fetchGrnById(record.id))!;
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.grn,
+      entityId: savedRecord.id,
+      action: 'create',
+      title: 'Created GRN ${savedRecord.id}',
+      details: {
+        'supplier': savedRecord.supplier,
+        'itemCount': savedRecord.items.length,
+        'total': savedRecord.total,
+        'paidAmount': savedRecord.paidAmount,
+        'dueAmount': savedRecord.dueAmount,
+        'addedToStock': addToStock,
+      },
+    );
+    return savedRecord;
   }
 
   @override
@@ -244,7 +259,22 @@ class GrnRemoteRepository implements GrnRepository {
       });
     });
 
-    return fetchGrnById(grnId);
+    final savedRecord = await fetchGrnById(grnId);
+    if (savedRecord != null) {
+      await ChangeLogService.instance.logChange(
+        entityType: ChangeLogEntityType.grn,
+        entityId: savedRecord.id,
+        action: 'payment',
+        title: 'Recorded GRN payment for ${savedRecord.id}',
+        details: {
+          'amount': amount,
+          'method': method,
+          'paidAmount': savedRecord.paidAmount,
+          'dueAmount': savedRecord.dueAmount,
+        },
+      );
+    }
+    return savedRecord;
   }
 
   @override
@@ -280,7 +310,20 @@ class GrnRemoteRepository implements GrnRepository {
     }
 
     await docRef.update({'items': items, 'updatedAt': now});
-    return fetchGrnById(grnId);
+    final savedRecord = await fetchGrnById(grnId);
+    if (savedRecord != null) {
+      await ChangeLogService.instance.logChange(
+        entityType: ChangeLogEntityType.grn,
+        entityId: savedRecord.id,
+        action: 'add_to_stock',
+        title: 'Added pending GRN items to stock for ${savedRecord.id}',
+        details: {
+          'supplier': savedRecord.supplier,
+          'itemCount': pending.length,
+        },
+      );
+    }
+    return savedRecord;
   }
 
   Future<String?> _findSupplierIdByName(String supplierName) async {

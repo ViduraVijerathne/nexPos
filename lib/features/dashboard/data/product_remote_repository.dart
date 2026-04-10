@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/services/change_log_service.dart';
 import '../models/models.dart';
 import 'product_repository.dart';
 
@@ -30,6 +31,18 @@ class ProductRemoteRepository implements ProductRepository {
           .collection('shops')
           .doc(shopId)
           .collection('categories');
+
+  CollectionReference<Map<String, dynamic>> get _stocksRef => FirebaseFirestore
+      .instance
+      .collection('shops')
+      .doc(shopId)
+      .collection('stocks');
+
+  CollectionReference<Map<String, dynamic>> get _grnsRef => FirebaseFirestore
+      .instance
+      .collection('shops')
+      .doc(shopId)
+      .collection('grns');
 
   @override
   Future<void> initialize() async {
@@ -201,6 +214,8 @@ class ProductRemoteRepository implements ProductRepository {
         : _productsRef.doc(product.cloudId);
     final existingSnapshot = await docRef.get();
     final existingData = existingSnapshot.data();
+    final previousName = existingData?['name']?.toString() ?? '';
+    final previousBarcode = existingData?['barcode']?.toString() ?? '';
     final now = DateTime.now();
 
     await docRef.set({
@@ -217,8 +232,103 @@ class ProductRemoteRepository implements ProductRepository {
       'updatedAt': now,
     }, SetOptions(merge: true));
 
+    if (existingData != null) {
+      await _cascadeProductChanges(
+        previousName: previousName,
+        previousBarcode: previousBarcode,
+        updatedName: normalizedName,
+        updatedBarcode: trimmedBarcode,
+      );
+    }
+
     final savedSnapshot = await docRef.get();
-    return _mapDocumentToRecord(savedSnapshot);
+    final savedRecord = _mapDocumentToRecord(savedSnapshot);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.product,
+      entityId: savedRecord.cloudId ?? savedRecord.barcode,
+      action: existingData == null ? 'create' : 'update',
+      title: existingData == null
+          ? 'Created product ${savedRecord.name}'
+          : 'Updated product ${savedRecord.name}',
+      details: {
+        'name': savedRecord.name,
+        'barcode': savedRecord.barcode,
+        'category': savedRecord.category,
+        'unit': savedRecord.unit,
+        'status': savedRecord.status.name,
+        if (existingData != null) ...{
+          'previousName': previousName,
+          'previousBarcode': previousBarcode,
+          'previousCategory': existingData['category']?.toString() ?? '',
+          'previousUnit': existingData['unit']?.toString() ?? '',
+          'previousStatus': existingData['status']?.toString() ?? 'active',
+        },
+      },
+    );
+    return savedRecord;
+  }
+
+  Future<void> _cascadeProductChanges({
+    required String previousName,
+    required String previousBarcode,
+    required String updatedName,
+    required String updatedBarcode,
+  }) async {
+    final stocksSnapshot = await _stocksRef.get();
+    for (final stockDoc in stocksSnapshot.docs) {
+      final data = stockDoc.data();
+      final stockProductName = data['productName']?.toString() ?? '';
+      final stockProductBarcode = data['productBarcode']?.toString() ?? '';
+      final matchesName =
+          previousName.trim().isNotEmpty &&
+          stockProductName.toLowerCase() == previousName.toLowerCase();
+      final matchesBarcode =
+          previousBarcode.trim().isNotEmpty &&
+          stockProductBarcode.toLowerCase() == previousBarcode.toLowerCase();
+      if (!matchesName && !matchesBarcode) {
+        continue;
+      }
+
+      await stockDoc.reference.update({
+        'productName': updatedName,
+        'productNameLower': updatedName.toLowerCase(),
+        'productBarcode': updatedBarcode,
+        'updatedAt': DateTime.now(),
+      });
+    }
+
+    final grnSnapshot = await _grnsRef.get();
+    for (final grnDoc in grnSnapshot.docs) {
+      final data = grnDoc.data();
+      final items = List<Map<String, dynamic>>.from(
+        (data['items'] as List<dynamic>? ?? const <dynamic>[]).map(
+          (item) => Map<String, dynamic>.from(item as Map),
+        ),
+      );
+      var changed = false;
+      for (final item in items) {
+        final itemName = item['productName']?.toString() ?? '';
+        final itemBarcode = item['productBarcode']?.toString() ?? '';
+        final matchesName =
+            previousName.trim().isNotEmpty &&
+            itemName.toLowerCase() == previousName.toLowerCase();
+        final matchesBarcode =
+            previousBarcode.trim().isNotEmpty &&
+            itemBarcode.toLowerCase() == previousBarcode.toLowerCase();
+        if (!matchesName && !matchesBarcode) {
+          continue;
+        }
+        item['productName'] = updatedName;
+        item['productBarcode'] = updatedBarcode;
+        changed = true;
+      }
+      if (changed) {
+        await grnDoc.reference.update({
+          'items': items,
+          'updatedAt': DateTime.now(),
+        });
+      }
+    }
   }
 
   Future<void> _saveCategoryIfMissing(String categoryName) async {

@@ -2,10 +2,12 @@ class ProductDialogResult {
   const ProductDialogResult({
     required this.product,
     required this.createdCategory,
+    this.openingStock,
   });
 
   final ProductRecord product;
   final bool createdCategory;
+  final StockRecord? openingStock;
 }
 
 enum ProductStatus {

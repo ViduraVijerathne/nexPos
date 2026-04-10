@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/services/change_log_service.dart';
 import '../models/models.dart';
 import 'stock_repository.dart';
 
@@ -229,7 +230,23 @@ class StockRemoteRepository implements StockRepository {
     }, SetOptions(merge: true));
 
     final saved = await docRef.get();
-    return _mapDocumentToRecord(saved);
+    final savedRecord = _mapDocumentToRecord(saved);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.stock,
+      entityId: savedRecord.cloudId ?? savedRecord.barcode,
+      action: existingData == null ? 'create' : 'update',
+      title: existingData == null
+          ? 'Created stock ${savedRecord.barcode}'
+          : 'Updated stock ${savedRecord.barcode}',
+      details: {
+        'product': savedRecord.product,
+        'barcode': savedRecord.barcode,
+        'quantity': savedRecord.availableQty,
+        'status': savedRecord.status.name,
+        'grnId': savedRecord.grnId,
+      },
+    );
+    return savedRecord;
   }
 
   @override
@@ -243,8 +260,23 @@ class StockRemoteRepository implements StockRepository {
       'status': 'inactive',
       'updatedAt': DateTime.now(),
     });
-
-    return fetchStockDetails(stock.copyWith(status: StockStatus.inactive));
+    final savedRecord = await fetchStockDetails(
+      stock.copyWith(status: StockStatus.inactive),
+    );
+    if (savedRecord != null) {
+      await ChangeLogService.instance.logChange(
+        entityType: ChangeLogEntityType.stock,
+        entityId: savedRecord.cloudId ?? savedRecord.barcode,
+        action: 'deactivate',
+        title: 'Deactivated stock ${savedRecord.barcode}',
+        details: {
+          'product': savedRecord.product,
+          'barcode': savedRecord.barcode,
+          'status': savedRecord.status.name,
+        },
+      );
+    }
+    return savedRecord;
   }
 
   Future<String?> _findProductBarcodeByName(String productName) async {

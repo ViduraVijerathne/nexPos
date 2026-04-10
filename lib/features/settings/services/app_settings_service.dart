@@ -15,6 +15,12 @@ class PosCustomerSettings {
   final bool createCustomerOnlyContact;
 }
 
+class GrnEntrySettings {
+  const GrnEntrySettings({required this.addItemOnEnter});
+
+  final bool addItemOnEnter;
+}
+
 enum PosInvoicePrintMode {
   preview('Show Preview Before Printing'),
   instant('Print Instantly');
@@ -163,6 +169,7 @@ class AppSettingsService {
   static const String _posTaxPercentKey = 'settings.pos_tax_percent';
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
+  static const String _grnAddItemOnEnterKey = 'settings.grn_add_item_on_enter';
   static const String _posInvoicePrintModeKey =
       'settings.pos_invoice_print_mode';
   static const String _posShortcutProductSearchKey =
@@ -228,6 +235,18 @@ class AppSettingsService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_posCustomerOnlyContactKey, createCustomerOnlyContact);
+  }
+
+  Future<GrnEntrySettings> loadGrnEntrySettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return GrnEntrySettings(
+      addItemOnEnter: prefs.getBool(_grnAddItemOnEnterKey) ?? true,
+    );
+  }
+
+  Future<void> saveGrnEntrySettings({required bool addItemOnEnter}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_grnAddItemOnEnterKey, addItemOnEnter);
   }
 
   Future<PosPrintSettings> loadPosPrintSettings() async {

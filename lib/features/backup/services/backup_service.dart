@@ -127,6 +127,7 @@ class BackupService {
     'categories',
     'suppliers',
     'customers',
+    'expenses',
     'grns',
     'stocks',
     'invoices',

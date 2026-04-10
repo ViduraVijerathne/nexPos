@@ -7,6 +7,7 @@ import '../../../auth/presentation/pages/login_page.dart';
 import '../../../setup/services/setup_service.dart';
 import 'backup_page.dart';
 import 'customer_page.dart';
+import 'expense_page.dart';
 import 'extension_page.dart';
 import 'grn_page.dart';
 import 'insight_page.dart';
@@ -28,6 +29,7 @@ enum DashboardSection {
   supplies,
   customers,
   invoice,
+  expenses,
   reports,
   extensions,
   subscription,
@@ -45,6 +47,9 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DashboardSection _selectedSection = DashboardSection.pos;
   bool _isOnlineMode = false;
+  late final Set<DashboardSection> _loadedSections = <DashboardSection>{
+    _selectedSection,
+  };
   late final Map<DashboardSection, int> _pageVersions = {
     for (final section in DashboardSection.values) section: 0,
   };
@@ -58,6 +63,7 @@ class _DashboardPageState extends State<DashboardPage> {
     DashboardSection.supplies: () => const SupplierPage(),
     DashboardSection.customers: () => const CustomerPage(),
     DashboardSection.invoice: () => const InvoicePage(),
+    DashboardSection.expenses: () => const ExpensePage(),
     DashboardSection.reports: () => const ReportPage(),
     DashboardSection.extensions: () => const ExtensionPage(),
     DashboardSection.subscription: () => const SubscriptionPage(),
@@ -89,6 +95,11 @@ class _DashboardPageState extends State<DashboardPage> {
       DashboardSection.invoice,
       Icons.receipt_long_outlined,
       'Invoice',
+    ),
+    _NavItemData(
+      DashboardSection.expenses,
+      Icons.money_off_csred_outlined,
+      'Expenses',
     ),
     _NavItemData(DashboardSection.reports, Icons.bar_chart_rounded, 'Reports'),
     _NavItemData(
@@ -142,6 +153,7 @@ class _DashboardPageState extends State<DashboardPage> {
             onSectionSelected: (section) {
               setState(() {
                 _selectedSection = section;
+                _loadedSections.add(section);
                 _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
               });
             },
@@ -162,12 +174,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     index: DashboardSection.values.indexOf(_selectedSection),
                     children: DashboardSection.values
                         .map(
-                          (section) => KeyedSubtree(
-                            key: ValueKey<String>(
-                              '${section.name}-${_pageVersions[section]}',
-                            ),
-                            child: _pageBuilders[section]!(),
-                          ),
+                          (section) => _loadedSections.contains(section)
+                              ? KeyedSubtree(
+                                  key: ValueKey<String>(
+                                    '${section.name}-${_pageVersions[section]}',
+                                  ),
+                                  child: _pageBuilders[section]!(),
+                                )
+                              : const SizedBox.shrink(),
                         )
                         .toList(),
                   ),

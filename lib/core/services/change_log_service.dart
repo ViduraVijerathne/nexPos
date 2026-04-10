@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/setup/services/setup_service.dart';
 
-enum ChangeLogEntityType { product, stock, grn }
+enum ChangeLogEntityType { product, stock, grn, expense }
 
 class ChangeLogService {
   ChangeLogService._();

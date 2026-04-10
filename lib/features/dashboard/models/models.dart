@@ -959,3 +959,120 @@ class ReportDashboardData {
   final String fromDateLabel;
   final String toDateLabel;
 }
+
+enum ExpenseStatus {
+  active('Active'),
+  inactive('Inactive');
+
+  const ExpenseStatus(this.label);
+
+  final String label;
+}
+
+class ExpenseRecord {
+  const ExpenseRecord({
+    this.id,
+    this.cloudId,
+    required this.title,
+    required this.category,
+    required this.amount,
+    required this.date,
+    required this.paymentMethod,
+    required this.notes,
+    required this.status,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  final int? id;
+  final String? cloudId;
+  final String title;
+  final String category;
+  final double amount;
+  final DateTime date;
+  final String paymentMethod;
+  final String notes;
+  final ExpenseStatus status;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+
+  ExpenseRecord copyWith({
+    int? id,
+    String? cloudId,
+    String? title,
+    String? category,
+    double? amount,
+    DateTime? date,
+    String? paymentMethod,
+    String? notes,
+    ExpenseStatus? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return ExpenseRecord(
+      id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
+      title: title ?? this.title,
+      category: category ?? this.category,
+      amount: amount ?? this.amount,
+      date: date ?? this.date,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      notes: notes ?? this.notes,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class ExpenseSummary {
+  const ExpenseSummary({
+    required this.totalExpenses,
+    required this.activeExpenses,
+    required this.totalAmount,
+    required this.rangeAmount,
+  });
+
+  final int totalExpenses;
+  final int activeExpenses;
+  final double totalAmount;
+  final double rangeAmount;
+}
+
+class ExpensePageResult {
+  const ExpensePageResult({
+    required this.expenses,
+    required this.summary,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<ExpenseRecord> expenses;
+  final ExpenseSummary summary;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
+class ExpenseReportData {
+  const ExpenseReportData({
+    required this.expenses,
+    required this.totalAmount,
+    required this.fromDate,
+    required this.toDate,
+  });
+
+  final List<ExpenseRecord> expenses;
+  final double totalAmount;
+  final DateTime fromDate;
+  final DateTime toDate;
+}

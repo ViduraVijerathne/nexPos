@@ -7,7 +7,13 @@ import '../../../../core/toast/app_toast.dart';
 import '../../../../core/services/invoice_print_service.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
+import '../../data/customer_remote_repository.dart';
+import '../../data/customer_repository.dart';
+import '../../data/customer_repository_factory.dart';
 import '../../data/pos_local_repository.dart';
+import '../../data/pos_remote_repository.dart';
+import '../../data/pos_repository.dart';
+import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
@@ -22,9 +28,8 @@ class PosPage extends StatefulWidget {
 }
 
 class _PosPageState extends State<PosPage> {
-  final PosLocalRepository _repository = const PosLocalRepository();
-  final CustomerLocalRepository _customerRepository =
-      const CustomerLocalRepository();
+  PosRepository? _repository;
+  CustomerRepository? _customerRepository;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
@@ -42,10 +47,13 @@ class _PosPageState extends State<PosPage> {
   String _selectedCategory = 'All';
   PosPaymentMethod _selectedPaymentMethod = PosPaymentMethod.cash;
   PosCustomerOption _selectedCustomer = PosLocalRepository.walkInCustomer;
-  int? _selectedStockId;
+  String? _selectedStockKey;
   bool _showCustomerSuggestions = false;
   bool _isLoading = true;
+  bool _isCatalogLoading = false;
+  bool _isCustomerLoading = false;
   bool _isProcessing = false;
+  bool _isOpeningCustomerDialog = false;
   PosTaxSettings _taxSettings = const PosTaxSettings(
     isTaxEnabled: false,
     taxPercent: 10,
@@ -88,8 +96,12 @@ class _PosPageState extends State<PosPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _customerRepository.initialize();
+      final repository = await PosRepositoryFactory.create();
+      final customerRepository = await CustomerRepositoryFactory.create();
+      await repository.initialize();
+      await customerRepository.initialize();
+      _repository = repository;
+      _customerRepository = customerRepository;
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
@@ -115,44 +127,80 @@ class _PosPageState extends State<PosPage> {
         return;
       }
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load POS data: $error');
+      AppToast.error('Failed to load POS data: ${_readableError(error)}');
     }
   }
 
   Future<void> _loadCatalog() async {
-    final result = await _repository.fetchCatalog(
-      searchQuery: _searchController.text.trim(),
-      category: _selectedCategory,
-    );
-
-    if (!mounted) {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
+    if (mounted) {
+      setState(() => _isCatalogLoading = true);
+    }
+    try {
+      final result = await repository.fetchCatalog(
+        searchQuery: _searchController.text.trim(),
+        category: _selectedCategory,
+      );
 
-    setState(() {
-      _categories = result.categories;
-      if (!_categories.contains(_selectedCategory)) {
-        _selectedCategory = 'All';
+      if (!mounted) {
+        return;
       }
-      _catalogItems = result.items;
-      _isLoading = false;
-    });
+
+      setState(() {
+        _categories = result.categories;
+        if (!_categories.contains(_selectedCategory)) {
+          _selectedCategory = 'All';
+        }
+        _catalogItems = result.items;
+        _isLoading = false;
+        _isCatalogLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _isCatalogLoading = false;
+      });
+      AppToast.error('Failed to load catalog: ${_readableError(error)}');
+    }
   }
 
   Future<void> _loadCustomers() async {
-    final customers = await _repository.searchCustomers(
-      _customerController.text == PosLocalRepository.walkInCustomer.searchLabel
-          ? ''
-          : _customerController.text,
-    );
-
-    if (!mounted) {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
+    if (mounted) {
+      setState(() => _isCustomerLoading = true);
+    }
+    try {
+      final customers = await repository.searchCustomers(
+        _customerController.text ==
+                PosLocalRepository.walkInCustomer.searchLabel
+            ? ''
+            : _customerController.text,
+      );
 
-    setState(() {
-      _customerSuggestions = customers;
-    });
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _customerSuggestions = customers;
+        _isCustomerLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isCustomerLoading = false);
+      AppToast.error('Failed to load customers: ${_readableError(error)}');
+    }
   }
 
   void _handleSearchChanged(String _) {
@@ -176,7 +224,11 @@ class _PosPageState extends State<PosPage> {
   }
 
   Future<void> _handleSearchSubmitted(String value) async {
-    final exactMatch = await _repository.findExactCatalogMatch(value);
+    final repository = _repository;
+    if (repository == null) {
+      return;
+    }
+    final exactMatch = await repository.findExactCatalogMatch(value);
     if (exactMatch == null) {
       return;
     }
@@ -213,7 +265,7 @@ class _PosPageState extends State<PosPage> {
 
   void _addCatalogItemToCart(PosCatalogItem item) {
     final existingIndex = _cartItems.indexWhere(
-      (cartItem) => cartItem.stockId == item.stockId,
+      (cartItem) => cartItem.stockKey == item.stockKey,
     );
 
     if (existingIndex >= 0) {
@@ -228,7 +280,7 @@ class _PosPageState extends State<PosPage> {
           quantity: existingItem.quantity + 1,
           availableQty: item.availableQty,
         );
-        _selectedStockId = item.stockId;
+        _selectedStockKey = item.stockKey;
         _searchController.clear();
       });
     } else {
@@ -237,6 +289,7 @@ class _PosPageState extends State<PosPage> {
           0,
           PosCartItem(
             stockId: item.stockId,
+            stockCloudId: item.stockCloudId,
             stockBarcode: item.stockBarcode,
             productBarcode: item.productBarcode,
             productName: item.productName,
@@ -246,7 +299,7 @@ class _PosPageState extends State<PosPage> {
             quantity: 1,
           ),
         );
-        _selectedStockId = item.stockId;
+        _selectedStockKey = item.stockKey;
         _searchController.clear();
       });
     }
@@ -257,7 +310,7 @@ class _PosPageState extends State<PosPage> {
 
   void _changeCartQuantity(PosCartItem item, int delta) {
     final index = _cartItems.indexWhere(
-      (cartItem) => cartItem.stockId == item.stockId,
+      (cartItem) => cartItem.stockKey == item.stockKey,
     );
     if (index < 0) {
       return;
@@ -278,13 +331,13 @@ class _PosPageState extends State<PosPage> {
 
     setState(() {
       _cartItems[index] = item.copyWith(quantity: updatedQuantity);
-      _selectedStockId = item.stockId;
+      _selectedStockKey = item.stockKey;
     });
   }
 
   void _removeCartItem(PosCartItem item) {
     setState(() {
-      _cartItems.removeWhere((cartItem) => cartItem.stockId == item.stockId);
+      _cartItems.removeWhere((cartItem) => cartItem.stockKey == item.stockKey);
     });
     _searchFocusNode.requestFocus();
   }
@@ -296,7 +349,7 @@ class _PosPageState extends State<PosPage> {
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
-      _selectedStockId = null;
+      _selectedStockKey = null;
     });
     _resetToWalkInCustomer();
     _loadCatalog();
@@ -320,7 +373,7 @@ class _PosPageState extends State<PosPage> {
         return;
       }
 
-      final result = await _repository.processSale(
+      final result = await _repository!.processSale(
         items: _cartItems,
         customer: checkoutCustomer,
         paymentMethod: _selectedPaymentMethod.label,
@@ -368,7 +421,7 @@ class _PosPageState extends State<PosPage> {
         _searchController.clear();
         _selectedCategory = 'All';
         _selectedPaymentMethod = PosPaymentMethod.cash;
-        _selectedStockId = null;
+        _selectedStockKey = null;
         _isProcessing = false;
       });
       _resetToWalkInCustomer();
@@ -380,6 +433,12 @@ class _PosPageState extends State<PosPage> {
         await _showPrintPreview(preview);
       }
     } on PosLocalRepositoryException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isProcessing = false);
+      AppToast.error(error.message);
+    } on PosRemoteRepositoryException catch (error) {
       if (!mounted) {
         return;
       }
@@ -445,14 +504,21 @@ class _PosPageState extends State<PosPage> {
       return _selectedCustomer;
     }
 
+    final customerRepository = _customerRepository;
+    if (customerRepository == null) {
+      AppToast.error('Customer service is still loading. Please try again.');
+      return null;
+    }
+
     final enteredContact = _customerController.text.trim();
-    final existingCustomer = await _customerRepository.fetchCustomerByPhone(
+    final existingCustomer = await customerRepository.fetchCustomerByPhone(
       enteredContact,
     );
 
     if (existingCustomer != null) {
       final customer = PosCustomerOption(
         id: existingCustomer.id,
+        cloudId: existingCustomer.cloudId,
         name: existingCustomer.name,
         phone: existingCustomer.phone,
         email: existingCustomer.email,
@@ -468,7 +534,7 @@ class _PosPageState extends State<PosPage> {
     }
 
     if (_customerSettings.createCustomerOnlyContact) {
-      final created = await _customerRepository.saveCustomer(
+      final created = await customerRepository.saveCustomer(
         CustomerRecord(
           id: 0,
           name: enteredContact,
@@ -482,6 +548,7 @@ class _PosPageState extends State<PosPage> {
 
       final customer = PosCustomerOption(
         id: created.id,
+        cloudId: created.cloudId,
         name: created.name,
         phone: created.phone,
         email: created.email,
@@ -498,20 +565,25 @@ class _PosPageState extends State<PosPage> {
       return customer;
     }
 
+    setState(() => _isOpeningCustomerDialog = true);
     final created = await showDialog<CustomerRecord>(
       context: context,
       barrierDismissible: false,
       builder: (context) =>
           PosCustomerCreateDialog(initialPhone: enteredContact),
     );
+    if (mounted) {
+      setState(() => _isOpeningCustomerDialog = false);
+    }
 
     if (created == null) {
       return null;
     }
 
-    final saved = await _customerRepository.saveCustomer(created);
+    final saved = await customerRepository.saveCustomer(created);
     final customer = PosCustomerOption(
       id: saved.id,
+      cloudId: saved.cloudId,
       name: saved.name,
       phone: saved.phone,
       email: saved.email,
@@ -528,6 +600,22 @@ class _PosPageState extends State<PosPage> {
     return customer;
   }
 
+  String _readableError(Object error) {
+    if (error is PosLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is PosRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is CustomerLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is CustomerRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -541,9 +629,10 @@ class _PosPageState extends State<PosPage> {
               const Expanded(child: _PosHeader()),
               const SizedBox(width: 16),
               _PrimaryActionButton(
-                label: 'New Transaction',
+                label: _isCatalogLoading ? 'Refreshing...' : 'New Transaction',
                 icon: Icons.add,
-                onPressed: _startNewTransaction,
+                onPressed: _isProcessing ? null : _startNewTransaction,
+                isLoading: _isCatalogLoading && _cartItems.isEmpty,
               ),
             ],
           ),
@@ -566,7 +655,8 @@ class _PosPageState extends State<PosPage> {
                           categories: _categories,
                           selectedCategory: _selectedCategory,
                           products: _catalogItems,
-                          selectedStockId: _selectedStockId,
+                          selectedStockKey: _selectedStockKey,
+                          isCatalogLoading: _isCatalogLoading,
                           onSearchChanged: _handleSearchChanged,
                           onSearchSubmitted: _handleSearchSubmitted,
                           onCategorySelected: (category) {
@@ -586,6 +676,7 @@ class _PosPageState extends State<PosPage> {
                           customerFocusNode: _customerFocusNode,
                           customerSuggestions: _customerSuggestions,
                           showCustomerSuggestions: _showCustomerSuggestions,
+                          isCustomerLoading: _isCustomerLoading,
                           selectedCustomer: _selectedCustomer,
                           amountController: _amountController,
                           selectedPaymentMethod: _selectedPaymentMethod,
@@ -614,6 +705,7 @@ class _PosPageState extends State<PosPage> {
                               _changeCartQuantity(item, -1),
                           onRemoveItem: _removeCartItem,
                           onProcessPayment: _processPayment,
+                          isOpeningCustomerDialog: _isOpeningCustomerDialog,
                         ),
                       ),
                     ],
@@ -876,7 +968,8 @@ class _ProductsPanel extends StatelessWidget {
     required this.categories,
     required this.selectedCategory,
     required this.products,
-    required this.selectedStockId,
+    required this.selectedStockKey,
+    required this.isCatalogLoading,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
     required this.onCategorySelected,
@@ -888,7 +981,8 @@ class _ProductsPanel extends StatelessWidget {
   final List<String> categories;
   final String selectedCategory;
   final List<PosCatalogItem> products;
-  final int? selectedStockId;
+  final String? selectedStockKey;
+  final bool isCatalogLoading;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
   final ValueChanged<String> onCategorySelected;
@@ -971,7 +1065,9 @@ class _ProductsPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: products.isEmpty
+            child: isCatalogLoading
+                ? const _PosCatalogSkeleton()
+                : products.isEmpty
                 ? const Center(
                     child: Text(
                       'No available stock found',
@@ -996,7 +1092,7 @@ class _ProductsPanel extends StatelessWidget {
 
                       return _ProductCard(
                         product: product,
-                        isSelected: product.stockId == selectedStockId,
+                        isSelected: product.stockKey == selectedStockKey,
                         onTap: () => onProductSelected(product),
                       );
                     },
@@ -1015,6 +1111,7 @@ class _CurrentOrderPanel extends StatelessWidget {
     required this.customerFocusNode,
     required this.customerSuggestions,
     required this.showCustomerSuggestions,
+    required this.isCustomerLoading,
     required this.selectedCustomer,
     required this.amountController,
     required this.selectedPaymentMethod,
@@ -1025,6 +1122,7 @@ class _CurrentOrderPanel extends StatelessWidget {
     required this.balance,
     required this.canProcessPayment,
     required this.isProcessing,
+    required this.isOpeningCustomerDialog,
     required this.onPaymentMethodChanged,
     required this.onAmountChanged,
     required this.onCustomerChanged,
@@ -1042,6 +1140,7 @@ class _CurrentOrderPanel extends StatelessWidget {
   final FocusNode customerFocusNode;
   final List<PosCustomerOption> customerSuggestions;
   final bool showCustomerSuggestions;
+  final bool isCustomerLoading;
   final PosCustomerOption selectedCustomer;
   final TextEditingController amountController;
   final PosPaymentMethod selectedPaymentMethod;
@@ -1052,6 +1151,7 @@ class _CurrentOrderPanel extends StatelessWidget {
   final double balance;
   final bool canProcessPayment;
   final bool isProcessing;
+  final bool isOpeningCustomerDialog;
   final ValueChanged<PosPaymentMethod> onPaymentMethodChanged;
   final ValueChanged<String> onAmountChanged;
   final VoidCallback onCustomerTapped;
@@ -1123,6 +1223,14 @@ class _CurrentOrderPanel extends StatelessWidget {
             onChanged: onCustomerChanged,
             onTap: onCustomerTapped,
           ),
+          if (isCustomerLoading) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: Color(0xFF36B4AE),
+              backgroundColor: Color(0xFFE5F5F3),
+            ),
+          ],
           if (showCustomerSuggestions && customerSuggestions.isNotEmpty) ...[
             const SizedBox(height: 8),
             _CustomerSuggestionList(
@@ -1321,7 +1429,11 @@ class _CurrentOrderPanel extends StatelessWidget {
                     )
                   : const Icon(Icons.credit_card_rounded, size: 16),
               label: Text(
-                isProcessing ? 'Processing...' : 'Process Payment',
+                isProcessing
+                    ? 'Processing...'
+                    : isOpeningCustomerDialog
+                    ? 'Opening Customer Form...'
+                    : 'Process Payment',
                 style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
@@ -1331,6 +1443,80 @@ class _CurrentOrderPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PosCatalogSkeleton extends StatelessWidget {
+  const _PosCatalogSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      itemCount: 9,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 14,
+        mainAxisSpacing: 14,
+        childAspectRatio: 1.02,
+      ),
+      itemBuilder: (context, index) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.35, end: 0.9),
+          duration: const Duration(milliseconds: 900),
+          curve: Curves.easeInOut,
+          builder: (context, opacity, child) =>
+              Opacity(opacity: opacity, child: child),
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE7EDF5)),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F7FB),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  height: 12,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F7FB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 10,
+                  width: 120,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F7FB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 14,
+                  width: 90,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2F7F4),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1895,11 +2081,13 @@ class _PrimaryActionButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -1914,7 +2102,16 @@ class _PrimaryActionButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
           elevation: 0,
         ),
-        icon: Icon(icon, size: 16),
+        icon: isLoading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon, size: 16),
         label: Text(
           label,
           style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),

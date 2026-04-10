@@ -12,5 +12,7 @@ abstract class CustomerRepository {
 
   Future<CustomerRecord?> fetchCustomerDetails(CustomerRecord customer);
 
+  Future<CustomerRecord?> fetchCustomerByPhone(String phone);
+
   Future<CustomerRecord> saveCustomer(CustomerRecord customer);
 }

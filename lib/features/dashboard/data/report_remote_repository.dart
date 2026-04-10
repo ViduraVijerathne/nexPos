@@ -1,27 +1,54 @@
-import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../../core/database/app_database.dart';
-import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
-import 'customer_local_repository.dart';
-import 'product_local_repository.dart';
 import 'report_repository.dart';
-import 'stock_local_repository.dart';
 
-class ReportLocalRepository implements ReportRepository {
-  const ReportLocalRepository();
+class ReportRemoteRepositoryException implements Exception {
+  ReportRemoteRepositoryException(this.message);
 
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class ReportRemoteRepository implements ReportRepository {
+  ReportRemoteRepository({required this.shopId});
+
+  final String shopId;
+
+  CollectionReference<Map<String, dynamic>> get _invoicesRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('invoices');
+
+  CollectionReference<Map<String, dynamic>> get _productsRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('products');
+
+  CollectionReference<Map<String, dynamic>> get _stocksRef => FirebaseFirestore
+      .instance
+      .collection('shops')
+      .doc(shopId)
+      .collection('stocks');
+
+  @override
   Future<void> initialize() async {
-    await const ProductLocalRepository().initialize();
-    await const StockLocalRepository().initialize();
-    await const CustomerLocalRepository().initialize();
+    if (shopId.isEmpty) {
+      throw ReportRemoteRepositoryException(
+        'Online shop is not selected. Please complete the setup again.',
+      );
+    }
   }
 
+  @override
   Future<ReportDashboardData> fetchDashboardData({
     required DateTime fromDate,
     required DateTime toDate,
   }) async {
-    final isar = await AppDatabase.instance;
     final normalizedFrom = DateTime(
       fromDate.year,
       fromDate.month,
@@ -37,9 +64,19 @@ class ReportLocalRepository implements ReportRepository {
       999,
     );
 
-    final invoices = await isar.invoiceEntitys.where().anyId().findAll();
-    final products = await isar.productEntitys.where().findAll();
-    final stocks = await isar.stockEntitys.where().findAll();
+    final invoicesSnapshot = await _invoicesRef.get();
+    final productsSnapshot = await _productsRef.get();
+    final stocksSnapshot = await _stocksRef.get();
+
+    final invoices = invoicesSnapshot.docs
+        .map((doc) => _ReportInvoiceRecord.fromMap(doc.data()))
+        .toList();
+    final products = productsSnapshot.docs
+        .map((doc) => _ReportProductRecord.fromMap(doc.data()))
+        .toList();
+    final stocks = stocksSnapshot.docs
+        .map((doc) => _ReportStockRecord.fromMap(doc.data()))
+        .toList();
 
     final filteredInvoices =
         invoices
@@ -51,9 +88,7 @@ class ReportLocalRepository implements ReportRepository {
             .toList()
           ..sort((left, right) => left.issuedAt.compareTo(right.issuedAt));
 
-    final activeProducts = products
-        .where((product) => product.status == ProductEntityStatus.active)
-        .length;
+    final lowStockRows = _buildLowStockRows(products, stocks);
 
     final summary = ReportSummaryData(
       totalRevenue: filteredInvoices.fold<double>(
@@ -62,7 +97,7 @@ class ReportLocalRepository implements ReportRepository {
       ),
       totalTax: filteredInvoices.fold<double>(
         0,
-        (sum, invoice) => sum + invoice.tax,
+        (sum, invoice) => sum + invoice.taxAmount,
       ),
       totalOrders: filteredInvoices.length,
       averageOrderValue: filteredInvoices.isEmpty
@@ -73,14 +108,14 @@ class ReportLocalRepository implements ReportRepository {
                 ) /
                 filteredInvoices.length,
       stockValue: stocks
-          .where((stock) => stock.status == StockEntityStatus.active)
+          .where((stock) => stock.isActive)
           .fold<double>(
             0,
             (sum, stock) =>
                 sum + (stock.availableQuantity * stock.sellingPrice),
           ),
-      activeProducts: activeProducts,
-      lowStockItemsCount: _buildLowStockRows(products, stocks).length,
+      activeProducts: products.where((product) => product.isActive).length,
+      lowStockItemsCount: lowStockRows.length,
     );
 
     return ReportDashboardData(
@@ -95,7 +130,7 @@ class ReportLocalRepository implements ReportRepository {
         normalizedFrom,
         normalizedTo,
       ),
-      lowStockRows: _buildLowStockRows(products, stocks),
+      lowStockRows: lowStockRows,
       stockValuationRows: _buildStockValuationRows(products, stocks),
       topCustomers: _buildTopCustomers(filteredInvoices),
       fromDateLabel: _formatDisplayDate(normalizedFrom),
@@ -104,7 +139,7 @@ class ReportLocalRepository implements ReportRepository {
   }
 
   List<ReportSalesPoint> _buildSalesPoints(
-    List<InvoiceEntity> invoices,
+    List<_ReportInvoiceRecord> invoices,
     DateTime fromDate,
     DateTime toDate,
   ) {
@@ -129,7 +164,7 @@ class ReportLocalRepository implements ReportRepository {
   }
 
   List<ReportSalesPoint> _buildTaxPoints(
-    List<InvoiceEntity> invoices,
+    List<_ReportInvoiceRecord> invoices,
     DateTime fromDate,
     DateTime toDate,
   ) {
@@ -146,7 +181,7 @@ class ReportLocalRepository implements ReportRepository {
                 invoice.issuedAt.month == date.month &&
                 invoice.issuedAt.day == date.day,
           )
-          .fold<double>(0, (sum, invoice) => sum + invoice.tax);
+          .fold<double>(0, (sum, invoice) => sum + invoice.taxAmount);
 
       points.add(
         ReportSalesPoint(label: _formatAxisDate(date), value: totalTax),
@@ -156,16 +191,16 @@ class ReportLocalRepository implements ReportRepository {
   }
 
   List<ReportLowStockRow> _buildLowStockRows(
-    List<ProductEntity> products,
-    List<StockEntity> stocks,
+    List<_ReportProductRecord> products,
+    List<_ReportStockRecord> stocks,
   ) {
-    final productsByName = <String, ProductEntity>{
+    final productsByName = <String, _ReportProductRecord>{
       for (final product in products) product.name.toLowerCase(): product,
     };
 
     final rows =
         stocks
-            .where((stock) => stock.status == StockEntityStatus.active)
+            .where((stock) => stock.isActive)
             .map((stock) {
               final product = productsByName[stock.productName.toLowerCase()];
               final minimumRequired = product?.lowStockQuantity ?? 0;
@@ -190,17 +225,16 @@ class ReportLocalRepository implements ReportRepository {
   }
 
   List<ReportStockValuationRow> _buildStockValuationRows(
-    List<ProductEntity> products,
-    List<StockEntity> stocks,
+    List<_ReportProductRecord> products,
+    List<_ReportStockRecord> stocks,
   ) {
-    final productsByName = <String, ProductEntity>{
+    final productsByName = <String, _ReportProductRecord>{
       for (final product in products) product.name.toLowerCase(): product,
     };
     final totals = <String, ({int items, double value})>{};
 
     for (final stock in stocks) {
-      if (stock.status != StockEntityStatus.active ||
-          stock.availableQuantity <= 0) {
+      if (!stock.isActive || stock.availableQuantity <= 0) {
         continue;
       }
 
@@ -228,7 +262,9 @@ class ReportLocalRepository implements ReportRepository {
     return rows;
   }
 
-  List<ReportTopCustomerRow> _buildTopCustomers(List<InvoiceEntity> invoices) {
+  List<ReportTopCustomerRow> _buildTopCustomers(
+    List<_ReportInvoiceRecord> invoices,
+  ) {
     final totals = <String, ({int orders, double total})>{};
 
     for (final invoice in invoices) {
@@ -303,4 +339,97 @@ class ReportLocalRepository implements ReportRepository {
     ];
     return '${months[date.month - 1]} ${date.day.toString().padLeft(2, '0')}';
   }
+}
+
+class _ReportInvoiceRecord {
+  const _ReportInvoiceRecord({
+    required this.customerName,
+    required this.issuedAt,
+    required this.totalAmount,
+    required this.taxAmount,
+  });
+
+  final String customerName;
+  final DateTime issuedAt;
+  final double totalAmount;
+  final double taxAmount;
+
+  factory _ReportInvoiceRecord.fromMap(Map<String, dynamic> data) {
+    final totalAmount =
+        (data['totalAmount'] as num?)?.toDouble() ??
+        (data['amount'] as num?)?.toDouble() ??
+        0;
+    final subTotal = (data['subTotal'] as num?)?.toDouble();
+    final taxAmount =
+        (data['taxAmount'] as num?)?.toDouble() ??
+        (subTotal == null ? 0 : totalAmount - subTotal);
+
+    return _ReportInvoiceRecord(
+      customerName: data['customerName']?.toString() ?? 'Walk-in Customer',
+      issuedAt: _readReportDate(
+        data['issuedAt'] ?? data['date'] ?? data['createdAt'],
+      ),
+      totalAmount: totalAmount,
+      taxAmount: taxAmount,
+    );
+  }
+}
+
+class _ReportProductRecord {
+  const _ReportProductRecord({
+    required this.name,
+    required this.category,
+    required this.lowStockQuantity,
+    required this.isActive,
+  });
+
+  final String name;
+  final String category;
+  final int lowStockQuantity;
+  final bool isActive;
+
+  factory _ReportProductRecord.fromMap(Map<String, dynamic> data) {
+    return _ReportProductRecord(
+      name: data['name']?.toString() ?? '',
+      category: data['category']?.toString() ?? 'Other',
+      lowStockQuantity: (data['lowStockQuantity'] as num?)?.toInt() ?? 0,
+      isActive: (data['status']?.toString() ?? 'active') == 'active',
+    );
+  }
+}
+
+class _ReportStockRecord {
+  const _ReportStockRecord({
+    required this.productName,
+    required this.availableQuantity,
+    required this.sellingPrice,
+    required this.isActive,
+  });
+
+  final String productName;
+  final int availableQuantity;
+  final double sellingPrice;
+  final bool isActive;
+
+  factory _ReportStockRecord.fromMap(Map<String, dynamic> data) {
+    return _ReportStockRecord(
+      productName: data['productName']?.toString() ?? '',
+      availableQuantity: (data['availableQuantity'] as num?)?.toInt() ?? 0,
+      sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0,
+      isActive: (data['status']?.toString() ?? 'active') == 'active',
+    );
+  }
+}
+
+DateTime _readReportDate(dynamic value) {
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String && value.trim().isNotEmpty) {
+    return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+  return DateTime.fromMillisecondsSinceEpoch(0);
 }

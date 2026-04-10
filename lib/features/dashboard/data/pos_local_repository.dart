@@ -4,6 +4,7 @@ import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
+import 'pos_repository.dart';
 import 'stock_local_repository.dart';
 
 class PosLocalRepositoryException implements Exception {
@@ -15,11 +16,12 @@ class PosLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class PosLocalRepository {
+class PosLocalRepository implements PosRepository {
   const PosLocalRepository();
 
   static const PosCustomerOption walkInCustomer = PosCustomerOption(
     id: null,
+    cloudId: null,
     name: 'Walk-in Customer',
     phone: 'walk-in',
     email: '',
@@ -73,6 +75,7 @@ class PosLocalRepository {
               final product = productsByName[stock.productName.toLowerCase()];
               return PosCatalogItem(
                 stockId: stock.id,
+                stockCloudId: null,
                 stockBarcode: stock.barcode,
                 productName: stock.productName,
                 productBarcode: product?.barcode ?? stock.productBarcode ?? '',
@@ -131,6 +134,7 @@ class PosLocalRepository {
           .map(
             (customer) => PosCustomerOption(
               id: customer.id,
+              cloudId: null,
               name: customer.name,
               phone: customer.phone,
               email: customer.email,
@@ -154,6 +158,7 @@ class PosLocalRepository {
         .map(
           (customer) => PosCustomerOption(
             id: customer.id,
+            cloudId: null,
             name: customer.name,
             phone: customer.phone,
             email: customer.email,
@@ -183,7 +188,10 @@ class PosLocalRepository {
     }
 
     final isar = await AppDatabase.instance;
-    final stockIds = items.map((item) => item.stockId).toList();
+    final stockIds = items
+        .map((item) => item.stockId)
+        .whereType<int>()
+        .toList();
     final stocks = await isar.stockEntitys.getAll(stockIds);
     final stocksById = <int, StockEntity>{
       for (final stock in stocks.whereType<StockEntity>()) stock.id: stock,

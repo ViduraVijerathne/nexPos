@@ -151,6 +151,36 @@ class CustomerRemoteRepository implements CustomerRepository {
   }
 
   @override
+  Future<CustomerRecord?> fetchCustomerByPhone(String phone) async {
+    final trimmedPhone = phone.trim();
+    if (trimmedPhone.isEmpty) {
+      return null;
+    }
+
+    final snapshot = await _customersRef
+        .where('phoneLower', isEqualTo: trimmedPhone.toLowerCase())
+        .limit(1)
+        .get();
+    if (snapshot.docs.isEmpty) {
+      return null;
+    }
+
+    final doc = snapshot.docs.first;
+    return fetchCustomerDetails(
+      CustomerRecord(
+        id: 0,
+        cloudId: doc.id,
+        name: doc.data()['name']?.toString() ?? '',
+        email: doc.data()['email']?.toString() ?? '',
+        phone: doc.data()['phone']?.toString() ?? '',
+        address: doc.data()['address']?.toString() ?? '',
+        joinDate: '',
+        invoices: const [],
+      ),
+    );
+  }
+
+  @override
   Future<CustomerRecord> saveCustomer(CustomerRecord customer) async {
     final normalizedEmail = customer.email.trim().toLowerCase();
     final trimmedEmail = customer.email.trim();

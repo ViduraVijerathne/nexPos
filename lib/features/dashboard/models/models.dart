@@ -192,7 +192,8 @@ class StockPageResult {
 
 class PosCatalogItem {
   const PosCatalogItem({
-    required this.stockId,
+    this.stockId,
+    this.stockCloudId,
     required this.stockBarcode,
     required this.productName,
     required this.productBarcode,
@@ -201,13 +202,16 @@ class PosCatalogItem {
     required this.sellingPrice,
   });
 
-  final int stockId;
+  final int? stockId;
+  final String? stockCloudId;
   final String stockBarcode;
   final String productName;
   final String productBarcode;
   final String category;
   final int availableQty;
   final double sellingPrice;
+
+  String get stockKey => stockCloudId ?? '${stockId ?? stockBarcode}';
 }
 
 class PosCatalogResult {
@@ -219,7 +223,8 @@ class PosCatalogResult {
 
 class PosCartItem {
   const PosCartItem({
-    required this.stockId,
+    this.stockId,
+    this.stockCloudId,
     required this.stockBarcode,
     required this.productBarcode,
     required this.productName,
@@ -229,7 +234,8 @@ class PosCartItem {
     required this.quantity,
   });
 
-  final int stockId;
+  final int? stockId;
+  final String? stockCloudId;
   final String stockBarcode;
   final String productBarcode;
   final String productName;
@@ -239,9 +245,11 @@ class PosCartItem {
   final int quantity;
 
   double get subtotal => unitPrice * quantity;
+  String get stockKey => stockCloudId ?? '${stockId ?? stockBarcode}';
 
   PosCartItem copyWith({
     int? stockId,
+    String? stockCloudId,
     String? stockBarcode,
     String? productBarcode,
     String? productName,
@@ -252,6 +260,7 @@ class PosCartItem {
   }) {
     return PosCartItem(
       stockId: stockId ?? this.stockId,
+      stockCloudId: stockCloudId ?? this.stockCloudId,
       stockBarcode: stockBarcode ?? this.stockBarcode,
       productBarcode: productBarcode ?? this.productBarcode,
       productName: productName ?? this.productName,
@@ -266,6 +275,7 @@ class PosCartItem {
 class PosCustomerOption {
   const PosCustomerOption({
     required this.id,
+    this.cloudId,
     required this.name,
     required this.phone,
     required this.email,
@@ -273,6 +283,7 @@ class PosCustomerOption {
   });
 
   final int? id;
+  final String? cloudId;
   final String name;
   final String phone;
   final String email;
@@ -725,6 +736,8 @@ class InvoiceRecord {
     required this.customerCode,
     required this.date,
     required this.amount,
+    required this.subtotal,
+    required this.tax,
     required this.status,
     required this.items,
     required this.paymentMethod,
@@ -736,13 +749,12 @@ class InvoiceRecord {
   final String customerCode;
   final String date;
   final double amount;
+  final double subtotal;
+  final double tax;
   final InvoiceStatus status;
   final List<InvoiceLineItem> items;
   final String paymentMethod;
   final String cashierName;
-
-  double get subtotal => amount / 1.10;
-  double get tax => amount - subtotal;
 }
 
 class InvoiceLineItem {
@@ -808,12 +820,14 @@ class InsightLowStockItem {
 class InsightExpiredStockItem {
   const InsightExpiredStockItem({
     required this.id,
+    required this.cloudId,
     required this.name,
     required this.barcode,
     required this.expiryDate,
   });
 
   final int id;
+  final String? cloudId;
   final String name;
   final String barcode;
   final String expiryDate;

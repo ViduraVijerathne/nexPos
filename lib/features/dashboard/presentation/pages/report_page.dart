@@ -9,6 +9,9 @@ import '../../../../core/widgets/app_date_field.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
 import '../../data/report_local_repository.dart';
+import '../../data/report_remote_repository.dart';
+import '../../data/report_repository.dart';
+import '../../data/report_repository_factory.dart';
 import '../../models/models.dart';
 
 class ReportPage extends StatefulWidget {
@@ -19,7 +22,7 @@ class ReportPage extends StatefulWidget {
 }
 
 class _ReportPageState extends State<ReportPage> {
-  final ReportLocalRepository _repository = const ReportLocalRepository();
+  ReportRepository? _repository;
   late DateTime _fromDate;
   late DateTime _toDate;
   bool _isLoading = true;
@@ -44,9 +47,10 @@ class _ReportPageState extends State<ReportPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
+      final repository = _repository ?? await ReportRepositoryFactory.create();
+      await repository.initialize();
       final results = await Future.wait([
-        _repository.fetchDashboardData(fromDate: _fromDate, toDate: _toDate),
+        repository.fetchDashboardData(fromDate: _fromDate, toDate: _toDate),
         AppSettingsService.instance.loadReportHeaderSettings(),
         SetupService.instance.loadState(),
       ]);
@@ -57,6 +61,7 @@ class _ReportPageState extends State<ReportPage> {
         return;
       }
       setState(() {
+        _repository = repository;
         _data = data;
         _headerSettings = headerSettings;
         _shopInfo = setupState.shopInfo;
@@ -67,8 +72,15 @@ class _ReportPageState extends State<ReportPage> {
         return;
       }
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load reports: $error');
+      AppToast.error('Failed to load reports: ${_readableError(error)}');
     }
+  }
+
+  String _readableError(Object error) {
+    if (error is ReportRemoteRepositoryException) {
+      return error.message;
+    }
+    return '$error';
   }
 
   Future<void> _pickFromDate() async {
@@ -120,9 +132,7 @@ class _ReportPageState extends State<ReportPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator(color: AppColors.primaryTeal),
-      );
+      return const _ReportPageSkeleton();
     }
 
     final data = _data;
@@ -198,6 +208,64 @@ class _ReportPageState extends State<ReportPage> {
             rows: data.topCustomers,
             onExport: () => _showExportToast('Top customers report'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportPageSkeleton extends StatelessWidget {
+  const _ReportPageSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget block(double height) => Container(
+      width: double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7FB),
+        borderRadius: BorderRadius.circular(16),
+      ),
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          block(72),
+          const SizedBox(height: 18),
+          Row(
+            children: List<Widget>.generate(
+              5,
+              (index) => Expanded(
+                child: Container(
+                  height: 118,
+                  margin: EdgeInsets.only(right: index == 4 ? 0 : 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7FB),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          block(72),
+          const SizedBox(height: 18),
+          block(360),
+          const SizedBox(height: 18),
+          block(320),
+          const SizedBox(height: 22),
+          block(72),
+          const SizedBox(height: 18),
+          block(340),
+          const SizedBox(height: 18),
+          block(280),
+          const SizedBox(height: 22),
+          block(72),
+          const SizedBox(height: 18),
+          block(280),
         ],
       ),
     );

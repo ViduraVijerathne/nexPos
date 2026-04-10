@@ -1,33 +1,60 @@
-import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../../core/database/app_database.dart';
-import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
-import 'customer_local_repository.dart';
-import 'grn_local_repository.dart';
 import 'insight_repository.dart';
-import 'product_local_repository.dart';
-import 'stock_local_repository.dart';
 
-class InsightLocalRepository implements InsightRepository {
-  const InsightLocalRepository();
+class InsightRemoteRepositoryException implements Exception {
+  InsightRemoteRepositoryException(this.message);
 
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class InsightRemoteRepository implements InsightRepository {
+  InsightRemoteRepository({required this.shopId});
+
+  final String shopId;
+
+  CollectionReference<Map<String, dynamic>> get _invoicesRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('invoices');
+
+  CollectionReference<Map<String, dynamic>> get _productsRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('products');
+
+  CollectionReference<Map<String, dynamic>> get _customersRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('customers');
+
+  CollectionReference<Map<String, dynamic>> get _stocksRef => FirebaseFirestore
+      .instance
+      .collection('shops')
+      .doc(shopId)
+      .collection('stocks');
+
+  @override
   Future<void> initialize() async {
-    await const ProductLocalRepository().initialize();
-    await const StockLocalRepository().initialize();
-    await const CustomerLocalRepository().initialize();
-    await const GrnLocalRepository().initialize();
+    if (shopId.isEmpty) {
+      throw InsightRemoteRepositoryException(
+        'Online shop is not selected. Please complete the setup again.',
+      );
+    }
   }
 
+  @override
   Future<InsightDashboardData> fetchDashboardData({
     DateTime? fromDate,
     DateTime? toDate,
   }) async {
-    final isar = await AppDatabase.instance;
-    final invoices = await isar.invoiceEntitys.where().anyId().findAll();
-    final products = await isar.productEntitys.where().findAll();
-    final customers = await isar.customerEntitys.where().findAll();
-    final stocks = await isar.stockEntitys.where().findAll();
     final normalizedFrom = fromDate == null
         ? DateTime.now().subtract(const Duration(days: 6))
         : DateTime(fromDate.year, fromDate.month, fromDate.day);
@@ -41,14 +68,30 @@ class InsightLocalRepository implements InsightRepository {
         ? normalizedFrom
         : normalizedTo;
 
+    final invoicesSnapshot = await _invoicesRef.get();
+    final productsSnapshot = await _productsRef.get();
+    final customersSnapshot = await _customersRef.get();
+    final stocksSnapshot = await _stocksRef.get();
+
+    final invoices = invoicesSnapshot.docs
+        .map((doc) => _InvoiceAnalyticsRecord.fromMap(doc.data()))
+        .toList();
+    final products = productsSnapshot.docs
+        .map((doc) => _ProductAnalyticsRecord.fromMap(doc.id, doc.data()))
+        .toList();
+    final customers = customersSnapshot.docs
+        .map((doc) => _CustomerAnalyticsRecord.fromMap(doc.data()))
+        .toList();
+    final stocks = stocksSnapshot.docs
+        .map((doc) => _StockAnalyticsRecord.fromMap(doc.id, doc.data()))
+        .toList();
+
     final totalSales = invoices.fold<double>(
       0,
       (sum, invoice) => sum + invoice.totalAmount,
     );
     final totalOrders = invoices.length;
-    final activeProducts = products
-        .where((product) => product.status == ProductEntityStatus.active)
-        .length;
+    final activeProducts = products.where((product) => product.isActive).length;
     final totalCustomers = customers.length;
 
     final currentMonthStart = DateTime(
@@ -85,14 +128,6 @@ class InsightLocalRepository implements InsightRepository {
     final currentMonthOrders = currentMonthInvoices.length;
     final previousMonthOrders = previousMonthInvoices.length;
 
-    final salesPoints = _buildSalesPoints(
-      invoices,
-      fromDate: rangeFrom,
-      toDate: rangeTo,
-    );
-    final categoryAllocation = _buildCategoryAllocation(products, stocks);
-    final lowStockItems = _buildLowStockItems(products, stocks);
-    final expiredStockItems = _buildExpiredStockItems(stocks);
     final categoriesCount = products
         .map((product) => product.category.trim())
         .where((category) => category.isNotEmpty)
@@ -112,46 +147,47 @@ class InsightLocalRepository implements InsightRepository {
         previousValue: previousMonthSales,
         suffix: 'from last month',
         emptyFallback: 'No sales last month',
-        prefix: '',
       ),
       ordersGrowthNote: _buildGrowthNote(
         currentValue: currentMonthOrders.toDouble(),
         previousValue: previousMonthOrders.toDouble(),
         suffix: 'from last month',
         emptyFallback: 'No orders last month',
-        prefix: '',
       ),
       productsNote: 'Across $categoriesCount categories',
       customersNote: customersCreatedThisMonth == 0
           ? 'No new customers this month'
           : '+$customersCreatedThisMonth new customers',
-      salesPoints: salesPoints,
+      salesPoints: _buildSalesPoints(
+        invoices,
+        fromDate: rangeFrom,
+        toDate: rangeTo,
+      ),
       chartDateFromLabel: _formatChartDate(rangeFrom),
       chartDateToLabel: _formatChartDate(rangeTo),
-      categoryAllocation: categoryAllocation,
-      lowStockItems: lowStockItems,
-      expiredStockItems: expiredStockItems,
+      categoryAllocation: _buildCategoryAllocation(products, stocks),
+      lowStockItems: _buildLowStockItems(products, stocks),
+      expiredStockItems: _buildExpiredStockItems(stocks),
     );
   }
 
+  @override
   Future<void> deactivateExpiredStock(InsightExpiredStockItem item) async {
-    final isar = await AppDatabase.instance;
-    final stock = await isar.stockEntitys.get(item.id);
-    if (stock == null) {
-      return;
+    final cloudId = item.cloudId;
+    if (cloudId == null || cloudId.isEmpty) {
+      throw InsightRemoteRepositoryException(
+        'Expired stock identifier is missing',
+      );
     }
 
-    stock
-      ..status = StockEntityStatus.inactive
-      ..updatedAt = DateTime.now();
-
-    await isar.writeTxn(() async {
-      await isar.stockEntitys.put(stock);
+    await _stocksRef.doc(cloudId).update({
+      'status': 'inactive',
+      'updatedAt': DateTime.now(),
     });
   }
 
   List<InsightSalesPoint> _buildSalesPoints(
-    List<InvoiceEntity> invoices, {
+    List<_InvoiceAnalyticsRecord> invoices, {
     required DateTime fromDate,
     required DateTime toDate,
   }) {
@@ -179,17 +215,16 @@ class InsightLocalRepository implements InsightRepository {
   }
 
   List<InsightCategoryAllocation> _buildCategoryAllocation(
-    List<ProductEntity> products,
-    List<StockEntity> stocks,
+    List<_ProductAnalyticsRecord> products,
+    List<_StockAnalyticsRecord> stocks,
   ) {
-    final productByName = <String, ProductEntity>{
+    final productByName = <String, _ProductAnalyticsRecord>{
       for (final product in products) product.name.toLowerCase(): product,
     };
     final totals = <String, int>{};
 
     for (final stock in stocks) {
-      if (stock.status != StockEntityStatus.active ||
-          stock.availableQuantity <= 0) {
+      if (!stock.isActive || stock.availableQuantity <= 0) {
         continue;
       }
       final category =
@@ -221,15 +256,15 @@ class InsightLocalRepository implements InsightRepository {
   }
 
   List<InsightLowStockItem> _buildLowStockItems(
-    List<ProductEntity> products,
-    List<StockEntity> stocks,
+    List<_ProductAnalyticsRecord> products,
+    List<_StockAnalyticsRecord> stocks,
   ) {
-    final productByName = <String, ProductEntity>{
+    final productByName = <String, _ProductAnalyticsRecord>{
       for (final product in products) product.name.toLowerCase(): product,
     };
 
     final alerts = stocks
-        .where((stock) => stock.status == StockEntityStatus.active)
+        .where((stock) => stock.isActive)
         .where((stock) {
           final lowStockLimit =
               productByName[stock.productName.toLowerCase()]
@@ -257,14 +292,14 @@ class InsightLocalRepository implements InsightRepository {
   }
 
   List<InsightExpiredStockItem> _buildExpiredStockItems(
-    List<StockEntity> stocks,
+    List<_StockAnalyticsRecord> stocks,
   ) {
     final today = DateTime.now();
     final dateOnlyToday = DateTime(today.year, today.month, today.day);
 
     final expired =
         stocks
-            .where((stock) => stock.status == StockEntityStatus.active)
+            .where((stock) => stock.isActive)
             .where((stock) => stock.expiryDate != null)
             .where((stock) {
               final expiry = stock.expiryDate!;
@@ -279,8 +314,8 @@ class InsightLocalRepository implements InsightRepository {
     return expired
         .map(
           (stock) => InsightExpiredStockItem(
-            id: stock.id,
-            cloudId: null,
+            id: 0,
+            cloudId: stock.cloudId,
             name: stock.productName,
             barcode: stock.barcode,
             expiryDate: _formatExpiryDate(stock.expiryDate!),
@@ -295,7 +330,6 @@ class InsightLocalRepository implements InsightRepository {
     required double previousValue,
     required String suffix,
     required String emptyFallback,
-    String prefix = '',
   }) {
     if (previousValue <= 0) {
       return currentValue > 0 ? '+100.0% $suffix' : emptyFallback;
@@ -303,7 +337,7 @@ class InsightLocalRepository implements InsightRepository {
 
     final growth = ((currentValue - previousValue) / previousValue) * 100;
     final sign = growth >= 0 ? '+' : '';
-    return '$prefix$sign${growth.toStringAsFixed(1)}% $suffix';
+    return '$sign${growth.toStringAsFixed(1)}% $suffix';
   }
 
   String _formatChartAxis(DateTime date) {
@@ -347,4 +381,128 @@ class InsightLocalRepository implements InsightRepository {
     final day = date.day.toString().padLeft(2, '0');
     return '${date.year}-$month-$day';
   }
+}
+
+class _InvoiceAnalyticsRecord {
+  const _InvoiceAnalyticsRecord({
+    required this.issuedAt,
+    required this.totalAmount,
+  });
+
+  final DateTime issuedAt;
+  final double totalAmount;
+
+  factory _InvoiceAnalyticsRecord.fromMap(Map<String, dynamic> data) {
+    return _InvoiceAnalyticsRecord(
+      issuedAt: _readDate(
+        data['issuedAt'] ?? data['date'] ?? data['createdAt'],
+      ),
+      totalAmount:
+          (data['totalAmount'] as num?)?.toDouble() ??
+          (data['amount'] as num?)?.toDouble() ??
+          0,
+    );
+  }
+}
+
+class _ProductAnalyticsRecord {
+  const _ProductAnalyticsRecord({
+    required this.cloudId,
+    required this.name,
+    required this.category,
+    required this.lowStockQuantity,
+    required this.isActive,
+  });
+
+  final String cloudId;
+  final String name;
+  final String category;
+  final int lowStockQuantity;
+  final bool isActive;
+
+  factory _ProductAnalyticsRecord.fromMap(
+    String cloudId,
+    Map<String, dynamic> data,
+  ) {
+    return _ProductAnalyticsRecord(
+      cloudId: cloudId,
+      name: data['name']?.toString() ?? '',
+      category: data['category']?.toString() ?? 'Other',
+      lowStockQuantity: (data['lowStockQuantity'] as num?)?.toInt() ?? 5,
+      isActive: (data['status']?.toString() ?? 'active') == 'active',
+    );
+  }
+}
+
+class _CustomerAnalyticsRecord {
+  const _CustomerAnalyticsRecord({required this.createdAt});
+
+  final DateTime createdAt;
+
+  factory _CustomerAnalyticsRecord.fromMap(Map<String, dynamic> data) {
+    return _CustomerAnalyticsRecord(
+      createdAt: _readDate(data['joinDate'] ?? data['createdAt']),
+    );
+  }
+}
+
+class _StockAnalyticsRecord {
+  const _StockAnalyticsRecord({
+    required this.cloudId,
+    required this.productName,
+    required this.barcode,
+    required this.availableQuantity,
+    required this.isActive,
+    required this.expiryDate,
+  });
+
+  final String cloudId;
+  final String productName;
+  final String barcode;
+  final int availableQuantity;
+  final bool isActive;
+  final DateTime? expiryDate;
+
+  factory _StockAnalyticsRecord.fromMap(
+    String cloudId,
+    Map<String, dynamic> data,
+  ) {
+    return _StockAnalyticsRecord(
+      cloudId: cloudId,
+      productName: data['productName']?.toString() ?? '',
+      barcode: data['barcode']?.toString() ?? '',
+      availableQuantity: (data['availableQuantity'] as num?)?.toInt() ?? 0,
+      isActive: (data['status']?.toString() ?? 'active') == 'active',
+      expiryDate: _readNullableDate(data['expiryDate']),
+    );
+  }
+}
+
+DateTime _readDate(dynamic value) {
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String && value.trim().isNotEmpty) {
+    return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+  return DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+DateTime? _readNullableDate(dynamic value) {
+  if (value == null) {
+    return null;
+  }
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+  if (value is DateTime) {
+    return value;
+  }
+  if (value is String && value.trim().isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
 }

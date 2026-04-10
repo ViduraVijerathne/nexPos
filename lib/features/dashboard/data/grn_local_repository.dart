@@ -2,7 +2,9 @@ import 'package:isar/isar.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
+import '../../../core/services/change_log_service.dart';
 import '../models/models.dart';
+import 'grn_repository.dart';
 
 class GrnLocalRepositoryException implements Exception {
   GrnLocalRepositoryException(this.message);
@@ -13,7 +15,7 @@ class GrnLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class GrnLocalRepository {
+class GrnLocalRepository implements GrnRepository {
   const GrnLocalRepository();
 
   static const int pageSize = 10;
@@ -188,8 +190,23 @@ class GrnLocalRepository {
         }
       }
     });
-
-    return _mapGrnEntityToRecord(entity..id = savedId);
+    final savedRecord = _mapGrnEntityToRecord(entity..id = savedId);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.grn,
+      entityId: savedRecord.id,
+      action: existing == null ? 'create' : 'update',
+      title: existing == null
+          ? 'Created GRN ${savedRecord.id}'
+          : 'Updated GRN ${savedRecord.id}',
+      details: {
+        'supplier': savedRecord.supplier,
+        'itemCount': savedRecord.items.length,
+        'total': savedRecord.total,
+        'paidAmount': savedRecord.paidAmount,
+        'dueAmount': savedRecord.dueAmount,
+      },
+    );
+    return savedRecord;
   }
 
   Future<GrnRecord?> recordDuePayment({
@@ -227,8 +244,20 @@ class GrnLocalRepository {
     await isar.writeTxn(() async {
       await isar.grnEntitys.put(entity);
     });
-
-    return _mapGrnEntityToRecord(entity);
+    final savedRecord = _mapGrnEntityToRecord(entity);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.grn,
+      entityId: savedRecord.id,
+      action: 'payment',
+      title: 'Recorded GRN payment for ${savedRecord.id}',
+      details: {
+        'amount': amount,
+        'method': method,
+        'paidAmount': savedRecord.paidAmount,
+        'dueAmount': savedRecord.dueAmount,
+      },
+    );
+    return savedRecord;
   }
 
   Future<GrnRecord?> addPendingItemsToStock(String grnId) async {
@@ -268,8 +297,18 @@ class GrnLocalRepository {
       entity.updatedAt = now;
       await isar.grnEntitys.put(entity);
     });
-
-    return _mapGrnEntityToRecord(entity);
+    final savedRecord = _mapGrnEntityToRecord(entity);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.grn,
+      entityId: savedRecord.id,
+      action: 'add_to_stock',
+      title: 'Added pending GRN items to stock for ${savedRecord.id}',
+      details: {
+        'supplier': savedRecord.supplier,
+        'itemCount': pendingItems.length,
+      },
+    );
+    return savedRecord;
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {

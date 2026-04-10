@@ -5,10 +5,11 @@ import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
 import 'grn_local_repository.dart';
+import 'insight_repository.dart';
 import 'product_local_repository.dart';
 import 'stock_local_repository.dart';
 
-class InsightLocalRepository {
+class InsightLocalRepository implements InsightRepository {
   const InsightLocalRepository();
 
   Future<void> initialize() async {
@@ -133,9 +134,9 @@ class InsightLocalRepository {
     );
   }
 
-  Future<void> deactivateExpiredStock(int stockId) async {
+  Future<void> deactivateExpiredStock(InsightExpiredStockItem item) async {
     final isar = await AppDatabase.instance;
-    final stock = await isar.stockEntitys.get(stockId);
+    final stock = await isar.stockEntitys.get(item.id);
     if (stock == null) {
       return;
     }
@@ -279,6 +280,7 @@ class InsightLocalRepository {
         .map(
           (stock) => InsightExpiredStockItem(
             id: stock.id,
+            cloudId: null,
             name: stock.productName,
             barcode: stock.barcode,
             expiryDate: _formatExpiryDate(stock.expiryDate!),

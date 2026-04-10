@@ -15,6 +15,12 @@ class PosCustomerSettings {
   final bool createCustomerOnlyContact;
 }
 
+class GrnEntrySettings {
+  const GrnEntrySettings({required this.addItemOnEnter});
+
+  final bool addItemOnEnter;
+}
+
 enum PosInvoicePrintMode {
   preview('Show Preview Before Printing'),
   instant('Print Instantly');
@@ -28,6 +34,46 @@ class PosPrintSettings {
   const PosPrintSettings({required this.invoicePrintMode});
 
   final PosInvoicePrintMode invoicePrintMode;
+}
+
+enum PosShortcutKey {
+  f1('F1'),
+  f2('F2'),
+  f3('F3'),
+  f4('F4'),
+  f5('F5'),
+  f6('F6'),
+  f7('F7'),
+  f8('F8'),
+  f9('F9'),
+  f10('F10'),
+  f11('F11'),
+  f12('F12');
+
+  const PosShortcutKey(this.label);
+
+  final String label;
+}
+
+class PosShortcutSettings {
+  const PosShortcutSettings({
+    required this.productSearchKey,
+    required this.customerSearchKey,
+    required this.amountPaidKey,
+    required this.processPaymentKey,
+  });
+
+  final PosShortcutKey productSearchKey;
+  final PosShortcutKey customerSearchKey;
+  final PosShortcutKey amountPaidKey;
+  final PosShortcutKey processPaymentKey;
+
+  static const PosShortcutSettings defaults = PosShortcutSettings(
+    productSearchKey: PosShortcutKey.f1,
+    customerSearchKey: PosShortcutKey.f2,
+    amountPaidKey: PosShortcutKey.f3,
+    processPaymentKey: PosShortcutKey.f4,
+  );
 }
 
 enum InvoicePaperSize {
@@ -123,8 +169,17 @@ class AppSettingsService {
   static const String _posTaxPercentKey = 'settings.pos_tax_percent';
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
+  static const String _grnAddItemOnEnterKey = 'settings.grn_add_item_on_enter';
   static const String _posInvoicePrintModeKey =
       'settings.pos_invoice_print_mode';
+  static const String _posShortcutProductSearchKey =
+      'settings.pos_shortcut_product_search';
+  static const String _posShortcutCustomerSearchKey =
+      'settings.pos_shortcut_customer_search';
+  static const String _posShortcutAmountPaidKey =
+      'settings.pos_shortcut_amount_paid';
+  static const String _posShortcutProcessPaymentKey =
+      'settings.pos_shortcut_process_payment';
   static const String _invoicePaperSizeKey = 'settings.invoice_paper_size';
   static const String _invoiceLanguageKey = 'settings.invoice_language';
   static const String _invoiceEnglishFontKey = 'settings.invoice_english_font';
@@ -182,6 +237,18 @@ class AppSettingsService {
     await prefs.setBool(_posCustomerOnlyContactKey, createCustomerOnlyContact);
   }
 
+  Future<GrnEntrySettings> loadGrnEntrySettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return GrnEntrySettings(
+      addItemOnEnter: prefs.getBool(_grnAddItemOnEnterKey) ?? true,
+    );
+  }
+
+  Future<void> saveGrnEntrySettings({required bool addItemOnEnter}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_grnAddItemOnEnterKey, addItemOnEnter);
+  }
+
   Future<PosPrintSettings> loadPosPrintSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final rawMode = prefs.getString(_posInvoicePrintModeKey);
@@ -197,6 +264,57 @@ class AppSettingsService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_posInvoicePrintModeKey, invoicePrintMode.name);
+  }
+
+  Future<PosShortcutSettings> loadPosShortcutSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    PosShortcutKey readShortcut(String storageKey, PosShortcutKey fallback) {
+      final raw = prefs.getString(storageKey);
+      return PosShortcutKey.values.firstWhere(
+        (item) => item.name == raw,
+        orElse: () => fallback,
+      );
+    }
+
+    return PosShortcutSettings(
+      productSearchKey: readShortcut(
+        _posShortcutProductSearchKey,
+        PosShortcutSettings.defaults.productSearchKey,
+      ),
+      customerSearchKey: readShortcut(
+        _posShortcutCustomerSearchKey,
+        PosShortcutSettings.defaults.customerSearchKey,
+      ),
+      amountPaidKey: readShortcut(
+        _posShortcutAmountPaidKey,
+        PosShortcutSettings.defaults.amountPaidKey,
+      ),
+      processPaymentKey: readShortcut(
+        _posShortcutProcessPaymentKey,
+        PosShortcutSettings.defaults.processPaymentKey,
+      ),
+    );
+  }
+
+  Future<void> savePosShortcutSettings(PosShortcutSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _posShortcutProductSearchKey,
+      settings.productSearchKey.name,
+    );
+    await prefs.setString(
+      _posShortcutCustomerSearchKey,
+      settings.customerSearchKey.name,
+    );
+    await prefs.setString(
+      _posShortcutAmountPaidKey,
+      settings.amountPaidKey.name,
+    );
+    await prefs.setString(
+      _posShortcutProcessPaymentKey,
+      settings.processPaymentKey.name,
+    );
   }
 
   Future<InvoiceLayoutSettings> loadInvoiceLayoutSettings() async {

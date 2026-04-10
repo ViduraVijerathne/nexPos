@@ -22,6 +22,7 @@ class _BackupPageState extends State<BackupPage> {
   BackupState _state = const BackupState(
     records: <BackupRecord>[],
     backupOnLogin: false,
+    mode: null,
   );
 
   @override
@@ -53,7 +54,9 @@ class _BackupPageState extends State<BackupPage> {
     setState(() => _isBusy = true);
     try {
       final backup = await _backupService.createBackup(
-        type: 'Full System Backup',
+        type: _state.isOnlineMode
+            ? 'Cloud Shop Snapshot'
+            : 'Full System Backup',
       );
       await _loadState();
       AppToast.success('${backup.name} created successfully');
@@ -70,7 +73,11 @@ class _BackupPageState extends State<BackupPage> {
     try {
       await _backupService.setBackupOnLogin(value);
       setState(() {
-        _state = BackupState(records: _state.records, backupOnLogin: value);
+        _state = BackupState(
+          records: _state.records,
+          backupOnLogin: value,
+          mode: _state.mode,
+        );
       });
       AppToast.success(
         value
@@ -83,6 +90,10 @@ class _BackupPageState extends State<BackupPage> {
   }
 
   Future<void> _handleExportBackup(BackupRecord record) async {
+    if (record.isRemote) {
+      AppToast.info('Cloud snapshots cannot be exported as local files');
+      return;
+    }
     try {
       final exportedPath = await _backupService.exportBackup(record);
       if (exportedPath == null) {
@@ -96,13 +107,20 @@ class _BackupPageState extends State<BackupPage> {
 
   Future<void> _handleRestoreExistingBackup() async {
     if (_state.records.isEmpty) {
-      AppToast.info('No local backups available to restore');
+      AppToast.info(
+        _state.isOnlineMode
+            ? 'No cloud snapshots available to restore'
+            : 'No local backups available to restore',
+      );
       return;
     }
 
     final selectedRecord = await showDialog<BackupRecord>(
       context: context,
-      builder: (context) => _RestoreBackupDialog(records: _state.records),
+      builder: (context) => _RestoreBackupDialog(
+        records: _state.records,
+        isOnlineMode: _state.isOnlineMode,
+      ),
     );
 
     if (selectedRecord == null || !mounted) {
@@ -111,7 +129,9 @@ class _BackupPageState extends State<BackupPage> {
 
     final confirmed = await _showRestoreConfirmation(
       'Restore ${selectedRecord.name}?',
-      'This will replace the current local database and reload the application.',
+      selectedRecord.isRemote
+          ? 'This will replace the current online shop data with the selected cloud snapshot.'
+          : 'This will replace the current local database and reload the application.',
     );
     if (!confirmed) {
       return;
@@ -121,6 +141,10 @@ class _BackupPageState extends State<BackupPage> {
   }
 
   Future<void> _handleImportRestore() async {
+    if (_state.isOnlineMode) {
+      AppToast.info('External file restore is only available in offline mode');
+      return;
+    }
     final confirmed = await _showRestoreConfirmation(
       'Restore external backup?',
       'This will import a selected `.isar` backup file and replace the current local database.',
@@ -182,10 +206,14 @@ class _BackupPageState extends State<BackupPage> {
         return;
       }
       AppToast.success('Backup restored successfully');
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute<void>(builder: (_) => const AppBootstrapPage()),
-        (route) => false,
-      );
+      if (_state.isOnlineMode) {
+        await _loadState();
+      } else {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(builder: (_) => const AppBootstrapPage()),
+          (route) => false,
+        );
+      }
     } on _BackupCancelledException {
       AppToast.info('Backup restore cancelled');
     } catch (error) {
@@ -249,6 +277,7 @@ class _BackupPageState extends State<BackupPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _BackupHeader(
+                isOnlineMode: _state.isOnlineMode,
                 onRestorePressed: _handleRestoreExistingBackup,
                 onCreatePressed: _handleCreateBackup,
                 onImportRestorePressed: _handleImportRestore,
@@ -263,7 +292,9 @@ class _BackupPageState extends State<BackupPage> {
                       iconBackground: const Color(0xFFE5FBF7),
                       title: 'Total Backups',
                       value: '${_state.totalBackups}',
-                      subtitle: 'Stored restore points',
+                      subtitle: _state.isOnlineMode
+                          ? 'Stored cloud snapshots'
+                          : 'Stored restore points',
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -287,7 +318,9 @@ class _BackupPageState extends State<BackupPage> {
                       iconBackground: const Color(0xFFF8EAFF),
                       title: 'Total Size',
                       value: _formatSize(_state.totalSizeBytes),
-                      subtitle: 'Across all backup files',
+                      subtitle: _state.isOnlineMode
+                          ? 'Estimated cloud snapshot size'
+                          : 'Across all backup files',
                     ),
                   ),
                 ],
@@ -295,10 +328,12 @@ class _BackupPageState extends State<BackupPage> {
               const SizedBox(height: 18),
               _BackupHistoryCard(
                 records: _state.records,
+                isOnlineMode: _state.isOnlineMode,
                 onExport: _handleExportBackup,
               ),
               const SizedBox(height: 22),
               _BackupSettingsCard(
+                isOnlineMode: _state.isOnlineMode,
                 backupOnLogin: _state.backupOnLogin,
                 onToggle: _handleToggleBackupOnLogin,
               ),
@@ -342,11 +377,13 @@ class _BackupPageState extends State<BackupPage> {
 
 class _BackupHeader extends StatelessWidget {
   const _BackupHeader({
+    required this.isOnlineMode,
     required this.onRestorePressed,
     required this.onCreatePressed,
     required this.onImportRestorePressed,
   });
 
+  final bool isOnlineMode;
   final VoidCallback onRestorePressed;
   final VoidCallback onCreatePressed;
   final VoidCallback onImportRestorePressed;
@@ -381,23 +418,25 @@ class _BackupHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        OutlinedButton.icon(
-          onPressed: onImportRestorePressed,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF36B4AE),
-            side: const BorderSide(color: Color(0xFF67CBC5)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+        if (!isOnlineMode) ...[
+          OutlinedButton.icon(
+            onPressed: onImportRestorePressed,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF36B4AE),
+              side: const BorderSide(color: Color(0xFF67CBC5)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              minimumSize: const Size(116, 40),
             ),
-            minimumSize: const Size(116, 40),
+            icon: const Icon(Icons.upload_file_outlined, size: 18),
+            label: const Text(
+              'Import',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
-          icon: const Icon(Icons.upload_file_outlined, size: 18),
-          label: const Text(
-            'Import',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        const SizedBox(width: 10),
+          const SizedBox(width: 10),
+        ],
         OutlinedButton.icon(
           onPressed: onRestorePressed,
           style: OutlinedButton.styleFrom(
@@ -408,10 +447,15 @@ class _BackupHeader extends StatelessWidget {
             ),
             minimumSize: const Size(116, 40),
           ),
-          icon: const Icon(Icons.restore_rounded, size: 18),
-          label: const Text(
-            'Restore',
-            style: TextStyle(fontWeight: FontWeight.w700),
+          icon: Icon(
+            isOnlineMode
+                ? Icons.cloud_download_outlined
+                : Icons.restore_rounded,
+            size: 18,
+          ),
+          label: Text(
+            isOnlineMode ? 'Restore Snapshot' : 'Restore',
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
         const SizedBox(width: 10),
@@ -426,10 +470,13 @@ class _BackupHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
           ),
-          icon: const Icon(Icons.add_rounded, size: 18),
-          label: const Text(
-            'Create Backup',
-            style: TextStyle(fontWeight: FontWeight.w700),
+          icon: Icon(
+            isOnlineMode ? Icons.cloud_upload_outlined : Icons.add_rounded,
+            size: 18,
+          ),
+          label: Text(
+            isOnlineMode ? 'Create Snapshot' : 'Create Backup',
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
       ],
@@ -516,10 +563,15 @@ class _BackupSummaryCard extends StatelessWidget {
 }
 
 class _BackupHistoryCard extends StatelessWidget {
-  const _BackupHistoryCard({required this.records, required this.onExport});
+  const _BackupHistoryCard({
+    required this.records,
+    required this.onExport,
+    required this.isOnlineMode,
+  });
 
   final List<BackupRecord> records;
   final ValueChanged<BackupRecord> onExport;
+  final bool isOnlineMode;
 
   @override
   Widget build(BuildContext context) {
@@ -559,7 +611,7 @@ class _BackupHistoryCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFE9EFF6)),
               ),
-              child: const Column(
+              child: Column(
                 children: [
                   Icon(
                     Icons.archive_outlined,
@@ -577,7 +629,9 @@ class _BackupHistoryCard extends StatelessWidget {
                   ),
                   SizedBox(height: 6),
                   Text(
-                    'Create your first backup to protect local data.',
+                    isOnlineMode
+                        ? 'Create your first cloud snapshot to protect online shop data.'
+                        : 'Create your first backup to protect local data.',
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w500,
@@ -593,6 +647,7 @@ class _BackupHistoryCard extends StatelessWidget {
                 for (final record in records) ...[
                   _BackupHistoryRow(
                     record: record,
+                    isOnlineMode: isOnlineMode,
                     onExport: () => onExport(record),
                   ),
                   if (record != records.last) const SizedBox(height: 12),
@@ -606,14 +661,19 @@ class _BackupHistoryCard extends StatelessWidget {
 }
 
 class _BackupHistoryRow extends StatelessWidget {
-  const _BackupHistoryRow({required this.record, required this.onExport});
+  const _BackupHistoryRow({
+    required this.record,
+    required this.onExport,
+    required this.isOnlineMode,
+  });
 
   final BackupRecord record;
   final VoidCallback onExport;
+  final bool isOnlineMode;
 
   @override
   Widget build(BuildContext context) {
-    final exists = File(record.filePath).existsSync();
+    final exists = record.isRemote || File(record.filePath).existsSync();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -663,7 +723,12 @@ class _BackupHistoryRow extends StatelessWidget {
                       icon: Icons.data_object_rounded,
                       text: record.formattedSize,
                     ),
-                    _MetaText(icon: Icons.folder_outlined, text: record.type),
+                    _MetaText(
+                      icon: record.isRemote
+                          ? Icons.cloud_outlined
+                          : Icons.folder_outlined,
+                      text: record.type,
+                    ),
                   ],
                 ),
               ],
@@ -687,15 +752,16 @@ class _BackupHistoryRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          IconButton(
-            onPressed: exists ? onExport : null,
-            icon: const Icon(
-              Icons.download_rounded,
-              size: 20,
-              color: Color(0xFF5A687D),
+          if (!isOnlineMode)
+            IconButton(
+              onPressed: exists ? onExport : null,
+              icon: const Icon(
+                Icons.download_rounded,
+                size: 20,
+                color: Color(0xFF5A687D),
+              ),
+              tooltip: 'Export backup',
             ),
-            tooltip: 'Export backup',
-          ),
         ],
       ),
     );
@@ -704,10 +770,12 @@ class _BackupHistoryRow extends StatelessWidget {
 
 class _BackupSettingsCard extends StatelessWidget {
   const _BackupSettingsCard({
+    required this.isOnlineMode,
     required this.backupOnLogin,
     required this.onToggle,
   });
 
+  final bool isOnlineMode;
   final bool backupOnLogin;
   final ValueChanged<bool> onToggle;
 
@@ -751,9 +819,11 @@ class _BackupSettingsCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  'Enable an automatic local backup every time the cashier successfully logs in. This is useful for debugging and frequent workstation recovery.',
-                  style: TextStyle(
+                Text(
+                  isOnlineMode
+                      ? 'Enable an automatic cloud snapshot every time the cashier successfully logs in. This stores a Firebase backup for the current shop.'
+                      : 'Enable an automatic local backup every time the cashier successfully logs in. This is useful for debugging and frequent workstation recovery.',
+                  style: const TextStyle(
                     fontSize: 13,
                     height: 1.5,
                     fontWeight: FontWeight.w500,
@@ -773,7 +843,7 @@ class _BackupSettingsCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -787,7 +857,9 @@ class _BackupSettingsCard extends StatelessWidget {
                             ),
                             SizedBox(height: 4),
                             Text(
-                              'Run a new backup after each successful login.',
+                              isOnlineMode
+                                  ? 'Run a new cloud snapshot after each successful login.'
+                                  : 'Run a new backup after each successful login.',
                               style: TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w500,
@@ -841,9 +913,13 @@ class _MetaText extends StatelessWidget {
 }
 
 class _RestoreBackupDialog extends StatelessWidget {
-  const _RestoreBackupDialog({required this.records});
+  const _RestoreBackupDialog({
+    required this.records,
+    required this.isOnlineMode,
+  });
 
   final List<BackupRecord> records;
+  final bool isOnlineMode;
 
   @override
   Widget build(BuildContext context) {
@@ -866,9 +942,11 @@ class _RestoreBackupDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Choose a local backup file to restore your current workstation data.',
-                style: TextStyle(
+              Text(
+                isOnlineMode
+                    ? 'Choose a cloud snapshot to restore the current shop data in Firebase.'
+                    : 'Choose a local backup file to restore your current workstation data.',
+                style: const TextStyle(
                   fontSize: 13,
                   color: Color(0xFF7E8C9F),
                   fontWeight: FontWeight.w500,

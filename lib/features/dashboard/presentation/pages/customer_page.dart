@@ -6,6 +6,9 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
 import '../../data/customer_local_repository.dart';
+import '../../data/customer_remote_repository.dart';
+import '../../data/customer_repository.dart';
+import '../../data/customer_repository_factory.dart';
 import '../../models/models.dart';
 
 class CustomerPage extends StatefulWidget {
@@ -19,13 +22,16 @@ class _CustomerPageState extends State<CustomerPage> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _spentLessController = TextEditingController();
   final TextEditingController _spentGreaterController = TextEditingController();
-  final CustomerLocalRepository _repository = const CustomerLocalRepository();
 
+  CustomerRepository? _repository;
   List<CustomerRecord> _customers = <CustomerRecord>[];
   int _currentPage = 1;
   int _totalPages = 1;
   int _totalCount = 0;
+  int _pageSize = 10;
   bool _isLoading = true;
+  String? _loadingCustomerCloudId;
+  int? _loadingCustomerId;
   Timer? _searchDebounce;
 
   @override
@@ -45,23 +51,36 @@ class _CustomerPageState extends State<CustomerPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _loadCustomers();
+      final repository = await CustomerRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _repository = repository;
+      await _loadCustomers(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load customers: $error');
+      AppToast.error('Failed to load customers: ${_readableError(error)}');
     }
   }
 
-  Future<void> _loadCustomers({int? targetPage}) async {
+  Future<void> _loadCustomers({
+    int? targetPage,
+    CustomerRepository? repositoryOverride,
+  }) async {
+    final repository = repositoryOverride ?? _repository;
+    if (repository == null) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final result = await _repository.fetchCustomers(
+      final result = await repository.fetchCustomers(
         page: targetPage ?? _currentPage,
         searchQuery: _searchController.text.trim(),
         spentLessThan: double.tryParse(_spentLessController.text.trim()),
@@ -77,6 +96,7 @@ class _CustomerPageState extends State<CustomerPage> {
         _currentPage = result.currentPage;
         _totalPages = result.totalPages;
         _totalCount = result.totalCount;
+        _pageSize = result.pageSize;
         _isLoading = false;
       });
     } catch (error) {
@@ -85,7 +105,7 @@ class _CustomerPageState extends State<CustomerPage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load customers: $error');
+      AppToast.error('Failed to load customers: ${_readableError(error)}');
     }
   }
 
@@ -101,26 +121,24 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _openCustomerDialog({CustomerRecord? customer}) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Customer service is still loading. Please try again.');
+      return;
+    }
+
     final result = await showDialog<CustomerRecord>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => CustomerFormDialog(initialCustomer: customer),
+      builder: (context) =>
+          CustomerFormDialog(initialCustomer: customer, repository: repository),
     );
 
     if (result == null) {
       return;
     }
 
-    try {
-      await _repository.saveCustomer(result);
-      await _loadCustomers(targetPage: customer == null ? 1 : _currentPage);
-    } on CustomerLocalRepositoryException catch (error) {
-      AppToast.error(error.message);
-      return;
-    } catch (error) {
-      AppToast.error('Failed to save customer: $error');
-      return;
-    }
+    await _loadCustomers(targetPage: customer == null ? 1 : _currentPage);
 
     AppToast.success(
       customer == null
@@ -130,23 +148,70 @@ class _CustomerPageState extends State<CustomerPage> {
   }
 
   Future<void> _openCustomerDetails(CustomerRecord customer) async {
-    final record = await _repository.fetchCustomerById(customer.id);
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Customer service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() {
+      _loadingCustomerCloudId = customer.cloudId;
+      _loadingCustomerId = customer.id;
+    });
+
+    CustomerRecord? record;
+    try {
+      record = await repository.fetchCustomerDetails(customer);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _loadingCustomerCloudId = null;
+          _loadingCustomerId = null;
+        });
+        AppToast.error(
+          'Failed to load customer details: ${_readableError(error)}',
+        );
+      }
+      return;
+    }
+
     if (!mounted || record == null) {
+      if (mounted) {
+        setState(() {
+          _loadingCustomerCloudId = null;
+          _loadingCustomerId = null;
+        });
+      }
       AppToast.error('Customer details not found');
       return;
     }
+
+    setState(() {
+      _loadingCustomerCloudId = null;
+      _loadingCustomerId = null;
+    });
 
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) => CustomerDetailsDialog(
-        customer: record,
+        customer: record!,
         onEdit: () {
           Navigator.of(context).pop();
-          _openCustomerDialog(customer: record);
+          _openCustomerDialog(customer: record!);
         },
       ),
     );
+  }
+
+  String _readableError(Object error) {
+    if (error is CustomerLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is CustomerRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
   }
 
   String get _footerText {
@@ -154,7 +219,7 @@ class _CustomerPageState extends State<CustomerPage> {
       return 'Showing 0 to 0 of 0 customers';
     }
 
-    final start = ((_currentPage - 1) * CustomerLocalRepository.pageSize) + 1;
+    final start = ((_currentPage - 1) * _pageSize) + 1;
     final end = (start + _customers.length) - 1;
     return 'Showing $start to $end of $_totalCount customers';
   }
@@ -174,7 +239,9 @@ class _CustomerPageState extends State<CustomerPage> {
               _PageActionButton(
                 label: 'Add Customer',
                 icon: Icons.add,
-                onPressed: () => _openCustomerDialog(),
+                onPressed: _repository == null
+                    ? null
+                    : () => _openCustomerDialog(),
               ),
             ],
           ),
@@ -188,11 +255,7 @@ class _CustomerPageState extends State<CustomerPage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
+                ? const _CustomerTableSkeleton()
                 : _customers.isEmpty
                 ? const _EmptyState(
                     icon: Icons.people_outline_rounded,
@@ -205,6 +268,8 @@ class _CustomerPageState extends State<CustomerPage> {
                     footerText: _footerText,
                     currentPage: _currentPage,
                     totalPages: _totalPages,
+                    loadingCustomerCloudId: _loadingCustomerCloudId,
+                    loadingCustomerId: _loadingCustomerId,
                     onView: _openCustomerDetails,
                     onEdit: (customer) =>
                         _openCustomerDialog(customer: customer),
@@ -341,6 +406,8 @@ class _CustomerTableCard extends StatelessWidget {
     required this.footerText,
     required this.currentPage,
     required this.totalPages,
+    required this.loadingCustomerCloudId,
+    required this.loadingCustomerId,
     required this.onView,
     required this.onEdit,
     required this.onPreviousPage,
@@ -351,6 +418,8 @@ class _CustomerTableCard extends StatelessWidget {
   final String footerText;
   final int currentPage;
   final int totalPages;
+  final String? loadingCustomerCloudId;
+  final int? loadingCustomerId;
   final Future<void> Function(CustomerRecord) onView;
   final Future<void> Function(CustomerRecord) onEdit;
   final VoidCallback? onPreviousPage;
@@ -386,6 +455,11 @@ class _CustomerTableCard extends StatelessWidget {
                   const Divider(height: 1, color: Color(0xFFF0F4F8)),
               itemBuilder: (context, index) {
                 final customer = customers[index];
+                final isLoading =
+                    (loadingCustomerCloudId != null &&
+                        loadingCustomerCloudId == customer.cloudId) ||
+                    (loadingCustomerCloudId == null &&
+                        loadingCustomerId == customer.id);
 
                 return Container(
                   color: index == 2 ? const Color(0xFFF8FBFF) : null,
@@ -476,24 +550,37 @@ class _CustomerTableCard extends StatelessWidget {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {
-                                  onView(customer);
-                                },
+                                onPressed: isLoading
+                                    ? null
+                                    : () {
+                                        onView(customer);
+                                      },
                                 style: _tableActionStyle(),
-                                icon: const Icon(
-                                  Icons.visibility_outlined,
-                                  size: 15,
-                                  color: Color(0xFF485568),
-                                ),
-                                label: const Text('View'),
+                                icon: isLoading
+                                    ? const SizedBox(
+                                        width: 15,
+                                        height: 15,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Color(0xFF485568),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.visibility_outlined,
+                                        size: 15,
+                                        color: Color(0xFF485568),
+                                      ),
+                                label: Text(isLoading ? 'Loading...' : 'View'),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {
-                                  onEdit(customer);
-                                },
+                                onPressed: isLoading
+                                    ? null
+                                    : () {
+                                        onEdit(customer);
+                                      },
                                 style: _tableActionStyle(),
                                 icon: const Icon(
                                   Icons.edit_outlined,
@@ -565,9 +652,14 @@ class _CustomerTableCard extends StatelessWidget {
 }
 
 class CustomerFormDialog extends StatefulWidget {
-  const CustomerFormDialog({super.key, this.initialCustomer});
+  const CustomerFormDialog({
+    super.key,
+    this.initialCustomer,
+    required this.repository,
+  });
 
   final CustomerRecord? initialCustomer;
+  final CustomerRepository repository;
 
   @override
   State<CustomerFormDialog> createState() => _CustomerFormDialogState();
@@ -578,6 +670,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
   late final TextEditingController _addressController;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.initialCustomer != null;
 
@@ -600,7 +693,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_isSubmitting) {
+      return;
+    }
+
     if (_nameController.text.trim().isEmpty ||
         _emailController.text.trim().isEmpty ||
         _phoneController.text.trim().isEmpty ||
@@ -609,17 +706,32 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       return;
     }
 
-    Navigator.of(context).pop(
-      CustomerRecord(
-        id: widget.initialCustomer?.id ?? 0,
-        name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-        phone: _phoneController.text.trim(),
-        address: _addressController.text.trim(),
-        joinDate: widget.initialCustomer?.joinDate ?? '',
-        invoices: widget.initialCustomer?.invoices ?? const [],
-      ),
+    setState(() => _isSubmitting = true);
+
+    final customer = CustomerRecord(
+      id: widget.initialCustomer?.id ?? 0,
+      cloudId: widget.initialCustomer?.cloudId,
+      name: _nameController.text.trim(),
+      email: _emailController.text.trim(),
+      phone: _phoneController.text.trim(),
+      address: _addressController.text.trim(),
+      joinDate: widget.initialCustomer?.joinDate ?? '',
+      invoices: widget.initialCustomer?.invoices ?? const [],
     );
+
+    try {
+      final saved = await widget.repository.saveCustomer(customer);
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(saved);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      AppToast.error('Failed to save customer: $error');
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -635,7 +747,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
           children: [
             _DialogHeader(
               title: _isEditing ? 'Edit Customer' : 'Add New Customer',
-              onClose: () => Navigator.of(context).pop(),
+              onClose: _isSubmitting ? null : () => Navigator.of(context).pop(),
             ),
             const Divider(height: 1, color: Color(0xFFE8EDF4)),
             Padding(
@@ -699,11 +811,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             ),
             _DialogFooter(
               primaryLabel: _isEditing ? 'Update Customer' : 'Add Customer',
-              primaryColor: _isEditing
-                  ? const Color(0xFF36B4AE)
-                  : const Color(0xFF8FDDD6),
-              onPrimaryPressed: _submit,
-              onSecondaryPressed: () => Navigator.of(context).pop(),
+              primaryColor: const Color(0xFF36B4AE),
+              onPrimaryPressed: _isSubmitting ? null : _submit,
+              onSecondaryPressed: _isSubmitting
+                  ? null
+                  : () => Navigator.of(context).pop(),
+              isPrimaryLoading: _isSubmitting,
             ),
           ],
         ),
@@ -1158,7 +1271,7 @@ class _PageActionButton extends StatelessWidget {
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1202,6 +1315,86 @@ class _PaginationButton extends StatelessWidget {
         child: Icon(
           icon,
           color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerTableSkeleton extends StatelessWidget {
+  const _CustomerTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _panelDecoration(),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FBFD),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 28, child: _HeaderText('Name')),
+                Expanded(flex: 22, child: _HeaderText('Contact')),
+                Expanded(flex: 8, child: _HeaderText('Orders')),
+                Expanded(flex: 12, child: _HeaderText('Total Spent')),
+                Expanded(flex: 10, child: _HeaderText('Join Date')),
+                Expanded(flex: 14, child: _HeaderText('Actions')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              itemCount: 8,
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+              itemBuilder: (_, __) => const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                child: Row(
+                  children: [
+                    Expanded(flex: 28, child: _CustomerSkeletonBlock(0.8)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 22, child: _CustomerSkeletonBlock(0.85)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 8, child: _CustomerSkeletonBlock(0.4)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 12, child: _CustomerSkeletonBlock(0.55)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 10, child: _CustomerSkeletonBlock(0.6)),
+                    SizedBox(width: 12),
+                    Expanded(flex: 14, child: _CustomerSkeletonBlock(0.85)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerSkeletonBlock extends StatelessWidget {
+  const _CustomerSkeletonBlock(this.widthFactor);
+
+  final double widthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: widthFactor,
+        child: Container(
+          height: 18,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(999),
+          ),
         ),
       ),
     );
@@ -1327,7 +1520,7 @@ class _DialogHeader extends StatelessWidget {
   const _DialogHeader({required this.title, required this.onClose});
 
   final String title;
-  final VoidCallback onClose;
+  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -1364,12 +1557,14 @@ class _DialogFooter extends StatelessWidget {
     required this.onPrimaryPressed,
     required this.onSecondaryPressed,
     this.primaryColor = const Color(0xFF36B4AE),
+    this.isPrimaryLoading = false,
   });
 
   final String primaryLabel;
   final Color primaryColor;
-  final VoidCallback onPrimaryPressed;
-  final VoidCallback onSecondaryPressed;
+  final VoidCallback? onPrimaryPressed;
+  final VoidCallback? onSecondaryPressed;
+  final bool isPrimaryLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -1394,7 +1589,16 @@ class _DialogFooter extends StatelessWidget {
               backgroundColor: primaryColor,
               foregroundColor: AppColors.white,
             ),
-            child: Text(primaryLabel),
+            child: isPrimaryLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(primaryLabel),
           ),
         ],
       ),

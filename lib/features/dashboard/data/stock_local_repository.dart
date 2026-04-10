@@ -1,8 +1,10 @@
 import 'package:isar/isar.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/services/change_log_service.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'stock_repository.dart';
 
 class StockLocalRepositoryException implements Exception {
   StockLocalRepositoryException(this.message);
@@ -13,7 +15,7 @@ class StockLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class StockLocalRepository {
+class StockLocalRepository implements StockRepository {
   const StockLocalRepository();
 
   static const int pageSize = 10;
@@ -131,6 +133,15 @@ class StockLocalRepository {
     return _mapEntityToRecord(entity);
   }
 
+  @override
+  Future<StockRecord?> fetchStockDetails(StockRecord stock) async {
+    final stockId = stock.id;
+    if (stockId == null) {
+      return null;
+    }
+    return fetchStockById(stockId);
+  }
+
   Future<StockRecord> saveStock(StockRecord stock) async {
     final isar = await AppDatabase.instance;
     final trimmedBarcode = stock.barcode.trim();
@@ -152,12 +163,20 @@ class StockLocalRepository {
       );
     }
 
+    ProductEntity? linkedProduct;
+    if (stock.product.trim().isNotEmpty) {
+      linkedProduct = await isar.productEntitys
+          .filter()
+          .nameEqualTo(stock.product.trim(), caseSensitive: false)
+          .findFirst();
+    }
+
     final now = DateTime.now();
     final entity = StockEntity()
       ..id = stock.id ?? Isar.autoIncrement
       ..barcode = trimmedBarcode
       ..productName = stock.product.trim()
-      ..productBarcode = null
+      ..productBarcode = linkedProduct?.barcode
       ..grnCode = stock.grnId == 'Not Assigned' ? null : stock.grnId.trim()
       ..initialQuantity = stock.initialQty
       ..availableQuantity = stock.availableQty
@@ -173,11 +192,26 @@ class StockLocalRepository {
     await isar.writeTxn(() async {
       savedId = await isar.stockEntitys.put(entity);
     });
-
-    return _mapEntityToRecord(entity..id = savedId);
+    final savedRecord = _mapEntityToRecord(entity..id = savedId);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.stock,
+      entityId: '${savedRecord.id ?? savedRecord.barcode}',
+      action: existing == null ? 'create' : 'update',
+      title: existing == null
+          ? 'Created stock ${savedRecord.barcode}'
+          : 'Updated stock ${savedRecord.barcode}',
+      details: {
+        'product': savedRecord.product,
+        'barcode': savedRecord.barcode,
+        'quantity': savedRecord.availableQty,
+        'status': savedRecord.status.name,
+        'grnId': savedRecord.grnId,
+      },
+    );
+    return savedRecord;
   }
 
-  Future<StockRecord?> deactivateStock(int stockId) async {
+  Future<StockRecord?> deactivateStockById(int stockId) async {
     final isar = await AppDatabase.instance;
     final entity = await isar.stockEntitys.get(stockId);
     if (entity == null) {
@@ -191,8 +225,28 @@ class StockLocalRepository {
     await isar.writeTxn(() async {
       await isar.stockEntitys.put(entity);
     });
+    final savedRecord = _mapEntityToRecord(entity);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.stock,
+      entityId: '${savedRecord.id ?? savedRecord.barcode}',
+      action: 'deactivate',
+      title: 'Deactivated stock ${savedRecord.barcode}',
+      details: {
+        'product': savedRecord.product,
+        'barcode': savedRecord.barcode,
+        'status': savedRecord.status.name,
+      },
+    );
+    return savedRecord;
+  }
 
-    return _mapEntityToRecord(entity);
+  @override
+  Future<StockRecord?> deactivateStock(StockRecord stock) async {
+    final stockId = stock.id;
+    if (stockId == null) {
+      return null;
+    }
+    return deactivateStockById(stockId);
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {
@@ -465,6 +519,7 @@ class StockLocalRepository {
   StockRecord _mapEntityToRecord(StockEntity entity) {
     return StockRecord(
       id: entity.id,
+      cloudId: null,
       barcode: entity.barcode,
       product: entity.productName,
       initialQty: entity.initialQuantity,

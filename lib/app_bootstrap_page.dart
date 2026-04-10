@@ -5,6 +5,7 @@ import 'features/activation/services/activation_service.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/setup/presentation/pages/setup_page.dart';
 import 'features/setup/services/setup_service.dart';
+import 'features/splash/presentation/pages/splash_page.dart';
 
 class AppBootstrapPage extends StatefulWidget {
   const AppBootstrapPage({super.key});
@@ -26,8 +27,13 @@ class _AppBootstrapPageState extends State<AppBootstrapPage> {
   }
 
   Future<void> _loadBootState() async {
-    final activationState = await ActivationService.instance.loadState();
-    final setupState = await SetupService.instance.loadState();
+    final results = await Future.wait<Object?>([
+      ActivationService.instance.loadState(),
+      SetupService.instance.loadState(),
+      Future<void>.delayed(const Duration(milliseconds: 2000)),
+    ]);
+    final activationState = results[0] as ActivationBootState;
+    final setupState = results[1] as SetupState;
     if (!mounted) {
       return;
     }
@@ -43,7 +49,7 @@ class _AppBootstrapPageState extends State<AppBootstrapPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const SplashPage();
     }
 
     if (!_isActivated) {

@@ -5,9 +5,10 @@ import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
 import 'product_local_repository.dart';
+import 'report_repository.dart';
 import 'stock_local_repository.dart';
 
-class ReportLocalRepository {
+class ReportLocalRepository implements ReportRepository {
   const ReportLocalRepository();
 
   Future<void> initialize() async {

@@ -142,3 +142,89 @@
 - Added a POS invoice printing behavior setting so cashiers can choose between previewing the invoice first or printing instantly right after `Process Payment`.
 - Added a GitHub Actions workflow to build the Windows desktop app, run analysis/tests, and upload a packaged Windows release artifact automatically.
 - Updated CI analysis settings to exclude generated files and prevent GitHub Actions from failing on non-fatal analyzer warnings and infos during the Windows build workflow.
+
+## 2026-04-09
+
+- Added the hybrid online setup foundation so `Online Version` can now be selected during first-run setup instead of staying disabled.
+- Added encrypted Firebase config upload and verification during online setup, using the stored activation key to decrypt the uploaded config before validating Firebase options.
+- Extended setup persistence to store encrypted Firebase config plus PIN-encrypted online credentials for Firebase-backed login.
+- Wired login to support online email/password authentication and online PIN login that decrypts the saved Firebase email/password using the PIN before authenticating.
+- Improved online setup resume behavior so saved Firebase config details can be previewed again when reopening an incomplete setup flow.
+- Hardened Firebase initialization to safely reuse an existing initialized app during online-mode startup and login.
+- Added reusable helpers in `lib/key_builder.dart` to encrypt Firebase JSON content or a Firebase JSON file using the same secure payload format as the app setup flow.
+- Prevented online setup crashes from invalid Firebase config uploads by moving verification away from native temporary app initialization and adding platform-aware Firebase `appId` validation.
+- Removed the Firebase JSON upload step from the setup wizard for the hybrid branch and temporarily aligned online setup with the same simple flow as offline mode until traditional Firebase initialization is wired.
+- Updated the online setup admin step to behave like a login verification step: no confirm password field, Firebase sign-in verification before continuing, and direct error feedback when credentials fail.
+- Fixed online setup/login initialization so the app no longer tries to decrypt an empty saved Firebase config when traditional Firebase initialization is already used.
+- Added a visible loading state to the online setup `Verify & Continue` button so long-running authentication checks now disable the button and show a spinner while the request is in progress.
+- Fixed app startup so Firebase is initialized in `main()` using `DefaultFirebaseOptions.currentPlatform` before the online setup/login flow tries to authenticate.
+- Fixed macOS online authentication networking by adding the missing `com.apple.security.network.client` entitlement to both debug and release runner entitlements.
+- Added macOS keychain access group entitlements so Firebase Auth can store and read secure session data without failing on keychain access.
+- Reworked online admin authentication to use Firebase Auth REST sign-in for setup/login verification, avoiding macOS keychain persistence issues in local desktop builds.
+- Updated online setup shop registration for multi-shop Firestore usage: the app now checks `shops` by admin email, loads an existing shop as read-only when found, or lets the admin register a new shop when none exists, while also persisting the resolved `shopId` locally for future data scoping.
+- Completed the product page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped products and categories from Firestore.
+- Added a product repository abstraction plus a Firestore product repository, including category autosuggest, create-category support, barcode uniqueness checks, edit product, search filters, and 10-item pagination in online mode.
+- Improved product page UX with visible loading feedback: table skeleton rows during fetches, category suggestion loading state, and a disabled submit button with spinner while product saves are in progress.
+- Completed the supplier page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped suppliers and supplier-linked GRNs from Firestore.
+- Added a supplier repository abstraction plus a Firestore supplier repository, covering add/edit supplier, supplier table pagination and search, supplier details loading, status toggle, due payment updates, and newest-first GRN history with status filtering in online mode.
+- Improved supplier page UX with better loading feedback, including table skeleton rows during supplier fetches and guarded supplier form submission with a loading spinner to prevent duplicate online saves.
+- Added row-level loading feedback to the supplier `View` action so opening supplier details now shows a clear loading state.
+- Moved supplier save handling into the create/edit dialog so the primary button now shows a loading spinner during save, closes automatically on success, and uses a stronger active button color instead of appearing disabled.
+- Added an `Edit` action directly to the supplier table so suppliers can now be updated from the list view using the same save/loading dialog flow.
+- Completed the customer page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped customers and customer-linked invoices from Firestore.
+- Added a customer repository abstraction plus a Firestore customer repository, covering add customer, update customer, customer table search and pagination, customer details loading, and invoice history loading for the selected customer in online mode.
+- Improved customer page UX with loading feedback, including table skeleton rows during fetches, row-level loading for opening customer details, and dialog save spinners with automatic close on successful add or update.
+- Completed the GRN page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped GRNs, suppliers, products, and stock updates through Firestore.
+- Added a GRN repository abstraction plus a Firestore GRN repository, covering GRN list loading, search filters, 10-item pagination, supplier/product suggestions, create GRN, save-and-add-stock, due payment recording, and adding pending GRN items to stock in online mode.
+- Improved GRN page UX with loading feedback, including animated table skeletons during fetches, row-level loading for the `View` action, save-button spinners in the create dialog, and loading states for GRN details actions like `Pay Due Amount` and `Add Pending Items to Stock`.
+- Completed the stock page hybrid data flow so offline mode continues using Isar while online mode now reads and writes shop-scoped stock records from Firestore while also using hybrid product and GRN lookups for linked details.
+- Added a stock repository abstraction plus a Firestore stock repository, covering stock table loading, search filters, 10-item pagination, add stock, edit stock, soft deactivate, stock detail loading, and product/GRN suggestion loading in online mode.
+- Improved stock page UX with loading feedback, including animated table skeletons during fetches, row-level loading indicators for view/edit/deactivate actions, loading state on the `Add New Stock` button while form data is being prepared, and dialog save spinners with automatic close after successful add or update.
+- Completed the POS page hybrid data flow so offline mode continues using Isar while online mode now reads shop-scoped stocks, products, customers, and writes invoices through Firestore while keeping the cashier flow the same.
+- Added a POS repository abstraction plus a Firestore POS repository, covering product/stock catalog loading, exact barcode matching, customer search, cart checkout, stock quantity deduction, and invoice creation in online mode.
+- Improved POS UX with loading feedback, including catalog skeleton loading during refreshes, customer search loading indication, better guarded checkout flow, and hybrid customer creation/selection that now works correctly for both local and online modes.
+- Completed the invoice page hybrid data flow so offline mode continues using Isar while online mode now reads shop-scoped invoices from Firestore using the same filters and pagination behavior.
+- Added an invoice repository abstraction plus a Firestore invoice repository, covering invoice search filters, summary cards, 10-item pagination, and fresh invoice detail loading in online mode.
+- Improved invoice page UX with loading feedback, including animated table skeletons during invoice fetches and row-level loading indicators for `View` and `Print` actions.
+- Completed the insight page hybrid data flow so offline mode continues using Isar while online mode now reads shop-scoped invoices, products, customers, and stocks from Firestore for dashboard analytics.
+- Added an insight repository abstraction plus a Firestore insight repository, covering sales metrics, date-range sales chart, stock allocation, low stock alerts, expired stock listing, and expired stock deactivation in online mode.
+- Improved insight page UX with loading feedback, including a full-page skeleton while business insights are loading and row-level loading on expired stock deactivation actions.
+- Completed the reports page hybrid data flow so offline mode continues using Isar while online mode now reads shop-scoped invoices, products, and stocks from Firestore for report analytics.
+- Added a report repository abstraction plus a Firestore report repository, covering revenue, tax, order, stock, low-stock, stock-valuation, and top-customer analytics for the selected date range in online mode.
+- Improved report page UX with loading feedback by adding a full-page skeleton while report cards, charts, and tables are being prepared.
+- Optimized POS fast billing by removing unnecessary full catalog refreshes when adding items to the cart or starting a new transaction, and instead recalculating visible stock quantities locally from the in-memory cart state.
+- Changed the POS product area from square grid cards to compact row-style stock items so cashiers can scan, review, and click products faster during billing.
+- Added keyboard-first POS catalog navigation so cashiers can move through visible product rows with arrow keys and press `Enter` to add the highlighted item, a single visible search result, or an exact stock/product barcode match directly to the cart.
+- Fixed the POS barcode entry flow so when a searched barcode is added to the cart and the search box is cleared, the product rows now reload back to the full visible catalog instead of staying stuck on the old filtered result.
+- Restructured the POS screen into three columns so the product list is slightly smaller, cart items are shown in their own dedicated column, and customer/payment/summary controls are isolated in a separate checkout column for clearer cashier workflow.
+- Added configurable POS keyboard shortcuts so cashiers can focus product search, customer search, and amount paid fields or trigger `Process Payment` with function keys.
+- Added a new POS shortcuts settings block under system preferences, with persistent function-key mappings and validation to prevent duplicate shortcut assignments.
+- Extended the add product dialog with a `Create Opening Stock` option so a new product can immediately create its first stock record during the same save flow.
+- Expanded the product table actions with `View`, `Edit`, and soft `Delete`, and added a product details dialog that shows full product info plus active stocks with drill-down access to stock details and linked GRN details.
+- Fixed product update propagation so editing a product now pushes the new product name/barcode into related stock records and GRN item entries in both offline and online modes.
+- Added a common change log service to maintain audit entries for product, stock, and GRN create/update/deactivate/payment/add-to-stock actions.
+- Extended the GRN create dialog supplier autosuggest so it now searches suppliers by name, company, email, and phone using the supplier repository instead of only matching a static name list.
+- Added a `Add New Supplier` empty-state action inside the GRN supplier suggestion box and wired it to the existing supplier create dialog so a cashier can register a missing supplier without leaving the GRN flow.
+- Added smart GRN supplier prefill behavior so numeric-only search input is passed into the supplier dialog as the contact number, while mixed text input is treated as the supplier name and prefilled accordingly.
+- Added a new GRN quick-entry setting so pressing `Enter` in the GRN add-item fields can instantly trigger `Add Item to GRN`, with the setting stored in app preferences and enabled by default.
+- Updated the GRN add-item form so product, stock barcode, quantity, buying price, selling price, and max discount fields can all trigger keyboard submit when the item form is complete, speeding up cashier-style stock entry.
+- Integrated the backup module with online mode so when the app is running against Firebase, `Create Backup` now saves a shop-scoped cloud snapshot under the current Firebase shop instead of only creating a local `.isar` file.
+- Added remote backup restore support for online mode by restoring the selected shop snapshot back into the current shop collections in Firebase, while keeping local file import/export for offline mode only.
+- Updated the backups page UI so online mode clearly presents cloud snapshots, cloud restore actions, and cloud-specific backup-on-login messaging without showing local-only export/import affordances.
+- Fixed online backup creation for Firestore data by normalizing `Timestamp` and other non-JSON Firebase values before estimating snapshot size, preventing the `Converting object to an encodable object failed: Timestamp` crash.
+- Added a new `Subscription` item to the dashboard navigation that appears only when the app is running in online mode, giving the hybrid build a dedicated place for future subscription management.
+- Replaced the online-only `Subscription` placeholder with a full dummy UI that shows monthly usage metrics, estimated billing, plan status, module-wise usage breakdown, and payment history so the online branch now has a proper billing workspace shell.
+- Reworked the online `Subscription` page from dummy data to real Firebase-backed billing data, loading monthly usage counters, estimated due amount, module-wise usage cost breakdown, storage estimate, and month-by-month bill history from shop-scoped Firestore usage documents.
+- Added a common subscription usage tracking service that reads global Firebase pricing from `pricing/firebase_pricing` and `pricing/main_subcription`, calculates per-month LKR costs for reads, writes, deletes, network, storage, and main subscription, and stores the current running bill under each shop.
+- Wired online product, supplier, customer, GRN, stock, POS, invoice, insight, report, backup, and shop-setup Firestore flows to record usage counters and transferred payload size so Firebase activity now incrementally updates the current shop’s monthly usage document.
+- Added the new uploaded brand logo as a bundled app asset and updated the macOS app icon set plus the Windows application icon to use the new mark.
+- Replaced the plain bootstrap loading spinner with a custom animated splash screen featuring the new logo, fluid gradient motion, soft glow effects, and the slogan `Flow faster. Sell smarter.` while activation/setup/login boot state loads in the background.
+- Added a full hybrid `Expenses` module with shared models, a new Isar `ExpenseEntity`, Firestore and Isar repositories, and dashboard navigation so expenses now work in both offline and online modes.
+- Built the expenses management page with summary cards, filters, paginated table, add/edit/view/deactivate actions, loading skeletons, row-level action loaders, and reusable dialog-based CRUD flow.
+- Added PDF export and print support for expense reports using the saved report header branding and selected date range, and included expenses in online Firebase snapshot backups plus change-log auditing.
+- Fixed the dashboard shell so pages are now lazy-loaded on first navigation instead of all sections initializing immediately in the background, preventing hidden Firebase-backed pages from firing queries and showing unrelated error toasts right after login.
+- Refined the expenses page loading UX so summary card labels and table headers stay visible while only the changing values and data rows use lightweight skeleton placeholders instead of a full-page loading block.
+- Created a dedicated promotional website inside `promoting-web-site` using plain HTML, CSS, and JavaScript, with a premium dark hero, product messaging, feature sections, workflow storytelling, and final CTA.
+- Integrated real NexPos screenshots into the promotional website so the landing page now shows the actual POS and Insight interfaces as the primary visual proof instead of generic mockups.
+- Redesigned the promotional website to follow a light, premium, Reox-inspired direction with a floating pill navigation bar, airy mint-tinted hero, large layered product showcase, refined pricing cards, and cleaner section hierarchy.
+- Rebuilt the promotional site styling and structure so it now feels closer to a polished SaaS marketing page while still using NexPos branding, real product screenshots, and concise product-first copy.

@@ -4,6 +4,7 @@ import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
+import 'invoice_repository.dart';
 
 class InvoiceLocalRepositoryException implements Exception {
   InvoiceLocalRepositoryException(this.message);
@@ -14,7 +15,7 @@ class InvoiceLocalRepositoryException implements Exception {
   String toString() => message;
 }
 
-class InvoiceLocalRepository {
+class InvoiceLocalRepository implements InvoiceRepository {
   const InvoiceLocalRepository();
 
   static const int pageSize = 10;
@@ -118,6 +119,8 @@ class InvoiceLocalRepository {
       customerCode: entity.customerCode ?? 'walk-in',
       date: entity.issuedAt.toIso8601String(),
       amount: entity.totalAmount,
+      subtotal: entity.subtotal,
+      tax: entity.tax,
       status: _mapStatus(entity.status),
       items: entity.items
           .map(

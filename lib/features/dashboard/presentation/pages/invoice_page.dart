@@ -8,6 +8,9 @@ import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../../../core/services/invoice_print_service.dart';
 import '../../data/invoice_local_repository.dart';
+import '../../data/invoice_remote_repository.dart';
+import '../../data/invoice_repository.dart';
+import '../../data/invoice_repository_factory.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
@@ -27,8 +30,8 @@ class _InvoicePageState extends State<InvoicePage> {
   final TextEditingController _amountLessController = TextEditingController();
   final TextEditingController _amountGreaterController =
       TextEditingController();
-  final InvoiceLocalRepository _repository = const InvoiceLocalRepository();
 
+  InvoiceRepository? _repository;
   String _statusFilter = 'All Status';
   List<InvoiceRecord> _invoices = <InvoiceRecord>[];
   InvoiceSummary _summary = const InvoiceSummary(
@@ -41,6 +44,8 @@ class _InvoicePageState extends State<InvoicePage> {
   int _totalPages = 1;
   int _totalCount = 0;
   bool _isLoading = true;
+  String? _viewingInvoiceId;
+  String? _printingInvoiceId;
   Timer? _searchDebounce;
 
   @override
@@ -63,23 +68,36 @@ class _InvoicePageState extends State<InvoicePage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _loadInvoices();
+      final repository = await InvoiceRepositoryFactory.create();
+      await repository.initialize();
+      if (!mounted) {
+        return;
+      }
+      _repository = repository;
+      await _loadInvoices(repositoryOverride: repository);
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load invoices: $error');
+      AppToast.error('Failed to load invoices: ${_readableError(error)}');
     }
   }
 
-  Future<void> _loadInvoices({int? targetPage}) async {
+  Future<void> _loadInvoices({
+    int? targetPage,
+    InvoiceRepository? repositoryOverride,
+  }) async {
+    final repository = repositoryOverride ?? _repository;
+    if (repository == null) {
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final result = await _repository.fetchInvoices(
+      final result = await repository.fetchInvoices(
         page: targetPage ?? _currentPage,
         invoiceIdQuery: _invoiceIdController.text.trim(),
         customerQuery: _customerController.text.trim(),
@@ -110,7 +128,7 @@ class _InvoicePageState extends State<InvoicePage> {
       }
 
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load invoices: $error');
+      AppToast.error('Failed to load invoices: ${_readableError(error)}');
     }
   }
 
@@ -125,78 +143,120 @@ class _InvoicePageState extends State<InvoicePage> {
   }
 
   Future<void> _showInvoiceDetails(InvoiceRecord invoice) async {
-    final record = await _repository.fetchInvoiceById(invoice.invoiceId);
-    if (!mounted || record == null) {
-      AppToast.error('Invoice details not found');
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
       return;
     }
 
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => InvoiceDetailsDialog(
-        invoice: record,
-        onPrint: () {
-          Navigator.of(context).pop();
-          _printInvoice(record);
-        },
-      ),
-    );
+    setState(() => _viewingInvoiceId = invoice.invoiceId);
+    try {
+      final record = await repository.fetchInvoiceById(invoice.invoiceId);
+      if (!mounted || record == null) {
+        if (mounted) {
+          setState(() => _viewingInvoiceId = null);
+        }
+        AppToast.error('Invoice details not found');
+        return;
+      }
+
+      setState(() => _viewingInvoiceId = null);
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoiceDetailsDialog(
+          invoice: record,
+          onPrint: () {
+            Navigator.of(context).pop();
+            _printInvoice(record);
+          },
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingInvoiceId = null);
+      AppToast.error(
+        'Failed to load invoice details: ${_readableError(error)}',
+      );
+    }
   }
 
   Future<void> _printInvoice(InvoiceRecord invoice) async {
-    final setupState = await SetupService.instance.loadState();
-    final layoutSettings = await AppSettingsService.instance
-        .loadInvoiceLayoutSettings();
-    if (!mounted) {
-      return;
+    setState(() => _printingInvoiceId = invoice.invoiceId);
+    try {
+      final setupState = await SetupService.instance.loadState();
+      final layoutSettings = await AppSettingsService.instance
+          .loadInvoiceLayoutSettings();
+      if (!mounted) {
+        return;
+      }
+
+      final preview = InvoicePreviewData(
+        invoiceNumber: invoice.invoiceId,
+        customerName: invoice.customerName,
+        customerMobile: invoice.customerCode == 'walk-in'
+            ? ''
+            : invoice.customerCode,
+        dateTimeText: invoice.date,
+        items: invoice.items
+            .map(
+              (item) => InvoicePreviewLine(
+                name: item.name,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+              ),
+            )
+            .toList(),
+        subtotal: invoice.subtotal,
+        tax: invoice.tax,
+        total: invoice.amount,
+        paymentMethod: invoice.paymentMethod,
+        paidAmount: invoice.amount,
+        balance: 0,
+      );
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoicePrintPreviewDialog(
+          shopInfo: setupState.shopInfo,
+          settings: layoutSettings,
+          preview: preview,
+          onPrint: () async {
+            await InvoicePrintService.printInvoice(
+              shopInfo: setupState.shopInfo,
+              settings: layoutSettings,
+              preview: preview,
+            );
+            if (!context.mounted) {
+              return;
+            }
+            Navigator.of(context).pop();
+            AppToast.success('Invoice sent to printer');
+          },
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        AppToast.error('Failed to prepare invoice print: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _printingInvoiceId = null);
+      }
     }
+  }
 
-    final preview = InvoicePreviewData(
-      invoiceNumber: invoice.invoiceId,
-      customerName: invoice.customerName,
-      customerMobile: invoice.customerCode == 'walk-in'
-          ? ''
-          : invoice.customerCode,
-      dateTimeText: invoice.date,
-      items: invoice.items
-          .map(
-            (item) => InvoicePreviewLine(
-              name: item.name,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-            ),
-          )
-          .toList(),
-      subtotal: invoice.subtotal,
-      tax: invoice.tax,
-      total: invoice.amount,
-      paymentMethod: invoice.paymentMethod,
-      paidAmount: invoice.amount,
-      balance: 0,
-    );
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => InvoicePrintPreviewDialog(
-        shopInfo: setupState.shopInfo,
-        settings: layoutSettings,
-        preview: preview,
-        onPrint: () async {
-          await InvoicePrintService.printInvoice(
-            shopInfo: setupState.shopInfo,
-            settings: layoutSettings,
-            preview: preview,
-          );
-          if (!context.mounted) {
-            return;
-          }
-          Navigator.of(context).pop();
-          AppToast.success('Invoice sent to printer');
-        },
-      ),
-    );
+  String _readableError(Object error) {
+    if (error is InvoiceLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is InvoiceRemoteRepositoryException) {
+      return error.message;
+    }
+    return '$error';
   }
 
   @override
@@ -263,11 +323,7 @@ class _InvoicePageState extends State<InvoicePage> {
           const SizedBox(height: 18),
           Expanded(
             child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
-                    ),
-                  )
+                ? const _InvoiceTableSkeleton()
                 : _invoices.isEmpty
                 ? const _EmptyState(
                     icon: Icons.receipt_long_outlined,
@@ -280,6 +336,8 @@ class _InvoicePageState extends State<InvoicePage> {
                     currentPage: _currentPage,
                     totalPages: _totalPages,
                     totalItems: _totalCount,
+                    viewingInvoiceId: _viewingInvoiceId,
+                    printingInvoiceId: _printingInvoiceId,
                     onPrevious: _currentPage <= 1
                         ? null
                         : () => _loadInvoices(targetPage: _currentPage - 1),
@@ -524,6 +582,8 @@ class _InvoiceTableCard extends StatelessWidget {
     required this.currentPage,
     required this.totalPages,
     required this.totalItems,
+    required this.viewingInvoiceId,
+    required this.printingInvoiceId,
     required this.onPrevious,
     required this.onNext,
     required this.onView,
@@ -534,6 +594,8 @@ class _InvoiceTableCard extends StatelessWidget {
   final int currentPage;
   final int totalPages;
   final int totalItems;
+  final String? viewingInvoiceId;
+  final String? printingInvoiceId;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final ValueChanged<InvoiceRecord> onView;
@@ -665,22 +727,46 @@ class _InvoiceTableCard extends StatelessWidget {
                         flex: 10,
                         child: Row(
                           children: [
-                            IconButton(
-                              onPressed: () => onView(invoice),
-                              icon: const Icon(
-                                Icons.visibility_outlined,
-                                size: 18,
-                                color: Color(0xFF4B8BD8),
+                            if (viewingInvoiceId == invoice.invoiceId)
+                              const SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            else
+                              IconButton(
+                                onPressed: () => onView(invoice),
+                                icon: const Icon(
+                                  Icons.visibility_outlined,
+                                  size: 18,
+                                  color: Color(0xFF4B8BD8),
+                                ),
                               ),
-                            ),
-                            IconButton(
-                              onPressed: () => onPrint(invoice),
-                              icon: const Icon(
-                                Icons.print_outlined,
-                                size: 18,
-                                color: Color(0xFF64748B),
+                            if (printingInvoiceId == invoice.invoiceId)
+                              const SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            else
+                              IconButton(
+                                onPressed: () => onPrint(invoice),
+                                icon: const Icon(
+                                  Icons.print_outlined,
+                                  size: 18,
+                                  color: Color(0xFF64748B),
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
@@ -741,6 +827,31 @@ class _InvoiceTableCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _InvoiceTableSkeleton extends StatelessWidget {
+  const _InvoiceTableSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _panelDecoration(),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        children: List<Widget>.generate(
+          8,
+          (_) => Container(
+            height: 54,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F7FB),
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
       ),
     );
   }

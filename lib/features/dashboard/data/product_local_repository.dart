@@ -1,8 +1,10 @@
 import 'package:isar/isar.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/services/change_log_service.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
+import 'product_repository.dart';
 
 class ProductLocalRepositoryException implements Exception {
   ProductLocalRepositoryException(this.message);
@@ -17,7 +19,7 @@ class ProductLocalRepositoryException implements Exception {
 ///
 /// This keeps the product UI decoupled from Isar-specific details so we can
 /// introduce the online mode later without rewriting the screen logic.
-class ProductLocalRepository {
+class ProductLocalRepository implements ProductRepository {
   const ProductLocalRepository();
 
   static const int pageSize = 10;
@@ -158,9 +160,16 @@ class ProductLocalRepository {
 
   Future<ProductRecord> saveProduct(ProductRecord product) async {
     final isar = await AppDatabase.instance;
+    final normalizedName = product.name.trim();
     final normalizedCategory = product.category.trim();
     final trimmedBarcode = product.barcode.trim();
 
+    if (normalizedName.isEmpty) {
+      throw ProductLocalRepositoryException('Product name is required');
+    }
+    if (trimmedBarcode.isEmpty) {
+      throw ProductLocalRepositoryException('Barcode is required');
+    }
     if (normalizedCategory.isEmpty) {
       throw ProductLocalRepositoryException('Category is required');
     }
@@ -184,7 +193,7 @@ class ProductLocalRepository {
     final now = DateTime.now();
     final entity = ProductEntity()
       ..id = product.id ?? Isar.autoIncrement
-      ..name = product.name.trim()
+      ..name = normalizedName
       ..barcode = trimmedBarcode
       ..category = normalizedCategory
       ..unit = product.unit
@@ -196,9 +205,86 @@ class ProductLocalRepository {
     late final int savedId;
     await isar.writeTxn(() async {
       savedId = await isar.productEntitys.put(entity);
+      if (existingProduct != null) {
+        await _cascadeProductChanges(
+          isar: isar,
+          existing: existingProduct,
+          updated: entity,
+        );
+      }
     });
+    final savedRecord = _mapEntityToRecord(entity..id = savedId);
+    await ChangeLogService.instance.logChange(
+      entityType: ChangeLogEntityType.product,
+      entityId: '${savedRecord.id ?? savedRecord.barcode}',
+      action: existingProduct == null ? 'create' : 'update',
+      title: existingProduct == null
+          ? 'Created product ${savedRecord.name}'
+          : 'Updated product ${savedRecord.name}',
+      details: {
+        'name': savedRecord.name,
+        'barcode': savedRecord.barcode,
+        'category': savedRecord.category,
+        'unit': savedRecord.unit,
+        'status': savedRecord.status.name,
+        if (existingProduct != null) ...{
+          'previousName': existingProduct.name,
+          'previousBarcode': existingProduct.barcode,
+          'previousCategory': existingProduct.category,
+          'previousUnit': existingProduct.unit,
+          'previousStatus': existingProduct.status.name,
+        },
+      },
+    );
+    return savedRecord;
+  }
 
-    return _mapEntityToRecord(entity..id = savedId);
+  Future<void> _cascadeProductChanges({
+    required Isar isar,
+    required ProductEntity existing,
+    required ProductEntity updated,
+  }) async {
+    final stocks = await isar.stockEntitys.where().findAll();
+    for (final stock in stocks) {
+      final matchesBarcode =
+          existing.barcode.trim().isNotEmpty &&
+          stock.productBarcode?.toLowerCase() == existing.barcode.toLowerCase();
+      final matchesName =
+          stock.productName.toLowerCase() == existing.name.toLowerCase();
+      if (!matchesBarcode && !matchesName) {
+        continue;
+      }
+
+      stock
+        ..productName = updated.name
+        ..productBarcode = updated.barcode
+        ..updatedAt = DateTime.now();
+      await isar.stockEntitys.put(stock);
+    }
+
+    final grns = await isar.grnEntitys.where().findAll();
+    for (final grn in grns) {
+      var changed = false;
+      for (final item in grn.items) {
+        final matchesBarcode =
+            existing.barcode.trim().isNotEmpty &&
+            item.productBarcode?.toLowerCase() ==
+                existing.barcode.toLowerCase();
+        final matchesName =
+            item.productName.toLowerCase() == existing.name.toLowerCase();
+        if (!matchesBarcode && !matchesName) {
+          continue;
+        }
+        item
+          ..productName = updated.name
+          ..productBarcode = updated.barcode;
+        changed = true;
+      }
+      if (changed) {
+        grn.updatedAt = DateTime.now();
+        await isar.grnEntitys.put(grn);
+      }
+    }
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {

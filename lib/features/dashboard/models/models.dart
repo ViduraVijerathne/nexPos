@@ -2,10 +2,12 @@ class ProductDialogResult {
   const ProductDialogResult({
     required this.product,
     required this.createdCategory,
+    this.openingStock,
   });
 
   final ProductRecord product;
   final bool createdCategory;
+  final StockRecord? openingStock;
 }
 
 enum ProductStatus {
@@ -20,6 +22,7 @@ enum ProductStatus {
 class ProductRecord {
   const ProductRecord({
     this.id,
+    this.cloudId,
     required this.name,
     required this.barcode,
     required this.category,
@@ -29,6 +32,7 @@ class ProductRecord {
   });
 
   final int? id;
+  final String? cloudId;
   final String name;
   final String barcode;
   final String category;
@@ -38,6 +42,7 @@ class ProductRecord {
 
   ProductRecord copyWith({
     int? id,
+    String? cloudId,
     String? name,
     String? barcode,
     String? category,
@@ -47,6 +52,7 @@ class ProductRecord {
   }) {
     return ProductRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       name: name ?? this.name,
       barcode: barcode ?? this.barcode,
       category: category ?? this.category,
@@ -91,6 +97,7 @@ enum StockStatus {
 class StockRecord {
   const StockRecord({
     this.id,
+    this.cloudId,
     required this.barcode,
     required this.product,
     required this.initialQty,
@@ -104,6 +111,7 @@ class StockRecord {
   });
 
   final int? id;
+  final String? cloudId;
   final String barcode;
   final String product;
   final int initialQty;
@@ -117,6 +125,7 @@ class StockRecord {
 
   StockRecord copyWith({
     int? id,
+    String? cloudId,
     String? barcode,
     String? product,
     int? initialQty,
@@ -130,6 +139,7 @@ class StockRecord {
   }) {
     return StockRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       barcode: barcode ?? this.barcode,
       product: product ?? this.product,
       initialQty: initialQty ?? this.initialQty,
@@ -184,7 +194,8 @@ class StockPageResult {
 
 class PosCatalogItem {
   const PosCatalogItem({
-    required this.stockId,
+    this.stockId,
+    this.stockCloudId,
     required this.stockBarcode,
     required this.productName,
     required this.productBarcode,
@@ -193,13 +204,16 @@ class PosCatalogItem {
     required this.sellingPrice,
   });
 
-  final int stockId;
+  final int? stockId;
+  final String? stockCloudId;
   final String stockBarcode;
   final String productName;
   final String productBarcode;
   final String category;
   final int availableQty;
   final double sellingPrice;
+
+  String get stockKey => stockCloudId ?? '${stockId ?? stockBarcode}';
 }
 
 class PosCatalogResult {
@@ -211,7 +225,8 @@ class PosCatalogResult {
 
 class PosCartItem {
   const PosCartItem({
-    required this.stockId,
+    this.stockId,
+    this.stockCloudId,
     required this.stockBarcode,
     required this.productBarcode,
     required this.productName,
@@ -221,7 +236,8 @@ class PosCartItem {
     required this.quantity,
   });
 
-  final int stockId;
+  final int? stockId;
+  final String? stockCloudId;
   final String stockBarcode;
   final String productBarcode;
   final String productName;
@@ -231,9 +247,11 @@ class PosCartItem {
   final int quantity;
 
   double get subtotal => unitPrice * quantity;
+  String get stockKey => stockCloudId ?? '${stockId ?? stockBarcode}';
 
   PosCartItem copyWith({
     int? stockId,
+    String? stockCloudId,
     String? stockBarcode,
     String? productBarcode,
     String? productName,
@@ -244,6 +262,7 @@ class PosCartItem {
   }) {
     return PosCartItem(
       stockId: stockId ?? this.stockId,
+      stockCloudId: stockCloudId ?? this.stockCloudId,
       stockBarcode: stockBarcode ?? this.stockBarcode,
       productBarcode: productBarcode ?? this.productBarcode,
       productName: productName ?? this.productName,
@@ -258,6 +277,7 @@ class PosCartItem {
 class PosCustomerOption {
   const PosCustomerOption({
     required this.id,
+    this.cloudId,
     required this.name,
     required this.phone,
     required this.email,
@@ -265,6 +285,7 @@ class PosCustomerOption {
   });
 
   final int? id;
+  final String? cloudId;
   final String name;
   final String phone;
   final String email;
@@ -357,6 +378,28 @@ class GrnItem {
   final bool inStock;
 
   double get subtotal => quantity * buyingPrice;
+
+  GrnItem copyWith({
+    String? product,
+    String? stockBarcode,
+    int? quantity,
+    double? buyingPrice,
+    double? sellingPrice,
+    double? maxDiscount,
+    bool? inStock,
+  }) {
+    return GrnItem(
+      product: product ?? this.product,
+      stockBarcode: stockBarcode ?? this.stockBarcode,
+      quantity: quantity ?? this.quantity,
+      buyingPrice: buyingPrice ?? this.buyingPrice,
+      sellingPrice: sellingPrice ?? this.sellingPrice,
+      maxDiscount: maxDiscount ?? this.maxDiscount,
+      inStock: inStock ?? this.inStock,
+    );
+  }
+
+  GrnItem copyWithInStock(bool value) => copyWith(inStock: value);
 }
 
 class PaymentHistory {
@@ -412,6 +455,7 @@ class GrnDialogResult {
 class SupplierRecord {
   const SupplierRecord({
     required this.id,
+    this.cloudId,
     required this.supplierName,
     required this.companyName,
     required this.contactNumber,
@@ -423,6 +467,7 @@ class SupplierRecord {
   });
 
   final int id;
+  final String? cloudId;
   final String supplierName;
   final String companyName;
   final String contactNumber;
@@ -437,6 +482,7 @@ class SupplierRecord {
 
   SupplierRecord copyWith({
     int? id,
+    String? cloudId,
     String? supplierName,
     String? companyName,
     String? contactNumber,
@@ -448,6 +494,7 @@ class SupplierRecord {
   }) {
     return SupplierRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       supplierName: supplierName ?? this.supplierName,
       companyName: companyName ?? this.companyName,
       contactNumber: contactNumber ?? this.contactNumber,
@@ -542,6 +589,7 @@ class PaySupplierDueResult {
 class CustomerRecord {
   const CustomerRecord({
     required this.id,
+    this.cloudId,
     required this.name,
     required this.email,
     required this.phone,
@@ -551,6 +599,7 @@ class CustomerRecord {
   });
 
   final int id;
+  final String? cloudId;
   final String name;
   final String email;
   final String phone;
@@ -572,6 +621,7 @@ class CustomerRecord {
 
   CustomerRecord copyWith({
     int? id,
+    String? cloudId,
     String? name,
     String? email,
     String? phone,
@@ -581,6 +631,7 @@ class CustomerRecord {
   }) {
     return CustomerRecord(
       id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
       name: name ?? this.name,
       email: email ?? this.email,
       phone: phone ?? this.phone,
@@ -687,6 +738,8 @@ class InvoiceRecord {
     required this.customerCode,
     required this.date,
     required this.amount,
+    required this.subtotal,
+    required this.tax,
     required this.status,
     required this.items,
     required this.paymentMethod,
@@ -698,13 +751,12 @@ class InvoiceRecord {
   final String customerCode;
   final String date;
   final double amount;
+  final double subtotal;
+  final double tax;
   final InvoiceStatus status;
   final List<InvoiceLineItem> items;
   final String paymentMethod;
   final String cashierName;
-
-  double get subtotal => amount / 1.10;
-  double get tax => amount - subtotal;
 }
 
 class InvoiceLineItem {
@@ -770,12 +822,14 @@ class InsightLowStockItem {
 class InsightExpiredStockItem {
   const InsightExpiredStockItem({
     required this.id,
+    required this.cloudId,
     required this.name,
     required this.barcode,
     required this.expiryDate,
   });
 
   final int id;
+  final String? cloudId;
   final String name;
   final String barcode;
   final String expiryDate;
@@ -904,4 +958,121 @@ class ReportDashboardData {
   final List<ReportTopCustomerRow> topCustomers;
   final String fromDateLabel;
   final String toDateLabel;
+}
+
+enum ExpenseStatus {
+  active('Active'),
+  inactive('Inactive');
+
+  const ExpenseStatus(this.label);
+
+  final String label;
+}
+
+class ExpenseRecord {
+  const ExpenseRecord({
+    this.id,
+    this.cloudId,
+    required this.title,
+    required this.category,
+    required this.amount,
+    required this.date,
+    required this.paymentMethod,
+    required this.notes,
+    required this.status,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  final int? id;
+  final String? cloudId;
+  final String title;
+  final String category;
+  final double amount;
+  final DateTime date;
+  final String paymentMethod;
+  final String notes;
+  final ExpenseStatus status;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+
+  ExpenseRecord copyWith({
+    int? id,
+    String? cloudId,
+    String? title,
+    String? category,
+    double? amount,
+    DateTime? date,
+    String? paymentMethod,
+    String? notes,
+    ExpenseStatus? status,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return ExpenseRecord(
+      id: id ?? this.id,
+      cloudId: cloudId ?? this.cloudId,
+      title: title ?? this.title,
+      category: category ?? this.category,
+      amount: amount ?? this.amount,
+      date: date ?? this.date,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      notes: notes ?? this.notes,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class ExpenseSummary {
+  const ExpenseSummary({
+    required this.totalExpenses,
+    required this.activeExpenses,
+    required this.totalAmount,
+    required this.rangeAmount,
+  });
+
+  final int totalExpenses;
+  final int activeExpenses;
+  final double totalAmount;
+  final double rangeAmount;
+}
+
+class ExpensePageResult {
+  const ExpensePageResult({
+    required this.expenses,
+    required this.summary,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<ExpenseRecord> expenses;
+  final ExpenseSummary summary;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
+class ExpenseReportData {
+  const ExpenseReportData({
+    required this.expenses,
+    required this.totalAmount,
+    required this.fromDate,
+    required this.toDate,
+  });
+
+  final List<ExpenseRecord> expenses;
+  final double totalAmount;
+  final DateTime fromDate;
+  final DateTime toDate;
 }

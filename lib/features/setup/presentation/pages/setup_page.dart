@@ -8,6 +8,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/pin_number_pad.dart';
 import '../../../../core/widgets/selection_option_card.dart';
+import '../../../online/services/online_firebase_service.dart';
 import '../../services/setup_service.dart';
 
 class SetupPage extends StatefulWidget {
@@ -39,7 +40,11 @@ class _SetupPageState extends State<SetupPage> {
   LoginMethod? _selectedLoginMethod;
   String _savedLogoPath = '';
   String _firstPinEntry = '';
+  String _savedPinValue = '';
   bool _isConfirmingPin = false;
+  bool _isShopLookupLoading = false;
+  bool _hasExistingOnlineShop = false;
+  String _resolvedOnlineShopId = '';
 
   @override
   void initState() {
@@ -71,6 +76,11 @@ class _SetupPageState extends State<SetupPage> {
       _selectedMode = state.mode;
       _selectedLoginMethod = state.defaultLoginMethod;
       _savedLogoPath = state.shopInfo.logoPath;
+      _savedPinValue = state.pin;
+      _resolvedOnlineShopId = state.selectedShopId;
+      _hasExistingOnlineShop =
+          state.mode == AppMode.online &&
+          state.selectedShopId.trim().isNotEmpty;
       _adminEmailController.text = state.adminEmail;
       _shopNameController.text = state.shopInfo.shopName;
       _shopEmailController.text = state.shopInfo.contactEmail;
@@ -96,11 +106,15 @@ class _SetupPageState extends State<SetupPage> {
     final password = _adminPasswordController.text.trim();
     final confirmPassword = _confirmPasswordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+    if (email.isEmpty || password.isEmpty) {
       AppToast.error('Fill all admin account fields');
       return;
     }
-    if (password != confirmPassword) {
+    if (_selectedMode != AppMode.online && confirmPassword.isEmpty) {
+      AppToast.error('Fill all admin account fields');
+      return;
+    }
+    if (_selectedMode != AppMode.online && password != confirmPassword) {
       AppToast.error('Passwords do not match');
       return;
     }
@@ -109,11 +123,45 @@ class _SetupPageState extends State<SetupPage> {
       return;
     }
 
-    await SetupService.instance.saveAdminAccount(
-      email: email,
-      password: password,
-    );
-    _goToStep(2);
+    setState(() => _isSaving = true);
+
+    try {
+      if (_selectedMode == AppMode.online) {
+        await OnlineFirebaseService.instance.verifyAdminCredentials(
+          email: email,
+          password: password,
+        );
+      }
+
+      await SetupService.instance.saveAdminAccount(
+        email: email,
+        password: password,
+      );
+      _goToStep(_pinStepIndex);
+      if (_selectedMode == AppMode.online) {
+        AppToast.success('Admin account login verified');
+      }
+    } catch (error) {
+      AppToast.error(_buildOnlineAdminErrorMessage(error));
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  String _buildOnlineAdminErrorMessage(Object error) {
+    final raw = error.toString();
+    final cleaned = raw
+        .replaceFirst('firebase_auth/', '')
+        .replaceFirst('Exception: ', '')
+        .trim();
+
+    if (cleaned.isEmpty) {
+      return 'Unable to login with the provided admin account';
+    }
+
+    return 'Admin login failed: $cleaned';
   }
 
   Future<void> _savePin() async {
@@ -126,13 +174,14 @@ class _SetupPageState extends State<SetupPage> {
       return;
     }
 
-    await SetupService.instance.savePin(_pinController.text);
+    _savedPinValue = _pinController.text;
+    await SetupService.instance.savePin(_savedPinValue);
     setState(() {
       _pinController.clear();
       _firstPinEntry = '';
       _isConfirmingPin = false;
     });
-    _goToStep(3);
+    _goToStep(_loginMethodStepIndex);
   }
 
   Future<void> _saveLoginMethod() async {
@@ -142,7 +191,66 @@ class _SetupPageState extends State<SetupPage> {
     }
 
     await SetupService.instance.saveDefaultLoginMethod(_selectedLoginMethod!);
-    _goToStep(4);
+    if (_selectedMode == AppMode.online &&
+        _selectedLoginMethod == LoginMethod.pin) {
+      await SetupService.instance.saveOnlinePinCredentials(
+        email: _adminEmailController.text.trim(),
+        password: _adminPasswordController.text.trim(),
+        pin: _savedPinValue,
+      );
+    } else {
+      await SetupService.instance.clearOnlinePinCredentials();
+    }
+    if (_selectedMode == AppMode.online) {
+      await _loadOnlineShopInfo();
+    }
+    _goToStep(_shopInfoStepIndex);
+  }
+
+  Future<void> _loadOnlineShopInfo() async {
+    final adminEmail = _adminEmailController.text.trim();
+    if (_selectedMode != AppMode.online || adminEmail.isEmpty) {
+      return;
+    }
+
+    setState(() => _isShopLookupLoading = true);
+    try {
+      final shop = await OnlineFirebaseService.instance.findShopByAdminEmail(
+        adminEmail,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      if (shop == null) {
+        setState(() {
+          _hasExistingOnlineShop = false;
+          _resolvedOnlineShopId = '';
+        });
+        return;
+      }
+
+      await SetupService.instance.saveShopInfo(shop.shopInfo, shopId: shop.id);
+
+      setState(() {
+        _hasExistingOnlineShop = true;
+        _resolvedOnlineShopId = shop.id;
+        _savedLogoPath = shop.shopInfo.logoPath;
+        _shopNameController.text = shop.shopInfo.shopName;
+        _shopEmailController.text = shop.shopInfo.contactEmail;
+        _shopPhoneController.text = shop.shopInfo.contactNumber;
+        _shopAddressController.text = shop.shopInfo.address;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      AppToast.error('Failed to load shop information: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isShopLookupLoading = false);
+      }
+    }
   }
 
   Future<void> _pickLogo() async {
@@ -172,17 +280,47 @@ class _SetupPageState extends State<SetupPage> {
       return;
     }
 
-    await SetupService.instance.saveShopInfo(
-      ShopInfo(
-        logoPath: _savedLogoPath,
-        shopName: _shopNameController.text.trim(),
-        contactEmail: _shopEmailController.text.trim(),
-        contactNumber: _shopPhoneController.text.trim(),
-        address: _shopAddressController.text.trim(),
-      ),
+    final shopInfo = ShopInfo(
+      logoPath: _savedLogoPath,
+      shopName: _shopNameController.text.trim(),
+      contactEmail: _shopEmailController.text.trim(),
+      contactNumber: _shopPhoneController.text.trim(),
+      address: _shopAddressController.text.trim(),
     );
 
-    _goToStep(5);
+    setState(() => _isSaving = true);
+    try {
+      if (_selectedMode == AppMode.online) {
+        if (_hasExistingOnlineShop && _resolvedOnlineShopId.isNotEmpty) {
+          await SetupService.instance.saveShopInfo(
+            shopInfo,
+            shopId: _resolvedOnlineShopId,
+          );
+        } else {
+          final created = await OnlineFirebaseService.instance
+              .createShopForAdmin(
+                adminEmail: _adminEmailController.text.trim(),
+                shopInfo: shopInfo,
+              );
+          _resolvedOnlineShopId = created.id;
+          _hasExistingOnlineShop = true;
+          await SetupService.instance.saveShopInfo(
+            created.shopInfo,
+            shopId: created.id,
+          );
+        }
+      } else {
+        await SetupService.instance.saveShopInfo(shopInfo);
+      }
+
+      _goToStep(_successStepIndex);
+    } catch (error) {
+      AppToast.error('Unable to save shop information: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   void _appendPinDigit(String digit) {
@@ -241,6 +379,8 @@ class _SetupPageState extends State<SetupPage> {
           confirmPasswordController: _confirmPasswordController,
           onBack: () => _goToStep(0),
           onCreate: _saveAdminAccount,
+          isOnlineMode: _selectedMode == AppMode.online,
+          isSaving: _isSaving,
         );
       case 2:
         return _PinSetupStep(
@@ -250,7 +390,7 @@ class _SetupPageState extends State<SetupPage> {
           onChanged: _handlePinChanged,
           onDigitPressed: _appendPinDigit,
           onBackspace: _removePinDigit,
-          onBack: () => _goToStep(1),
+          onBack: () => _goToStep(_adminAccountStepIndex),
           onSave: _savePin,
         );
       case 3:
@@ -258,8 +398,9 @@ class _SetupPageState extends State<SetupPage> {
           selectedMethod: _selectedLoginMethod,
           onMethodChanged: (method) =>
               setState(() => _selectedLoginMethod = method),
-          onBack: () => _goToStep(2),
+          onBack: () => _goToStep(_pinStepIndex),
           onNext: _saveLoginMethod,
+          isOnlineMode: _selectedMode == AppMode.online,
         );
       case 4:
         return _ShopInformationStep(
@@ -269,13 +410,24 @@ class _SetupPageState extends State<SetupPage> {
           phoneController: _shopPhoneController,
           addressController: _shopAddressController,
           onPickLogo: _pickLogo,
-          onBack: () => _goToStep(3),
+          onBack: () => _goToStep(_loginMethodStepIndex),
           onSave: _saveShopInfo,
+          isOnlineMode: _selectedMode == AppMode.online,
+          isExistingOnlineShop: _hasExistingOnlineShop,
+          isLookupLoading: _isShopLookupLoading,
+          isSaving: _isSaving,
         );
       default:
         return _SuccessStep(onFinish: widget.onCompleted);
     }
   }
+
+  int get _adminAccountStepIndex => 1;
+  int get _pinStepIndex => 2;
+  int get _loginMethodStepIndex => 3;
+  int get _shopInfoStepIndex => 4;
+  int get _successStepIndex => 5;
+  int get _totalSteps => 6;
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +480,10 @@ class _SetupPageState extends State<SetupPage> {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    _SetupProgress(currentStep: _currentStep),
+                    _SetupProgress(
+                      currentStep: _currentStep,
+                      totalSteps: _totalSteps,
+                    ),
                     const SizedBox(height: 28),
                     _buildStepContent(),
                   ],
@@ -361,18 +516,19 @@ class _SetupPageState extends State<SetupPage> {
 }
 
 class _SetupProgress extends StatelessWidget {
-  const _SetupProgress({required this.currentStep});
+  const _SetupProgress({required this.currentStep, required this.totalSteps});
 
   final int currentStep;
+  final int totalSteps;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: List.generate(6, (index) {
+      children: List.generate(totalSteps, (index) {
         final isActive = index <= currentStep;
         return Expanded(
           child: Container(
-            margin: EdgeInsets.only(right: index == 5 ? 0 : 8),
+            margin: EdgeInsets.only(right: index == totalSteps - 1 ? 0 : 8),
             height: 8,
             decoration: BoxDecoration(
               color: isActive
@@ -407,23 +563,22 @@ class _VersionSelectionStep extends StatelessWidget {
           groupValue: selectedMode,
           title: 'Online Version',
           description: 'Cloud-connected mode with centralized syncing.',
-          enabled: false,
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF3DA),
+              color: const Color(0xFFE5FBF7),
               borderRadius: BorderRadius.circular(999),
             ),
             child: const Text(
-              'Not Supported Yet',
+              'Firebase',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFE39A1E),
+                color: Color(0xFF159F92),
               ),
             ),
           ),
-          onTap: () {},
+          onTap: () => onModeChanged(AppMode.online),
         ),
         const SizedBox(height: 14),
         SelectionOptionCard<AppMode>(
@@ -455,6 +610,8 @@ class _AdminAccountStep extends StatelessWidget {
     required this.confirmPasswordController,
     required this.onBack,
     required this.onCreate,
+    required this.isOnlineMode,
+    required this.isSaving,
   });
 
   final TextEditingController emailController;
@@ -462,6 +619,8 @@ class _AdminAccountStep extends StatelessWidget {
   final TextEditingController confirmPasswordController;
   final VoidCallback onBack;
   final VoidCallback onCreate;
+  final bool isOnlineMode;
+  final bool isSaving;
 
   @override
   Widget build(BuildContext context) {
@@ -469,7 +628,7 @@ class _AdminAccountStep extends StatelessWidget {
       children: [
         _SetupTextField(
           controller: emailController,
-          label: 'Admin Email',
+          label: isOnlineMode ? 'Login Admin Email' : 'Admin Email',
           hintText: 'admin@example.com',
           prefixIcon: Icons.mail_outline_rounded,
         ),
@@ -482,13 +641,34 @@ class _AdminAccountStep extends StatelessWidget {
           obscureText: true,
         ),
         const SizedBox(height: 16),
-        _SetupTextField(
-          controller: confirmPasswordController,
-          label: 'Confirm Password',
-          hintText: 'Re-enter password',
-          prefixIcon: Icons.lock_outline_rounded,
-          obscureText: true,
-        ),
+        if (isOnlineMode)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFFAF6),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFD4F2E7)),
+            ),
+            child: const Text(
+              'Enter the admin account already created by the developer. The app will try to sign in and only continue if the login is successful.',
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF2E6E59),
+                height: 1.5,
+              ),
+            ),
+          ),
+        if (isOnlineMode) const SizedBox(height: 16),
+        if (!isOnlineMode)
+          _SetupTextField(
+            controller: confirmPasswordController,
+            label: 'Confirm Password',
+            hintText: 'Re-enter password',
+            prefixIcon: Icons.lock_outline_rounded,
+            obscureText: true,
+          ),
         const SizedBox(height: 28),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -496,9 +676,22 @@ class _AdminAccountStep extends StatelessWidget {
             OutlinedButton(onPressed: onBack, child: const Text('Back')),
             const SizedBox(width: 12),
             ElevatedButton(
-              onPressed: onCreate,
+              onPressed: isSaving ? null : onCreate,
               style: ElevatedButton.styleFrom(minimumSize: const Size(170, 48)),
-              child: const Text('Create Admin Account'),
+              child: isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Text(
+                      isOnlineMode
+                          ? 'Verify & Continue'
+                          : 'Create Admin Account',
+                    ),
             ),
           ],
         ),
@@ -596,12 +789,14 @@ class _LoginMethodStep extends StatelessWidget {
     required this.onMethodChanged,
     required this.onBack,
     required this.onNext,
+    required this.isOnlineMode,
   });
 
   final LoginMethod? selectedMethod;
   final ValueChanged<LoginMethod> onMethodChanged;
   final VoidCallback onBack;
   final VoidCallback onNext;
+  final bool isOnlineMode;
 
   @override
   Widget build(BuildContext context) {
@@ -619,8 +814,9 @@ class _LoginMethodStep extends StatelessWidget {
           value: LoginMethod.pin,
           groupValue: selectedMethod,
           title: 'PIN',
-          description:
-              'Use a 4 digit PIN with keypad support for faster access.',
+          description: isOnlineMode
+              ? 'Use a 4 digit PIN. The app will decrypt saved Firebase credentials with the PIN and then authenticate online.'
+              : 'Use a 4 digit PIN with keypad support for faster access.',
           onTap: () => onMethodChanged(LoginMethod.pin),
         ),
         const SizedBox(height: 28),
@@ -651,6 +847,10 @@ class _ShopInformationStep extends StatelessWidget {
     required this.onPickLogo,
     required this.onBack,
     required this.onSave,
+    required this.isOnlineMode,
+    required this.isExistingOnlineShop,
+    required this.isLookupLoading,
+    required this.isSaving,
   });
 
   final String logoPath;
@@ -661,14 +861,62 @@ class _ShopInformationStep extends StatelessWidget {
   final VoidCallback onPickLogo;
   final VoidCallback onBack;
   final VoidCallback onSave;
+  final bool isOnlineMode;
+  final bool isExistingOnlineShop;
+  final bool isLookupLoading;
+  final bool isSaving;
 
   @override
   Widget build(BuildContext context) {
     final hasLogo = logoPath.isNotEmpty && File(logoPath).existsSync();
+    final isReadOnly = isOnlineMode && isExistingOnlineShop;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isOnlineMode)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 18),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7FBFD),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE4EAF2)),
+            ),
+            child: isLookupLoading
+                ? const Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        'Checking existing shop for this admin account...',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF607086),
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    isExistingOnlineShop
+                        ? 'An existing shop was found for this admin account. Review the details below and continue.'
+                        : 'No shop was found for this admin account. Register a new shop below.',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: isExistingOnlineShop
+                          ? const Color(0xFF2E6E59)
+                          : const Color(0xFF607086),
+                      height: 1.5,
+                    ),
+                  ),
+          ),
         const Text(
           'Shop Logo',
           style: TextStyle(
@@ -701,10 +949,10 @@ class _ShopInformationStep extends StatelessWidget {
             ),
             const SizedBox(width: 16),
             OutlinedButton.icon(
-              onPressed: onPickLogo,
+              onPressed: isReadOnly || isLookupLoading ? null : onPickLogo,
               style: OutlinedButton.styleFrom(minimumSize: const Size(144, 48)),
               icon: const Icon(Icons.upload_file_outlined, size: 18),
-              label: const Text('Select Logo'),
+              label: Text(isReadOnly ? 'Existing Logo' : 'Select Logo'),
             ),
           ],
         ),
@@ -714,6 +962,7 @@ class _ShopInformationStep extends StatelessWidget {
           label: 'Shop Name *',
           hintText: 'Enter shop name',
           prefixIcon: Icons.storefront_outlined,
+          readOnly: isReadOnly || isLookupLoading,
         ),
         const SizedBox(height: 16),
         _SetupTextField(
@@ -721,6 +970,7 @@ class _ShopInformationStep extends StatelessWidget {
           label: 'Contact Email',
           hintText: 'shop@example.com',
           prefixIcon: Icons.mail_outline_rounded,
+          readOnly: isReadOnly || isLookupLoading,
         ),
         const SizedBox(height: 16),
         _SetupTextField(
@@ -728,6 +978,7 @@ class _ShopInformationStep extends StatelessWidget {
           label: 'Contact Number',
           hintText: '+94 77 123 4567',
           prefixIcon: Icons.call_outlined,
+          readOnly: isReadOnly || isLookupLoading,
         ),
         const SizedBox(height: 16),
         _SetupTextField(
@@ -736,6 +987,7 @@ class _ShopInformationStep extends StatelessWidget {
           hintText: 'Enter business address',
           prefixIcon: Icons.location_on_outlined,
           maxLines: 3,
+          readOnly: isReadOnly || isLookupLoading,
         ),
         const SizedBox(height: 28),
         Row(
@@ -744,9 +996,18 @@ class _ShopInformationStep extends StatelessWidget {
             OutlinedButton(onPressed: onBack, child: const Text('Back')),
             const SizedBox(width: 12),
             ElevatedButton(
-              onPressed: onSave,
+              onPressed: isLookupLoading || isSaving ? null : onSave,
               style: ElevatedButton.styleFrom(minimumSize: const Size(140, 48)),
-              child: const Text('Save Shop Info'),
+              child: isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Text(isExistingOnlineShop ? 'Continue' : 'Register Shop'),
             ),
           ],
         ),
@@ -816,6 +1077,7 @@ class _SetupTextField extends StatelessWidget {
     this.prefixIcon,
     this.obscureText = false,
     this.maxLines = 1,
+    this.readOnly = false,
   });
 
   final TextEditingController controller;
@@ -824,6 +1086,7 @@ class _SetupTextField extends StatelessWidget {
   final IconData? prefixIcon;
   final bool obscureText;
   final int maxLines;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -843,6 +1106,7 @@ class _SetupTextField extends StatelessWidget {
           controller: controller,
           obscureText: obscureText,
           maxLines: maxLines,
+          readOnly: readOnly,
           decoration: InputDecoration(
             hintText: hintText,
             prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),

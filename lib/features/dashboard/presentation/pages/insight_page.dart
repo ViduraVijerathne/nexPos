@@ -2,10 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
-import '../../data/insight_local_repository.dart';
+import '../../data/insight_remote_repository.dart';
+import '../../data/insight_repository.dart';
+import '../../data/insight_repository_factory.dart';
 import '../../models/models.dart';
 
 class InsightPage extends StatefulWidget {
@@ -16,8 +17,10 @@ class InsightPage extends StatefulWidget {
 }
 
 class _InsightPageState extends State<InsightPage> {
-  final InsightLocalRepository _repository = const InsightLocalRepository();
+  InsightRepository? _repository;
   bool _isLoading = true;
+  bool _isDeactivatingExpiredStock = false;
+  String? _deactivatingExpiredStockKey;
   InsightDashboardData? _dashboardData;
   late DateTime _fromDate;
   late DateTime _toDate;
@@ -32,8 +35,9 @@ class _InsightPageState extends State<InsightPage> {
 
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      final dashboardData = await _repository.fetchDashboardData(
+      final repository = _repository ?? await InsightRepositoryFactory.create();
+      await repository.initialize();
+      final dashboardData = await repository.fetchDashboardData(
         fromDate: _fromDate,
         toDate: _toDate,
       );
@@ -41,6 +45,7 @@ class _InsightPageState extends State<InsightPage> {
         return;
       }
       setState(() {
+        _repository = repository;
         _dashboardData = dashboardData;
         _isLoading = false;
       });
@@ -49,7 +54,9 @@ class _InsightPageState extends State<InsightPage> {
         return;
       }
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load business insights: $error');
+      AppToast.error(
+        'Failed to load business insights: ${_readableError(error)}',
+      );
     }
   }
 
@@ -96,21 +103,43 @@ class _InsightPageState extends State<InsightPage> {
   }
 
   Future<void> _deactivateExpiredStock(InsightExpiredStockItem item) async {
+    final repository = _repository;
+    if (repository == null) {
+      AppToast.error('Insight service is still loading. Please try again.');
+      return;
+    }
+
     try {
-      await _repository.deactivateExpiredStock(item.id);
+      setState(() {
+        _isDeactivatingExpiredStock = true;
+        _deactivatingExpiredStockKey = item.cloudId ?? '${item.id}';
+      });
+      await repository.deactivateExpiredStock(item);
       await _initializePage();
       AppToast.success('${item.name} removed from active inventory');
     } catch (error) {
-      AppToast.error('Failed to deactivate stock: $error');
+      AppToast.error('Failed to deactivate stock: ${_readableError(error)}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeactivatingExpiredStock = false;
+          _deactivatingExpiredStockKey = null;
+        });
+      }
     }
+  }
+
+  String _readableError(Object error) {
+    if (error is InsightRemoteRepositoryException) {
+      return error.message;
+    }
+    return '$error';
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator(color: AppColors.primaryTeal),
-      );
+      return const _InsightPageSkeleton();
     }
 
     final dashboardData = _dashboardData;
@@ -147,6 +176,8 @@ class _InsightPageState extends State<InsightPage> {
           _ExpiredStocksCard(
             items: dashboardData.expiredStockItems,
             onDeactivate: _deactivateExpiredStock,
+            deactivatingItemKey: _deactivatingExpiredStockKey,
+            isDeactivating: _isDeactivatingExpiredStock,
           ),
         ],
       ),
@@ -479,10 +510,17 @@ class _LowStockAlertCard extends StatelessWidget {
 }
 
 class _ExpiredStocksCard extends StatelessWidget {
-  const _ExpiredStocksCard({required this.items, required this.onDeactivate});
+  const _ExpiredStocksCard({
+    required this.items,
+    required this.onDeactivate,
+    required this.deactivatingItemKey,
+    required this.isDeactivating,
+  });
 
   final List<InsightExpiredStockItem> items;
   final ValueChanged<InsightExpiredStockItem> onDeactivate;
+  final String? deactivatingItemKey;
+  final bool isDeactivating;
 
   @override
   Widget build(BuildContext context) {
@@ -539,6 +577,10 @@ class _ExpiredStocksCard extends StatelessWidget {
                   for (var i = 0; i < items.length; i++) ...[
                     _ExpiredStockRow(
                       item: items[i],
+                      isLoading:
+                          isDeactivating &&
+                          deactivatingItemKey ==
+                              (items[i].cloudId ?? '${items[i].id}'),
                       onDeactivate: () => onDeactivate(items[i]),
                     ),
                     if (i != items.length - 1)
@@ -883,10 +925,15 @@ class _LowStockRow extends StatelessWidget {
 }
 
 class _ExpiredStockRow extends StatelessWidget {
-  const _ExpiredStockRow({required this.item, required this.onDeactivate});
+  const _ExpiredStockRow({
+    required this.item,
+    required this.onDeactivate,
+    required this.isLoading,
+  });
 
   final InsightExpiredStockItem item;
   final VoidCallback onDeactivate;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -932,7 +979,7 @@ class _ExpiredStockRow extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: onDeactivate,
+                onPressed: isLoading ? null : onDeactivate,
                 style: TextButton.styleFrom(
                   foregroundColor: const Color(0xFFE45A5A),
                   backgroundColor: const Color(0xFFFFEEEE),
@@ -944,11 +991,96 @@ class _ExpiredStockRow extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text(
-                  'Deactivate',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                child: isLoading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFFE45A5A),
+                        ),
+                      )
+                    : const Text(
+                        'Deactivate',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightPageSkeleton extends StatelessWidget {
+  const _InsightPageSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _InsightHeader(),
+          const SizedBox(height: 18),
+          Row(
+            children: List<Widget>.generate(
+              4,
+              (index) => Expanded(
+                child: Container(
+                  height: 132,
+                  margin: EdgeInsets.only(right: index == 3 ? 0 : 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7FB),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            height: 340,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F7FB),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 260,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7FB),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Container(
+                  height: 260,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF4F7FB),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Container(
+            height: 220,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F7FB),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
         ],

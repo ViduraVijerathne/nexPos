@@ -1,13 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/services/invoice_print_service.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
+import '../../data/customer_remote_repository.dart';
+import '../../data/customer_repository.dart';
+import '../../data/customer_repository_factory.dart';
 import '../../data/pos_local_repository.dart';
+import '../../data/pos_remote_repository.dart';
+import '../../data/pos_repository.dart';
+import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
@@ -22,14 +29,14 @@ class PosPage extends StatefulWidget {
 }
 
 class _PosPageState extends State<PosPage> {
-  final PosLocalRepository _repository = const PosLocalRepository();
-  final CustomerLocalRepository _customerRepository =
-      const CustomerLocalRepository();
+  PosRepository? _repository;
+  CustomerRepository? _customerRepository;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final FocusNode _customerFocusNode = FocusNode();
+  final FocusNode _amountFocusNode = FocusNode();
 
   Timer? _searchDebounce;
   Timer? _customerDebounce;
@@ -42,10 +49,13 @@ class _PosPageState extends State<PosPage> {
   String _selectedCategory = 'All';
   PosPaymentMethod _selectedPaymentMethod = PosPaymentMethod.cash;
   PosCustomerOption _selectedCustomer = PosLocalRepository.walkInCustomer;
-  int? _selectedStockId;
+  String? _selectedStockKey;
   bool _showCustomerSuggestions = false;
   bool _isLoading = true;
+  bool _isCatalogLoading = false;
+  bool _isCustomerLoading = false;
   bool _isProcessing = false;
+  bool _isOpeningCustomerDialog = false;
   PosTaxSettings _taxSettings = const PosTaxSettings(
     isTaxEnabled: false,
     taxPercent: 10,
@@ -56,6 +66,7 @@ class _PosPageState extends State<PosPage> {
   PosPrintSettings _printSettings = const PosPrintSettings(
     invoicePrintMode: PosInvoicePrintMode.preview,
   );
+  PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
 
   @override
   void initState() {
@@ -73,6 +84,7 @@ class _PosPageState extends State<PosPage> {
     _amountController.dispose();
     _searchFocusNode.dispose();
     _customerFocusNode.dispose();
+    _amountFocusNode.dispose();
     super.dispose();
   }
 
@@ -83,19 +95,104 @@ class _PosPageState extends State<PosPage> {
   double get _total => _subtotal + _tax;
   double get _amountPaid => double.tryParse(_amountController.text.trim()) ?? 0;
   double get _balance => _amountPaid - _total;
+  List<PosCatalogItem> get _visibleCatalogItems {
+    return _catalogItems
+        .map((item) {
+          final inCartQty = _cartItems
+              .where((cartItem) => cartItem.stockKey == item.stockKey)
+              .fold<int>(0, (sum, cartItem) => sum + cartItem.quantity);
+          final remainingQty = item.availableQty - inCartQty;
+          return PosCatalogItem(
+            stockId: item.stockId,
+            stockCloudId: item.stockCloudId,
+            stockBarcode: item.stockBarcode,
+            productName: item.productName,
+            productBarcode: item.productBarcode,
+            category: item.category,
+            availableQty: remainingQty,
+            sellingPrice: item.sellingPrice,
+          );
+        })
+        .where((item) => item.availableQty > 0)
+        .toList();
+  }
+
   bool get _canProcessPayment =>
       !_isProcessing && _cartItems.isNotEmpty && _amountPaid >= _total;
 
+  String? _pickSelectableStockKey({String? preferred}) {
+    final items = _visibleCatalogItems;
+    if (items.isEmpty) {
+      return null;
+    }
+
+    if (preferred != null && items.any((item) => item.stockKey == preferred)) {
+      return preferred;
+    }
+
+    if (_selectedStockKey != null &&
+        items.any((item) => item.stockKey == _selectedStockKey)) {
+      return _selectedStockKey;
+    }
+
+    return items.first.stockKey;
+  }
+
+  PosCatalogItem? _adjustCatalogItemForCart(PosCatalogItem item) {
+    final inCartQty = _cartItems
+        .where((cartItem) => cartItem.stockKey == item.stockKey)
+        .fold<int>(0, (sum, cartItem) => sum + cartItem.quantity);
+    final remainingQty = item.availableQty - inCartQty;
+    if (remainingQty <= 0) {
+      return null;
+    }
+
+    return PosCatalogItem(
+      stockId: item.stockId,
+      stockCloudId: item.stockCloudId,
+      stockBarcode: item.stockBarcode,
+      productName: item.productName,
+      productBarcode: item.productBarcode,
+      category: item.category,
+      availableQty: remainingQty,
+      sellingPrice: item.sellingPrice,
+    );
+  }
+
+  void _moveCatalogSelection(int delta) {
+    final items = _visibleCatalogItems;
+    if (items.isEmpty) {
+      return;
+    }
+
+    final currentIndex = items.indexWhere(
+      (item) => item.stockKey == _selectedStockKey,
+    );
+    final targetIndex = currentIndex < 0
+        ? (delta > 0 ? 0 : items.length - 1)
+        : (currentIndex + delta).clamp(0, items.length - 1);
+
+    setState(() {
+      _selectedStockKey = items[targetIndex].stockKey;
+    });
+  }
+
   Future<void> _initializePage() async {
     try {
-      await _repository.initialize();
-      await _customerRepository.initialize();
+      final repository = await PosRepositoryFactory.create();
+      final customerRepository = await CustomerRepositoryFactory.create();
+      await repository.initialize();
+      await customerRepository.initialize();
+      _repository = repository;
+      _customerRepository = customerRepository;
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
       final printSettings = await AppSettingsService.instance
           .loadPosPrintSettings();
+      final shortcutSettings = await AppSettingsService.instance
+          .loadPosShortcutSettings();
       await _loadCatalog();
       await _loadCustomers();
       if (mounted) {
@@ -103,6 +200,7 @@ class _PosPageState extends State<PosPage> {
           _taxSettings = taxSettings;
           _customerSettings = customerSettings;
           _printSettings = printSettings;
+          _shortcutSettings = shortcutSettings;
         });
       }
       if (mounted) {
@@ -115,44 +213,81 @@ class _PosPageState extends State<PosPage> {
         return;
       }
       setState(() => _isLoading = false);
-      AppToast.error('Failed to load POS data: $error');
+      AppToast.error('Failed to load POS data: ${_readableError(error)}');
     }
   }
 
   Future<void> _loadCatalog() async {
-    final result = await _repository.fetchCatalog(
-      searchQuery: _searchController.text.trim(),
-      category: _selectedCategory,
-    );
-
-    if (!mounted) {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
+    if (mounted) {
+      setState(() => _isCatalogLoading = true);
+    }
+    try {
+      final result = await repository.fetchCatalog(
+        searchQuery: _searchController.text.trim(),
+        category: _selectedCategory,
+      );
 
-    setState(() {
-      _categories = result.categories;
-      if (!_categories.contains(_selectedCategory)) {
-        _selectedCategory = 'All';
+      if (!mounted) {
+        return;
       }
-      _catalogItems = result.items;
-      _isLoading = false;
-    });
+
+      setState(() {
+        _categories = result.categories;
+        if (!_categories.contains(_selectedCategory)) {
+          _selectedCategory = 'All';
+        }
+        _catalogItems = result.items;
+        _selectedStockKey = _pickSelectableStockKey();
+        _isLoading = false;
+        _isCatalogLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _isCatalogLoading = false;
+      });
+      AppToast.error('Failed to load catalog: ${_readableError(error)}');
+    }
   }
 
   Future<void> _loadCustomers() async {
-    final customers = await _repository.searchCustomers(
-      _customerController.text == PosLocalRepository.walkInCustomer.searchLabel
-          ? ''
-          : _customerController.text,
-    );
-
-    if (!mounted) {
+    final repository = _repository;
+    if (repository == null) {
       return;
     }
+    if (mounted) {
+      setState(() => _isCustomerLoading = true);
+    }
+    try {
+      final customers = await repository.searchCustomers(
+        _customerController.text ==
+                PosLocalRepository.walkInCustomer.searchLabel
+            ? ''
+            : _customerController.text,
+      );
 
-    setState(() {
-      _customerSuggestions = customers;
-    });
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _customerSuggestions = customers;
+        _isCustomerLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isCustomerLoading = false);
+      AppToast.error('Failed to load customers: ${_readableError(error)}');
+    }
   }
 
   void _handleSearchChanged(String _) {
@@ -176,12 +311,47 @@ class _PosPageState extends State<PosPage> {
   }
 
   Future<void> _handleSearchSubmitted(String value) async {
-    final exactMatch = await _repository.findExactCatalogMatch(value);
-    if (exactMatch == null) {
+    final normalizedValue = value.trim().toLowerCase();
+    if (normalizedValue.isNotEmpty) {
+      final exactVisibleMatch = _visibleCatalogItems
+          .where(
+            (item) =>
+                item.stockBarcode.toLowerCase() == normalizedValue ||
+                item.productBarcode.toLowerCase() == normalizedValue,
+          )
+          .cast<PosCatalogItem?>()
+          .firstWhere((item) => item != null, orElse: () => null);
+      if (exactVisibleMatch != null) {
+        _addCatalogItemToCart(exactVisibleMatch);
+        return;
+      }
+
+      final repository = _repository;
+      if (repository != null) {
+        final exactMatch = await repository.findExactCatalogMatch(value);
+        final adjustedMatch = exactMatch == null
+            ? null
+            : _adjustCatalogItemForCart(exactMatch);
+        if (adjustedMatch != null) {
+          _addCatalogItemToCart(adjustedMatch);
+          return;
+        }
+      }
+    }
+
+    final visibleItems = _visibleCatalogItems;
+    if (visibleItems.length == 1) {
+      _addCatalogItemToCart(visibleItems.first);
       return;
     }
 
-    _addCatalogItemToCart(exactMatch);
+    final highlighted = visibleItems
+        .where((item) => item.stockKey == _selectedStockKey)
+        .cast<PosCatalogItem?>()
+        .firstWhere((item) => item != null, orElse: () => null);
+    if (highlighted != null) {
+      _addCatalogItemToCart(highlighted);
+    }
   }
 
   void _selectCustomer(PosCustomerOption customer) {
@@ -212,8 +382,10 @@ class _PosPageState extends State<PosPage> {
   }
 
   void _addCatalogItemToCart(PosCatalogItem item) {
+    final shouldReloadAfterAdd = _searchController.text.trim().isNotEmpty;
+
     final existingIndex = _cartItems.indexWhere(
-      (cartItem) => cartItem.stockId == item.stockId,
+      (cartItem) => cartItem.stockKey == item.stockKey,
     );
 
     if (existingIndex >= 0) {
@@ -228,7 +400,7 @@ class _PosPageState extends State<PosPage> {
           quantity: existingItem.quantity + 1,
           availableQty: item.availableQty,
         );
-        _selectedStockId = item.stockId;
+        _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
         _searchController.clear();
       });
     } else {
@@ -237,6 +409,7 @@ class _PosPageState extends State<PosPage> {
           0,
           PosCartItem(
             stockId: item.stockId,
+            stockCloudId: item.stockCloudId,
             stockBarcode: item.stockBarcode,
             productBarcode: item.productBarcode,
             productName: item.productName,
@@ -246,18 +419,20 @@ class _PosPageState extends State<PosPage> {
             quantity: 1,
           ),
         );
-        _selectedStockId = item.stockId;
+        _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
         _searchController.clear();
       });
     }
 
-    _loadCatalog();
+    if (shouldReloadAfterAdd) {
+      _loadCatalog();
+    }
     _searchFocusNode.requestFocus();
   }
 
   void _changeCartQuantity(PosCartItem item, int delta) {
     final index = _cartItems.indexWhere(
-      (cartItem) => cartItem.stockId == item.stockId,
+      (cartItem) => cartItem.stockKey == item.stockKey,
     );
     if (index < 0) {
       return;
@@ -267,6 +442,7 @@ class _PosPageState extends State<PosPage> {
     if (updatedQuantity <= 0) {
       setState(() {
         _cartItems.removeAt(index);
+        _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
       });
       return;
     }
@@ -278,13 +454,14 @@ class _PosPageState extends State<PosPage> {
 
     setState(() {
       _cartItems[index] = item.copyWith(quantity: updatedQuantity);
-      _selectedStockId = item.stockId;
+      _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
     });
   }
 
   void _removeCartItem(PosCartItem item) {
     setState(() {
-      _cartItems.removeWhere((cartItem) => cartItem.stockId == item.stockId);
+      _cartItems.removeWhere((cartItem) => cartItem.stockKey == item.stockKey);
+      _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
     });
     _searchFocusNode.requestFocus();
   }
@@ -296,10 +473,9 @@ class _PosPageState extends State<PosPage> {
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
-      _selectedStockId = null;
+      _selectedStockKey = _pickSelectableStockKey();
     });
     _resetToWalkInCustomer();
-    _loadCatalog();
     _searchFocusNode.requestFocus();
     AppToast.success('New transaction started');
   }
@@ -320,7 +496,7 @@ class _PosPageState extends State<PosPage> {
         return;
       }
 
-      final result = await _repository.processSale(
+      final result = await _repository!.processSale(
         items: _cartItems,
         customer: checkoutCustomer,
         paymentMethod: _selectedPaymentMethod.label,
@@ -368,7 +544,7 @@ class _PosPageState extends State<PosPage> {
         _searchController.clear();
         _selectedCategory = 'All';
         _selectedPaymentMethod = PosPaymentMethod.cash;
-        _selectedStockId = null;
+        _selectedStockKey = _pickSelectableStockKey();
         _isProcessing = false;
       });
       _resetToWalkInCustomer();
@@ -380,6 +556,12 @@ class _PosPageState extends State<PosPage> {
         await _showPrintPreview(preview);
       }
     } on PosLocalRepositoryException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isProcessing = false);
+      AppToast.error(error.message);
+    } on PosRemoteRepositoryException catch (error) {
       if (!mounted) {
         return;
       }
@@ -445,14 +627,21 @@ class _PosPageState extends State<PosPage> {
       return _selectedCustomer;
     }
 
+    final customerRepository = _customerRepository;
+    if (customerRepository == null) {
+      AppToast.error('Customer service is still loading. Please try again.');
+      return null;
+    }
+
     final enteredContact = _customerController.text.trim();
-    final existingCustomer = await _customerRepository.fetchCustomerByPhone(
+    final existingCustomer = await customerRepository.fetchCustomerByPhone(
       enteredContact,
     );
 
     if (existingCustomer != null) {
       final customer = PosCustomerOption(
         id: existingCustomer.id,
+        cloudId: existingCustomer.cloudId,
         name: existingCustomer.name,
         phone: existingCustomer.phone,
         email: existingCustomer.email,
@@ -468,7 +657,7 @@ class _PosPageState extends State<PosPage> {
     }
 
     if (_customerSettings.createCustomerOnlyContact) {
-      final created = await _customerRepository.saveCustomer(
+      final created = await customerRepository.saveCustomer(
         CustomerRecord(
           id: 0,
           name: enteredContact,
@@ -482,6 +671,7 @@ class _PosPageState extends State<PosPage> {
 
       final customer = PosCustomerOption(
         id: created.id,
+        cloudId: created.cloudId,
         name: created.name,
         phone: created.phone,
         email: created.email,
@@ -498,20 +688,25 @@ class _PosPageState extends State<PosPage> {
       return customer;
     }
 
+    setState(() => _isOpeningCustomerDialog = true);
     final created = await showDialog<CustomerRecord>(
       context: context,
       barrierDismissible: false,
       builder: (context) =>
           PosCustomerCreateDialog(initialPhone: enteredContact),
     );
+    if (mounted) {
+      setState(() => _isOpeningCustomerDialog = false);
+    }
 
     if (created == null) {
       return null;
     }
 
-    final saved = await _customerRepository.saveCustomer(created);
+    final saved = await customerRepository.saveCustomer(created);
     final customer = PosCustomerOption(
       id: saved.id,
+      cloudId: saved.cloudId,
       name: saved.name,
       phone: saved.phone,
       email: saved.email,
@@ -528,98 +723,161 @@ class _PosPageState extends State<PosPage> {
     return customer;
   }
 
+  String _readableError(Object error) {
+    if (error is PosLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is PosRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is CustomerLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is CustomerRemoteRepositoryException) {
+      return error.message;
+    }
+    return error.toString();
+  }
+
+  Map<ShortcutActivator, VoidCallback> _buildShortcutBindings() {
+    return <ShortcutActivator, VoidCallback>{
+      _shortcutSettings.productSearchKey.activator: () {
+        _searchFocusNode.requestFocus();
+        _searchController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _searchController.text.length,
+        );
+      },
+      _shortcutSettings.customerSearchKey.activator: () {
+        _customerFocusNode.requestFocus();
+        _customerController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _customerController.text.length,
+        );
+      },
+      _shortcutSettings.amountPaidKey.activator: () {
+        _amountFocusNode.requestFocus();
+        _amountController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _amountController.text.length,
+        );
+      },
+      _shortcutSettings.processPaymentKey.activator: () {
+        if (_canProcessPayment) {
+          _processPayment();
+        }
+      },
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Expanded(child: _PosHeader()),
-              const SizedBox(width: 16),
-              _PrimaryActionButton(
-                label: 'New Transaction',
-                icon: Icons.add,
-                onPressed: _startNewTransaction,
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: _isLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: AppColors.primaryTeal,
+      child: CallbackShortcuts(
+        bindings: _buildShortcutBindings(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Expanded(child: _PosHeader()),
+                const SizedBox(width: 16),
+                _PrimaryActionButton(
+                  label: 'New Transaction',
+                  icon: Icons.add,
+                  onPressed: _isProcessing ? null : _startNewTransaction,
+                  isLoading: false,
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Expanded(
+              child: _isLoading
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: AppColors.primaryTeal,
+                      ),
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 5,
+                          child: _ProductsPanel(
+                            searchController: _searchController,
+                            searchFocusNode: _searchFocusNode,
+                            categories: _categories,
+                            selectedCategory: _selectedCategory,
+                            products: _visibleCatalogItems,
+                            selectedStockKey: _selectedStockKey,
+                            isCatalogLoading: _isCatalogLoading,
+                            onSearchChanged: _handleSearchChanged,
+                            onSearchSubmitted: _handleSearchSubmitted,
+                            onMoveSelectionUp: () => _moveCatalogSelection(-1),
+                            onMoveSelectionDown: () => _moveCatalogSelection(1),
+                            onCategorySelected: (category) {
+                              setState(() => _selectedCategory = category);
+                              _loadCatalog();
+                              _searchFocusNode.requestFocus();
+                            },
+                            onProductSelected: _addCatalogItemToCart,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 3,
+                          child: _OrderItemsPanel(
+                            items: _cartItems,
+                            onIncreaseQuantity: (item) =>
+                                _changeCartQuantity(item, 1),
+                            onDecreaseQuantity: (item) =>
+                                _changeCartQuantity(item, -1),
+                            onRemoveItem: _removeCartItem,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 3,
+                          child: _CheckoutPanel(
+                            customerController: _customerController,
+                            customerFocusNode: _customerFocusNode,
+                            customerSuggestions: _customerSuggestions,
+                            showCustomerSuggestions: _showCustomerSuggestions,
+                            isCustomerLoading: _isCustomerLoading,
+                            selectedCustomer: _selectedCustomer,
+                            amountController: _amountController,
+                            amountFocusNode: _amountFocusNode,
+                            selectedPaymentMethod: _selectedPaymentMethod,
+                            subtotal: _subtotal,
+                            tax: _tax,
+                            total: _total,
+                            taxLabel: _taxSettings.isTaxEnabled
+                                ? 'Tax (${_taxSettings.taxPercent % 1 == 0 ? _taxSettings.taxPercent.toStringAsFixed(0) : _taxSettings.taxPercent.toStringAsFixed(2)}%)'
+                                : null,
+                            balance: _balance,
+                            canProcessPayment: _canProcessPayment,
+                            isProcessing: _isProcessing,
+                            onPaymentMethodChanged: (method) {
+                              setState(() => _selectedPaymentMethod = method);
+                            },
+                            onAmountChanged: (_) => setState(() {}),
+                            onCustomerChanged: _handleCustomerChanged,
+                            onCustomerTapped: () {
+                              setState(() => _showCustomerSuggestions = true);
+                            },
+                            onCustomerSelected: _selectCustomer,
+                            onResetCustomer: _resetToWalkInCustomer,
+                            onProcessPayment: _processPayment,
+                            isOpeningCustomerDialog: _isOpeningCustomerDialog,
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 7,
-                        child: _ProductsPanel(
-                          searchController: _searchController,
-                          searchFocusNode: _searchFocusNode,
-                          categories: _categories,
-                          selectedCategory: _selectedCategory,
-                          products: _catalogItems,
-                          selectedStockId: _selectedStockId,
-                          onSearchChanged: _handleSearchChanged,
-                          onSearchSubmitted: _handleSearchSubmitted,
-                          onCategorySelected: (category) {
-                            setState(() => _selectedCategory = category);
-                            _loadCatalog();
-                            _searchFocusNode.requestFocus();
-                          },
-                          onProductSelected: _addCatalogItemToCart,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      SizedBox(
-                        width: 372,
-                        child: _CurrentOrderPanel(
-                          items: _cartItems,
-                          customerController: _customerController,
-                          customerFocusNode: _customerFocusNode,
-                          customerSuggestions: _customerSuggestions,
-                          showCustomerSuggestions: _showCustomerSuggestions,
-                          selectedCustomer: _selectedCustomer,
-                          amountController: _amountController,
-                          selectedPaymentMethod: _selectedPaymentMethod,
-                          subtotal: _subtotal,
-                          tax: _tax,
-                          total: _total,
-                          taxLabel: _taxSettings.isTaxEnabled
-                              ? 'Tax (${_taxSettings.taxPercent % 1 == 0 ? _taxSettings.taxPercent.toStringAsFixed(0) : _taxSettings.taxPercent.toStringAsFixed(2)}%)'
-                              : null,
-                          balance: _balance,
-                          canProcessPayment: _canProcessPayment,
-                          isProcessing: _isProcessing,
-                          onPaymentMethodChanged: (method) {
-                            setState(() => _selectedPaymentMethod = method);
-                          },
-                          onAmountChanged: (_) => setState(() {}),
-                          onCustomerChanged: _handleCustomerChanged,
-                          onCustomerTapped: () {
-                            setState(() => _showCustomerSuggestions = true);
-                          },
-                          onCustomerSelected: _selectCustomer,
-                          onResetCustomer: _resetToWalkInCustomer,
-                          onIncreaseQuantity: (item) =>
-                              _changeCartQuantity(item, 1),
-                          onDecreaseQuantity: (item) =>
-                              _changeCartQuantity(item, -1),
-                          onRemoveItem: _removeCartItem,
-                          onProcessPayment: _processPayment,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -636,6 +894,23 @@ extension on PosPaymentMethod {
         return 'UPI';
     }
   }
+}
+
+extension on PosShortcutKey {
+  ShortcutActivator get activator => switch (this) {
+    PosShortcutKey.f1 => const SingleActivator(LogicalKeyboardKey.f1),
+    PosShortcutKey.f2 => const SingleActivator(LogicalKeyboardKey.f2),
+    PosShortcutKey.f3 => const SingleActivator(LogicalKeyboardKey.f3),
+    PosShortcutKey.f4 => const SingleActivator(LogicalKeyboardKey.f4),
+    PosShortcutKey.f5 => const SingleActivator(LogicalKeyboardKey.f5),
+    PosShortcutKey.f6 => const SingleActivator(LogicalKeyboardKey.f6),
+    PosShortcutKey.f7 => const SingleActivator(LogicalKeyboardKey.f7),
+    PosShortcutKey.f8 => const SingleActivator(LogicalKeyboardKey.f8),
+    PosShortcutKey.f9 => const SingleActivator(LogicalKeyboardKey.f9),
+    PosShortcutKey.f10 => const SingleActivator(LogicalKeyboardKey.f10),
+    PosShortcutKey.f11 => const SingleActivator(LogicalKeyboardKey.f11),
+    PosShortcutKey.f12 => const SingleActivator(LogicalKeyboardKey.f12),
+  };
 }
 
 class _PosHeader extends StatelessWidget {
@@ -876,9 +1151,12 @@ class _ProductsPanel extends StatelessWidget {
     required this.categories,
     required this.selectedCategory,
     required this.products,
-    required this.selectedStockId,
+    required this.selectedStockKey,
+    required this.isCatalogLoading,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
+    required this.onMoveSelectionUp,
+    required this.onMoveSelectionDown,
     required this.onCategorySelected,
     required this.onProductSelected,
   });
@@ -888,9 +1166,12 @@ class _ProductsPanel extends StatelessWidget {
   final List<String> categories;
   final String selectedCategory;
   final List<PosCatalogItem> products;
-  final int? selectedStockId;
+  final String? selectedStockKey;
+  final bool isCatalogLoading;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
+  final VoidCallback onMoveSelectionUp;
+  final VoidCallback onMoveSelectionDown;
   final ValueChanged<String> onCategorySelected;
   final ValueChanged<PosCatalogItem> onProductSelected;
 
@@ -909,45 +1190,53 @@ class _ProductsPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            height: 38,
-            child: TextField(
-              controller: searchController,
-              focusNode: searchFocusNode,
-              onChanged: onSearchChanged,
-              onSubmitted: onSearchSubmitted,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText:
-                    'Search by product, product barcode, or stock barcode...',
-                hintStyle: const TextStyle(
-                  color: Color(0xFFA2AEBD),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  size: 18,
-                  color: Color(0xFF9CACBE),
-                ),
-                suffixIconConstraints: const BoxConstraints(minWidth: 74),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                fillColor: const Color(0xFFFFFFFF),
-                filled: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+          CallbackShortcuts(
+            bindings: <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.arrowDown):
+                  onMoveSelectionDown,
+              const SingleActivator(LogicalKeyboardKey.arrowUp):
+                  onMoveSelectionUp,
+            },
+            child: SizedBox(
+              height: 38,
+              child: TextField(
+                controller: searchController,
+                focusNode: searchFocusNode,
+                onChanged: onSearchChanged,
+                onSubmitted: onSearchSubmitted,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText:
+                      'Search by product, product barcode, or stock barcode...',
+                  hintStyle: const TextStyle(
+                    color: Color(0xFFA2AEBD),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    size: 18,
+                    color: Color(0xFF9CACBE),
+                  ),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 74),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 9,
+                  ),
+                  fillColor: const Color(0xFFFFFFFF),
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+                  ),
                 ),
               ),
             ),
@@ -971,7 +1260,9 @@ class _ProductsPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: products.isEmpty
+            child: isCatalogLoading
+                ? const _PosCatalogSkeleton()
+                : products.isEmpty
                 ? const Center(
                     child: Text(
                       'No available stock found',
@@ -982,21 +1273,15 @@ class _ProductsPanel extends StatelessWidget {
                       ),
                     ),
                   )
-                : GridView.builder(
+                : ListView.separated(
                     itemCount: products.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 14,
-                          mainAxisSpacing: 14,
-                          childAspectRatio: 1.02,
-                        ),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final product = products[index];
 
-                      return _ProductCard(
+                      return _ProductRow(
                         product: product,
-                        isSelected: product.stockId == selectedStockId,
+                        isSelected: product.stockKey == selectedStockKey,
                         onTap: () => onProductSelected(product),
                       );
                     },
@@ -1008,65 +1293,21 @@ class _ProductsPanel extends StatelessWidget {
   }
 }
 
-class _CurrentOrderPanel extends StatelessWidget {
-  const _CurrentOrderPanel({
+class _OrderItemsPanel extends StatelessWidget {
+  const _OrderItemsPanel({
     required this.items,
-    required this.customerController,
-    required this.customerFocusNode,
-    required this.customerSuggestions,
-    required this.showCustomerSuggestions,
-    required this.selectedCustomer,
-    required this.amountController,
-    required this.selectedPaymentMethod,
-    required this.subtotal,
-    required this.tax,
-    required this.total,
-    required this.taxLabel,
-    required this.balance,
-    required this.canProcessPayment,
-    required this.isProcessing,
-    required this.onPaymentMethodChanged,
-    required this.onAmountChanged,
-    required this.onCustomerChanged,
-    required this.onCustomerTapped,
-    required this.onCustomerSelected,
-    required this.onResetCustomer,
     required this.onIncreaseQuantity,
     required this.onDecreaseQuantity,
     required this.onRemoveItem,
-    required this.onProcessPayment,
   });
 
   final List<PosCartItem> items;
-  final TextEditingController customerController;
-  final FocusNode customerFocusNode;
-  final List<PosCustomerOption> customerSuggestions;
-  final bool showCustomerSuggestions;
-  final PosCustomerOption selectedCustomer;
-  final TextEditingController amountController;
-  final PosPaymentMethod selectedPaymentMethod;
-  final double subtotal;
-  final double tax;
-  final double total;
-  final String? taxLabel;
-  final double balance;
-  final bool canProcessPayment;
-  final bool isProcessing;
-  final ValueChanged<PosPaymentMethod> onPaymentMethodChanged;
-  final ValueChanged<String> onAmountChanged;
-  final VoidCallback onCustomerTapped;
-  final ValueChanged<String> onCustomerChanged;
-  final ValueChanged<PosCustomerOption> onCustomerSelected;
-  final VoidCallback onResetCustomer;
   final ValueChanged<PosCartItem> onIncreaseQuantity;
   final ValueChanged<PosCartItem> onDecreaseQuantity;
   final ValueChanged<PosCartItem> onRemoveItem;
-  final VoidCallback onProcessPayment;
 
   @override
   Widget build(BuildContext context) {
-    final hasShortPayment = items.isNotEmpty && balance < 0;
-
     return _PanelCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1107,7 +1348,82 @@ class _CurrentOrderPanel extends StatelessWidget {
                     },
                   ),
           ),
-          const Divider(color: Color(0xFFEDF2F7), height: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class _CheckoutPanel extends StatelessWidget {
+  const _CheckoutPanel({
+    required this.customerController,
+    required this.customerFocusNode,
+    required this.customerSuggestions,
+    required this.showCustomerSuggestions,
+    required this.isCustomerLoading,
+    required this.selectedCustomer,
+    required this.amountController,
+    required this.amountFocusNode,
+    required this.selectedPaymentMethod,
+    required this.subtotal,
+    required this.tax,
+    required this.total,
+    required this.taxLabel,
+    required this.balance,
+    required this.canProcessPayment,
+    required this.isProcessing,
+    required this.isOpeningCustomerDialog,
+    required this.onPaymentMethodChanged,
+    required this.onAmountChanged,
+    required this.onCustomerChanged,
+    required this.onCustomerTapped,
+    required this.onCustomerSelected,
+    required this.onResetCustomer,
+    required this.onProcessPayment,
+  });
+
+  final TextEditingController customerController;
+  final FocusNode customerFocusNode;
+  final List<PosCustomerOption> customerSuggestions;
+  final bool showCustomerSuggestions;
+  final bool isCustomerLoading;
+  final PosCustomerOption selectedCustomer;
+  final TextEditingController amountController;
+  final FocusNode amountFocusNode;
+  final PosPaymentMethod selectedPaymentMethod;
+  final double subtotal;
+  final double tax;
+  final double total;
+  final String? taxLabel;
+  final double balance;
+  final bool canProcessPayment;
+  final bool isProcessing;
+  final bool isOpeningCustomerDialog;
+  final ValueChanged<PosPaymentMethod> onPaymentMethodChanged;
+  final ValueChanged<String> onAmountChanged;
+  final VoidCallback onCustomerTapped;
+  final ValueChanged<String> onCustomerChanged;
+  final ValueChanged<PosCustomerOption> onCustomerSelected;
+  final VoidCallback onResetCustomer;
+  final VoidCallback onProcessPayment;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasShortPayment = subtotal > 0 && balance < 0;
+
+    return _PanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Checkout',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF374457),
+            ),
+          ),
+          const SizedBox(height: 14),
           const Text(
             'Customer',
             style: TextStyle(
@@ -1123,6 +1439,14 @@ class _CurrentOrderPanel extends StatelessWidget {
             onChanged: onCustomerChanged,
             onTap: onCustomerTapped,
           ),
+          if (isCustomerLoading) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: Color(0xFF36B4AE),
+              backgroundColor: Color(0xFFE5F5F3),
+            ),
+          ],
           if (showCustomerSuggestions && customerSuggestions.isNotEmpty) ...[
             const SizedBox(height: 8),
             _CustomerSuggestionList(
@@ -1225,6 +1549,7 @@ class _CurrentOrderPanel extends StatelessWidget {
             height: 38,
             child: TextField(
               controller: amountController,
+              focusNode: amountFocusNode,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -1297,7 +1622,7 @@ class _CurrentOrderPanel extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const Spacer(),
           SizedBox(
             width: double.infinity,
             height: 42,
@@ -1321,7 +1646,11 @@ class _CurrentOrderPanel extends StatelessWidget {
                     )
                   : const Icon(Icons.credit_card_rounded, size: 16),
               label: Text(
-                isProcessing ? 'Processing...' : 'Process Payment',
+                isProcessing
+                    ? 'Processing...'
+                    : isOpeningCustomerDialog
+                    ? 'Opening Customer Form...'
+                    : 'Process Payment',
                 style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
@@ -1331,6 +1660,83 @@ class _CurrentOrderPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PosCatalogSkeleton extends StatelessWidget {
+  const _PosCatalogSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      itemCount: 10,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.35, end: 0.9),
+          duration: const Duration(milliseconds: 900),
+          curve: Curves.easeInOut,
+          builder: (context, opacity, child) =>
+              Opacity(opacity: opacity, child: child),
+          child: Container(
+            height: 86,
+            decoration: BoxDecoration(
+              color: AppColors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE7EDF5)),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F7FB),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        height: 12,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F7FB),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 10,
+                        width: 180,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F7FB),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  height: 16,
+                  width: 72,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2F7F4),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1377,8 +1783,8 @@ class _CategoryChip extends StatelessWidget {
   }
 }
 
-class _ProductCard extends StatelessWidget {
-  const _ProductCard({
+class _ProductRow extends StatelessWidget {
+  const _ProductRow({
     required this.product,
     required this.isSelected,
     required this.onTap,
@@ -1394,7 +1800,7 @@ class _ProductCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.circular(12),
@@ -1414,68 +1820,103 @@ class _ProductCard extends StatelessWidget {
                 ]
               : const [],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F8FB),
-                  borderRadius: BorderRadius.circular(10),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F8FB),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.inventory_2_outlined,
+                  size: 30,
+                  color: Color(0xFFCBD6E4),
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.inventory_2_outlined,
-                    size: 34,
-                    color: Color(0xFFCBD6E4),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    product.productName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF465366),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    product.productBarcode.isEmpty
+                        ? product.category
+                        : '${product.category} • ${product.productBarcode}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF96A3B6),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Stock: ${product.availableQty} • ${product.stockBarcode}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF96A3B6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF36B4AE),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              product.productName,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF465366),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Stock: ${product.availableQty}  •  ${product.stockBarcode}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF96A3B6),
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              product.productBarcode.isEmpty
-                  ? product.category
-                  : '${product.category} • ${product.productBarcode}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF96A3B6),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Rs ${product.sellingPrice.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF36B4AE),
-              ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFFE2FAF8)
+                        : const Color(0xFFF5F8FB),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    isSelected ? 'Selected' : 'Add',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: isSelected
+                          ? const Color(0xFF36B4AE)
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1895,11 +2336,13 @@ class _PrimaryActionButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   final String label;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -1914,7 +2357,16 @@ class _PrimaryActionButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
           elevation: 0,
         ),
-        icon: Icon(icon, size: 16),
+        icon: isLoading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon, size: 16),
         label: Text(
           label,
           style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),

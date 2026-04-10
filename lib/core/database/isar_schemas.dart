@@ -5,6 +5,7 @@ import 'entities/entities.dart';
 final List<CollectionSchema<dynamic>> appIsarSchemas = [
   CategoryEntitySchema,
   CustomerEntitySchema,
+  ExpenseEntitySchema,
   GrnEntitySchema,
   InvoiceEntitySchema,
   ProductEntitySchema,

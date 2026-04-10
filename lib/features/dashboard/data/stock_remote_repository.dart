@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/services/change_log_service.dart';
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'stock_repository.dart';
 
@@ -59,6 +60,15 @@ class StockRemoteRepository implements StockRepository {
   }) async {
     final stockSnapshot = await _stocksRef.get();
     final productSnapshot = await _productsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: stockSnapshot.docs.length + productSnapshot.docs.length,
+      payload: <Object?>[
+        stockSnapshot.docs.map((doc) => doc.data()).toList(),
+        productSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
 
     final productsByName = <String, Map<String, dynamic>>{
       for (final doc in productSnapshot.docs)
@@ -143,6 +153,12 @@ class StockRemoteRepository implements StockRepository {
   @override
   Future<List<String>> fetchProductSuggestions() async {
     final snapshot = await _productsRef.orderBy('nameLower').limit(50).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     return snapshot.docs
         .map((doc) => doc.data()['name']?.toString().trim() ?? '')
         .where((name) => name.isNotEmpty)
@@ -153,6 +169,12 @@ class StockRemoteRepository implements StockRepository {
   @override
   Future<List<String>> fetchGrnSuggestions() async {
     final snapshot = await _grnsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final codes =
         snapshot.docs
             .map((doc) => doc.data()['code']?.toString().trim() ?? doc.id)
@@ -171,6 +193,12 @@ class StockRemoteRepository implements StockRepository {
     }
 
     final snapshot = await _stocksRef.doc(cloudId).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: snapshot.exists ? 1 : 0,
+      payload: snapshot.data(),
+    );
     if (!snapshot.exists) {
       return null;
     }
@@ -197,6 +225,12 @@ class StockRemoteRepository implements StockRepository {
         .where('barcodeLower', isEqualTo: trimmedBarcode.toLowerCase())
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: conflict.docs.length,
+      payload: conflict.docs.map((doc) => doc.data()).toList(),
+    );
     if (conflict.docs.isNotEmpty && conflict.docs.first.id != stock.cloudId) {
       throw StockRemoteRepositoryException(
         'A stock item with this barcode already exists',
@@ -208,6 +242,12 @@ class StockRemoteRepository implements StockRepository {
         ? _stocksRef.doc()
         : _stocksRef.doc(stock.cloudId);
     final existing = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: existing.exists ? 1 : 0,
+      payload: existing.data(),
+    );
     final existingData = existing.data();
     final now = DateTime.now();
 
@@ -228,8 +268,25 @@ class StockRemoteRepository implements StockRepository {
       'createdAt': existingData?['createdAt'] ?? now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'stocks',
+      payload: <String, dynamic>{
+        'barcode': trimmedBarcode,
+        'productName': trimmedProduct,
+        'grnCode': trimmedGrn,
+        'initialQuantity': stock.initialQty,
+        'availableQuantity': stock.availableQty,
+      },
+    );
 
     final saved = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: saved.exists ? 1 : 0,
+      payload: saved.data(),
+    );
     final savedRecord = _mapDocumentToRecord(saved);
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.stock,
@@ -260,6 +317,14 @@ class StockRemoteRepository implements StockRepository {
       'status': 'inactive',
       'updatedAt': DateTime.now(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'stocks',
+      payload: <String, dynamic>{
+        'barcode': stock.barcode,
+        'status': 'inactive',
+      },
+    );
     final savedRecord = await fetchStockDetails(
       stock.copyWith(status: StockStatus.inactive),
     );
@@ -284,6 +349,12 @@ class StockRemoteRepository implements StockRepository {
         .where('nameLower', isEqualTo: productName.toLowerCase())
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'stocks',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       return null;
     }

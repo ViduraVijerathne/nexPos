@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'supplier_repository.dart';
 
@@ -47,6 +48,15 @@ class SupplierRemoteRepository implements SupplierRepository {
   }) async {
     final supplierSnapshot = await _suppliersRef.get();
     final grnSnapshot = await _grnsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: supplierSnapshot.docs.length + grnSnapshot.docs.length,
+      payload: <Object?>[
+        supplierSnapshot.docs.map((doc) => doc.data()).toList(),
+        grnSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
     final grnsBySupplier = _groupGrnsBySupplier(grnSnapshot.docs);
     final normalizedQuery = searchQuery?.trim().toLowerCase() ?? '';
 
@@ -112,6 +122,12 @@ class SupplierRemoteRepository implements SupplierRepository {
     }
 
     final supplierDoc = await _suppliersRef.doc(docId).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: supplierDoc.exists ? 1 : 0,
+      payload: supplierDoc.data(),
+    );
     if (!supplierDoc.exists) {
       return null;
     }
@@ -120,11 +136,23 @@ class SupplierRemoteRepository implements SupplierRepository {
     QuerySnapshot<Map<String, dynamic>> grnSnapshot = await _grnsRef
         .where('supplierId', isEqualTo: docId)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: grnSnapshot.docs.length,
+      payload: grnSnapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final supplierName = supplierData['supplierName']?.toString().trim() ?? '';
     if (grnSnapshot.docs.isEmpty && supplierName.isNotEmpty) {
       grnSnapshot = await _grnsRef
           .where('supplierName', isEqualTo: supplierName)
           .get();
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'suppliers',
+        documentCount: grnSnapshot.docs.length,
+        payload: grnSnapshot.docs.map((doc) => doc.data()).toList(),
+      );
     }
     final grns = grnSnapshot.docs.toList()
       ..sort((left, right) {
@@ -143,6 +171,12 @@ class SupplierRemoteRepository implements SupplierRepository {
         .where('emailLower', isEqualTo: normalizedEmail)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: conflict.docs.length,
+      payload: conflict.docs.map((doc) => doc.data()).toList(),
+    );
     if (conflict.docs.isNotEmpty &&
         conflict.docs.first.id != supplier.cloudId) {
       throw SupplierRemoteRepositoryException(
@@ -154,6 +188,12 @@ class SupplierRemoteRepository implements SupplierRepository {
         ? _suppliersRef.doc()
         : _suppliersRef.doc(supplier.cloudId);
     final existingSnapshot = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: existingSnapshot.exists ? 1 : 0,
+      payload: existingSnapshot.data(),
+    );
     final existingData = existingSnapshot.data();
     final now = DateTime.now();
 
@@ -169,8 +209,25 @@ class SupplierRemoteRepository implements SupplierRepository {
       'createdAt': existingData?['createdAt'] ?? now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'suppliers',
+      payload: <String, dynamic>{
+        'supplierName': supplier.supplierName.trim(),
+        'companyName': supplier.companyName.trim(),
+        'email': supplier.email.trim(),
+        'contactNumber': supplier.contactNumber.trim(),
+        'isActive': supplier.isActive,
+      },
+    );
 
     final saved = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: saved.exists ? 1 : 0,
+      payload: saved.data(),
+    );
     return _mapSupplierDocumentToRecord(
       saved.id,
       saved.data() ?? <String, dynamic>{},
@@ -189,6 +246,11 @@ class SupplierRemoteRepository implements SupplierRepository {
       'isActive': !supplier.isActive,
       'updatedAt': DateTime.now(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'suppliers',
+      payload: <String, dynamic>{'isActive': !supplier.isActive},
+    );
 
     return fetchSupplierDetails(
       supplier.copyWith(isActive: !supplier.isActive),
@@ -206,6 +268,12 @@ class SupplierRemoteRepository implements SupplierRepository {
         .where('code', isEqualTo: grnId)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'suppliers',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       throw SupplierRemoteRepositoryException('GRN not found');
     }
@@ -243,6 +311,17 @@ class SupplierRemoteRepository implements SupplierRepository {
         'updatedAt': DateTime.now(),
       });
     });
+    await SubscriptionUsageService.instance.recordTransaction(
+      shopId: shopId,
+      module: 'suppliers',
+      reads: 1,
+      writes: 1,
+      payload: <String, dynamic>{
+        'grnId': grnId,
+        'amount': amount,
+        'method': method,
+      },
+    );
 
     return fetchSupplierDetails(supplier);
   }

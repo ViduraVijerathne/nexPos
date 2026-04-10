@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'invoice_repository.dart';
 
@@ -46,6 +47,12 @@ class InvoiceRemoteRepository implements InvoiceRepository {
     String? statusFilter,
   }) async {
     final snapshot = await _invoicesRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'invoices',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final records = snapshot.docs.map(_mapInvoiceDocumentToRecord).toList()
       ..sort((left, right) => right.date.compareTo(left.date));
 
@@ -117,6 +124,12 @@ class InvoiceRemoteRepository implements InvoiceRepository {
   @override
   Future<InvoiceRecord?> fetchInvoiceById(String invoiceId) async {
     final doc = await _invoicesRef.doc(invoiceId).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'invoices',
+      documentCount: doc.exists ? 1 : 0,
+      payload: doc.data(),
+    );
     if (doc.exists) {
       return _mapInvoiceDocumentSnapshotToRecord(doc);
     }
@@ -125,6 +138,12 @@ class InvoiceRemoteRepository implements InvoiceRepository {
         .where('invoiceNumber', isEqualTo: invoiceId)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'invoices',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       return null;
     }

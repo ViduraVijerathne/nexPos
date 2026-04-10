@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'pos_repository.dart';
 
@@ -66,6 +67,15 @@ class PosRemoteRepository implements PosRepository {
   }) async {
     final stockSnapshot = await _stocksRef.get();
     final productSnapshot = await _productsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'pos',
+      documentCount: stockSnapshot.docs.length + productSnapshot.docs.length,
+      payload: <Object?>[
+        stockSnapshot.docs.map((doc) => doc.data()).toList(),
+        productSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
 
     final productsByName = <String, Map<String, dynamic>>{
       for (final doc in productSnapshot.docs)
@@ -170,6 +180,12 @@ class PosRemoteRepository implements PosRepository {
   @override
   Future<List<PosCustomerOption>> searchCustomers(String query) async {
     final snapshot = await _customersRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'pos',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final normalized = query.trim().toLowerCase();
 
     final docs =
@@ -309,6 +325,19 @@ class PosRemoteRepository implements PosRepository {
         'updatedAt': DateTime.now(),
       });
     });
+    await SubscriptionUsageService.instance.recordTransaction(
+      shopId: shopId,
+      module: 'pos',
+      reads: stockIds.length,
+      writes: stockIds.length + 1,
+      payload: <String, dynamic>{
+        'invoiceNumber': invoiceNumber,
+        'itemCount': items.length,
+        'customerName': customer.name,
+        'paymentMethod': paymentMethod,
+        'amountPaid': amountPaid,
+      },
+    );
 
     return PosCheckoutResult(
       invoiceNumber: invoiceNumber,
@@ -318,6 +347,12 @@ class PosRemoteRepository implements PosRepository {
 
   Future<String> _generateNextInvoiceNumber() async {
     final invoices = await _invoicesRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'pos',
+      documentCount: invoices.docs.length,
+      payload: invoices.docs.map((doc) => doc.data()).toList(),
+    );
     var maxNumber = 0;
     for (final invoice in invoices.docs) {
       final value = invoice.data()['invoiceNumber']?.toString().trim() ?? '';

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'insight_repository.dart';
 
@@ -72,6 +73,21 @@ class InsightRemoteRepository implements InsightRepository {
     final productsSnapshot = await _productsRef.get();
     final customersSnapshot = await _customersRef.get();
     final stocksSnapshot = await _stocksRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'insight',
+      documentCount:
+          invoicesSnapshot.docs.length +
+          productsSnapshot.docs.length +
+          customersSnapshot.docs.length +
+          stocksSnapshot.docs.length,
+      payload: <Object?>[
+        invoicesSnapshot.docs.map((doc) => doc.data()).toList(),
+        productsSnapshot.docs.map((doc) => doc.data()).toList(),
+        customersSnapshot.docs.map((doc) => doc.data()).toList(),
+        stocksSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
 
     final invoices = invoicesSnapshot.docs
         .map((doc) => _InvoiceAnalyticsRecord.fromMap(doc.data()))
@@ -184,6 +200,11 @@ class InsightRemoteRepository implements InsightRepository {
       'status': 'inactive',
       'updatedAt': DateTime.now(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'insight',
+      payload: <String, dynamic>{'stockId': cloudId, 'status': 'inactive'},
+    );
   }
 
   List<InsightSalesPoint> _buildSalesPoints(

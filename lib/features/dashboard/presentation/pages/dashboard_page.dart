@@ -4,8 +4,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../auth/presentation/pages/login_page.dart';
+import '../../../setup/services/setup_service.dart';
 import 'backup_page.dart';
-import 'coming_soon_page.dart';
 import 'customer_page.dart';
 import 'extension_page.dart';
 import 'grn_page.dart';
@@ -16,6 +16,7 @@ import 'product_page.dart';
 import 'report_page.dart';
 import 'settings_page.dart';
 import 'stock_page.dart';
+import 'subscription_page.dart';
 import 'supplier_page.dart';
 
 enum DashboardSection {
@@ -29,6 +30,7 @@ enum DashboardSection {
   invoice,
   reports,
   extensions,
+  subscription,
   settings,
   backups,
 }
@@ -42,6 +44,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   DashboardSection _selectedSection = DashboardSection.pos;
+  bool _isOnlineMode = false;
   late final Map<DashboardSection, int> _pageVersions = {
     for (final section in DashboardSection.values) section: 0,
   };
@@ -57,6 +60,7 @@ class _DashboardPageState extends State<DashboardPage> {
     DashboardSection.invoice: () => const InvoicePage(),
     DashboardSection.reports: () => const ReportPage(),
     DashboardSection.extensions: () => const ExtensionPage(),
+    DashboardSection.subscription: () => const SubscriptionPage(),
     DashboardSection.settings: () => const SettingsPage(),
     DashboardSection.backups: () => const BackupPage(),
   };
@@ -93,6 +97,11 @@ class _DashboardPageState extends State<DashboardPage> {
       'Extensions',
     ),
     _NavItemData(
+      DashboardSection.subscription,
+      Icons.workspace_premium_outlined,
+      'Subscription',
+    ),
+    _NavItemData(
       DashboardSection.settings,
       Icons.settings_outlined,
       'Settings',
@@ -101,13 +110,34 @@ class _DashboardPageState extends State<DashboardPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadAppMode();
+  }
+
+  Future<void> _loadAppMode() async {
+    final state = await SetupService.instance.loadState();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _isOnlineMode = state.mode == AppMode.online);
+  }
+
+  List<_NavItemData> get _visibleNavItems => _navItems
+      .where(
+        (item) =>
+            item.section != DashboardSection.subscription || _isOnlineMode,
+      )
+      .toList();
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppThemeController.instance.palette.background,
       body: Row(
         children: [
           _DashboardSidebar(
-            items: _navItems,
+            items: _visibleNavItems,
             selectedSection: _selectedSection,
             onSectionSelected: (section) {
               setState(() {

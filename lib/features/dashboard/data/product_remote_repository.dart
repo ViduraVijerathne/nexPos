@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/services/change_log_service.dart';
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'product_repository.dart';
 
@@ -61,6 +62,12 @@ class ProductRemoteRepository implements ProductRepository {
     String? barcodeQuery,
   }) async {
     final snapshot = await _productsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final documents = snapshot.docs.toList()
       ..sort((left, right) {
         final leftDate = _readSortDate(left.data());
@@ -111,6 +118,12 @@ class ProductRemoteRepository implements ProductRepository {
   Future<List<String>> fetchCategorySuggestions(String query) async {
     final normalizedQuery = query.trim().toLowerCase();
     final snapshot = await _categoriesRef.orderBy('nameLower').limit(20).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final names = snapshot.docs
         .map((doc) => doc.data()['name']?.toString().trim() ?? '')
         .where((name) => name.isNotEmpty)
@@ -136,6 +149,12 @@ class ProductRemoteRepository implements ProductRepository {
         .where('nameLower', isEqualTo: normalized)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     return snapshot.docs.isNotEmpty;
   }
 
@@ -151,6 +170,12 @@ class ProductRemoteRepository implements ProductRepository {
         .where('nameLower', isEqualTo: normalizedLower)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: existing.docs.length,
+      payload: existing.docs.map((doc) => doc.data()).toList(),
+    );
     if (existing.docs.isNotEmpty) {
       return existing.docs.first.data()['name']?.toString() ?? normalizedName;
     }
@@ -160,6 +185,14 @@ class ProductRemoteRepository implements ProductRepository {
       'nameLower': normalizedLower,
       'createdAt': DateTime.now(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'products',
+      payload: <String, dynamic>{
+        'name': normalizedName,
+        'nameLower': normalizedLower,
+      },
+    );
     return normalizedName;
   }
 
@@ -174,6 +207,12 @@ class ProductRemoteRepository implements ProductRepository {
         .where('nameLower', isEqualTo: normalized)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       return null;
     }
@@ -201,6 +240,12 @@ class ProductRemoteRepository implements ProductRepository {
         .where('barcodeLower', isEqualTo: trimmedBarcode.toLowerCase())
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: conflict.docs.length,
+      payload: conflict.docs.map((doc) => doc.data()).toList(),
+    );
     if (conflict.docs.isNotEmpty && conflict.docs.first.id != product.cloudId) {
       throw ProductRemoteRepositoryException(
         'A product with this barcode already exists',
@@ -213,6 +258,12 @@ class ProductRemoteRepository implements ProductRepository {
         ? _productsRef.doc()
         : _productsRef.doc(product.cloudId);
     final existingSnapshot = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: existingSnapshot.exists ? 1 : 0,
+      payload: existingSnapshot.data(),
+    );
     final existingData = existingSnapshot.data();
     final previousName = existingData?['name']?.toString() ?? '';
     final previousBarcode = existingData?['barcode']?.toString() ?? '';
@@ -231,6 +282,18 @@ class ProductRemoteRepository implements ProductRepository {
       'createdAt': existingData?['createdAt'] ?? now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'products',
+      payload: <String, dynamic>{
+        'name': normalizedName,
+        'barcode': trimmedBarcode,
+        'category': normalizedCategory,
+        'unit': product.unit,
+        'lowStockQuantity': product.lowStock,
+        'status': product.status.name,
+      },
+    );
 
     if (existingData != null) {
       await _cascadeProductChanges(
@@ -242,6 +305,12 @@ class ProductRemoteRepository implements ProductRepository {
     }
 
     final savedSnapshot = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: savedSnapshot.exists ? 1 : 0,
+      payload: savedSnapshot.data(),
+    );
     final savedRecord = _mapDocumentToRecord(savedSnapshot);
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.product,
@@ -275,6 +344,13 @@ class ProductRemoteRepository implements ProductRepository {
     required String updatedBarcode,
   }) async {
     final stocksSnapshot = await _stocksRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: stocksSnapshot.docs.length,
+      payload: stocksSnapshot.docs.map((doc) => doc.data()).toList(),
+    );
+    var stockWriteCount = 0;
     for (final stockDoc in stocksSnapshot.docs) {
       final data = stockDoc.data();
       final stockProductName = data['productName']?.toString() ?? '';
@@ -295,9 +371,28 @@ class ProductRemoteRepository implements ProductRepository {
         'productBarcode': updatedBarcode,
         'updatedAt': DateTime.now(),
       });
+      stockWriteCount++;
+    }
+    if (stockWriteCount > 0) {
+      await SubscriptionUsageService.instance.recordWrite(
+        shopId: shopId,
+        module: 'products',
+        documentCount: stockWriteCount,
+        payload: <String, dynamic>{
+          'productName': updatedName,
+          'productBarcode': updatedBarcode,
+        },
+      );
     }
 
     final grnSnapshot = await _grnsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: grnSnapshot.docs.length,
+      payload: grnSnapshot.docs.map((doc) => doc.data()).toList(),
+    );
+    var grnWriteCount = 0;
     for (final grnDoc in grnSnapshot.docs) {
       final data = grnDoc.data();
       final items = List<Map<String, dynamic>>.from(
@@ -327,7 +422,19 @@ class ProductRemoteRepository implements ProductRepository {
           'items': items,
           'updatedAt': DateTime.now(),
         });
+        grnWriteCount++;
       }
+    }
+    if (grnWriteCount > 0) {
+      await SubscriptionUsageService.instance.recordWrite(
+        shopId: shopId,
+        module: 'products',
+        documentCount: grnWriteCount,
+        payload: <String, dynamic>{
+          'updatedProductName': updatedName,
+          'updatedProductBarcode': updatedBarcode,
+        },
+      );
     }
   }
 
@@ -338,6 +445,12 @@ class ProductRemoteRepository implements ProductRepository {
         .where('nameLower', isEqualTo: normalizedLower)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'products',
+      documentCount: existing.docs.length,
+      payload: existing.docs.map((doc) => doc.data()).toList(),
+    );
     if (existing.docs.isNotEmpty) {
       return;
     }
@@ -347,6 +460,14 @@ class ProductRemoteRepository implements ProductRepository {
       'nameLower': normalizedLower,
       'createdAt': DateTime.now(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'products',
+      payload: <String, dynamic>{
+        'name': normalized,
+        'nameLower': normalizedLower,
+      },
+    );
   }
 
   ProductRecord _mapDocumentToRecord(

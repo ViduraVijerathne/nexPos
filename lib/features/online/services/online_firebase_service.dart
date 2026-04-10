@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/services/secure_payload_service.dart';
 import '../../../firebase_options.dart';
+import '../../subscription/services/subscription_usage_service.dart';
 import '../../activation/services/activation_service.dart';
 import '../../setup/services/setup_service.dart';
 
@@ -258,6 +259,12 @@ class OnlineFirebaseService {
     }
 
     final doc = snapshot.docs.first;
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: doc.id,
+      module: 'setup',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((item) => item.data()).toList(),
+    );
     final data = doc.data();
     return OnlineShopRecord(
       id: doc.id,
@@ -289,6 +296,15 @@ class OnlineFirebaseService {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: doc.id,
+      module: 'setup',
+      payload: <String, dynamic>{
+        'shopId': doc.id,
+        'shopName': shopInfo.shopName.trim(),
+        'adminEmail': normalizedEmail,
+      },
+    );
 
     return OnlineShopRecord(id: doc.id, shopInfo: shopInfo);
   }

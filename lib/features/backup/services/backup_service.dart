@@ -1,17 +1,20 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 //admin
 // $2y$10$I23Io8.4YzMmTVlLGzMB8OQwsfXFPo1NeAJzVSazpRAEBNoNwZ7Fa
 
 //old
 // $2y$10$tO.M10QTDvQAsmmZoNqtbu55cHr/fSh80QhhP3/6e.T...
 // $2y$10$tO.M10QTDvQAsmmZoNqtbu55cHr/fSh80QhhP3/6e.Tx8UuH4NVeO
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../activation/services/activation_service.dart';
 import '../../setup/services/setup_service.dart';
+import '../../subscription/services/subscription_usage_service.dart';
 
 class BackupRecord {
   const BackupRecord({
@@ -22,6 +25,7 @@ class BackupRecord {
     required this.sizeBytes,
     required this.status,
     required this.type,
+    this.storage = BackupStorage.local,
   });
 
   final String id;
@@ -31,6 +35,10 @@ class BackupRecord {
   final int sizeBytes;
   final String status;
   final String type;
+  final BackupStorage storage;
+
+  bool get isRemote => storage == BackupStorage.remote;
+  bool get isLocal => storage == BackupStorage.local;
 
   String get formattedSize {
     if (sizeBytes >= 1024 * 1024 * 1024) {
@@ -62,6 +70,7 @@ class BackupRecord {
     'sizeBytes': sizeBytes,
     'status': status,
     'type': type,
+    'storage': storage.name,
   };
 
   factory BackupRecord.fromJson(Map<String, dynamic> json) {
@@ -75,15 +84,28 @@ class BackupRecord {
       sizeBytes: json['sizeBytes'] as int? ?? 0,
       status: json['status'] as String? ?? 'Completed',
       type: json['type'] as String? ?? 'Database Backup',
+      storage: BackupStorage.values.firstWhere(
+        (item) => item.name == (json['storage'] as String? ?? ''),
+        orElse: () => BackupStorage.local,
+      ),
     );
   }
 }
 
+enum BackupStorage { local, remote }
+
 class BackupState {
-  const BackupState({required this.records, required this.backupOnLogin});
+  const BackupState({
+    required this.records,
+    required this.backupOnLogin,
+    required this.mode,
+  });
 
   final List<BackupRecord> records;
   final bool backupOnLogin;
+  final AppMode? mode;
+
+  bool get isOnlineMode => mode == AppMode.online;
 
   int get totalBackups => records.length;
 
@@ -100,9 +122,32 @@ class BackupService {
 
   static const _recordsPref = 'backup_records_v1';
   static const _backupOnLoginPref = 'backup_on_every_login';
+  static const List<String> _onlineCollections = <String>[
+    'products',
+    'categories',
+    'suppliers',
+    'customers',
+    'grns',
+    'stocks',
+    'invoices',
+    'change_logs',
+  ];
 
   Future<BackupState> loadState() async {
     final prefs = await SharedPreferences.getInstance();
+    final setupState = await SetupService.instance.loadState();
+    if (setupState.mode == AppMode.online &&
+        setupState.selectedShopId.trim().isNotEmpty) {
+      final records = await _loadRemoteRecords(
+        setupState.selectedShopId.trim(),
+      );
+      return BackupState(
+        records: records,
+        backupOnLogin: prefs.getBool(_backupOnLoginPref) ?? false,
+        mode: setupState.mode,
+      );
+    }
+
     final raw = prefs.getString(_recordsPref);
     final decoded = raw == null || raw.isEmpty
         ? const <dynamic>[]
@@ -118,6 +163,7 @@ class BackupService {
     return BackupState(
       records: records,
       backupOnLogin: prefs.getBool(_backupOnLoginPref) ?? false,
+      mode: setupState.mode,
     );
   }
 
@@ -130,6 +176,16 @@ class BackupService {
     String type = 'Database Backup',
     String? name,
   }) async {
+    final setupState = await SetupService.instance.loadState();
+    if (setupState.mode == AppMode.online &&
+        setupState.selectedShopId.trim().isNotEmpty) {
+      return _createRemoteBackup(
+        shopId: setupState.selectedShopId.trim(),
+        type: type,
+        name: name,
+      );
+    }
+
     final isar = await AppDatabase.instance;
     final supportDirectoryPath = await AppDatabase.getSupportDirectoryPath();
     final backupsDirectory = Directory('$supportDirectoryPath/backups');
@@ -144,10 +200,10 @@ class BackupService {
 
     await isar.copyToFile(backupFile.path);
 
-    final setupState = await SetupService.instance.exportState();
+    final exportedSetupState = await SetupService.instance.exportState();
     final activationState = await ActivationService.instance.exportState();
     final backupState = <String, dynamic>{
-      'setup': setupState,
+      'setup': exportedSetupState,
       'activation': activationState,
     };
     await stateFile.writeAsString(jsonEncode(backupState));
@@ -161,6 +217,7 @@ class BackupService {
       sizeBytes: sizeBytes,
       status: 'Completed',
       type: type,
+      storage: BackupStorage.local,
     );
 
     final currentState = await loadState();
@@ -178,6 +235,11 @@ class BackupService {
   }
 
   Future<void> restoreBackup(BackupRecord record) async {
+    if (record.isRemote) {
+      await _restoreRemoteBackup(record);
+      return;
+    }
+
     final backupFile = File(record.filePath);
     if (!await backupFile.exists()) {
       throw Exception('Backup file not found');
@@ -258,6 +320,10 @@ class BackupService {
   }
 
   Future<String?> exportBackup(BackupRecord record) async {
+    if (record.isRemote) {
+      throw Exception('Cloud snapshots cannot be exported as local files');
+    }
+
     final sourceFile = File(record.filePath);
     if (!await sourceFile.exists()) {
       throw Exception('Backup file not found');
@@ -292,5 +358,288 @@ class BackupService {
       records.map((record) => record.toJson()).toList(),
     );
     await prefs.setString(_recordsPref, encoded);
+  }
+
+  Future<List<BackupRecord>> _loadRemoteRecords(String shopId) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('shops')
+        .doc(shopId)
+        .collection('backups')
+        .orderBy('createdAt', descending: true)
+        .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'backups',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      final createdAt = _readDateTime(data['createdAt']);
+      return BackupRecord(
+        id: doc.id,
+        name: data['name']?.toString() ?? 'Cloud Shop Snapshot',
+        filePath: 'remote://$shopId/${doc.id}',
+        createdAt: createdAt,
+        sizeBytes: (data['sizeBytes'] as num?)?.round() ?? 0,
+        status: data['status']?.toString() ?? 'Completed',
+        type: data['type']?.toString() ?? 'Cloud Shop Snapshot',
+        storage: BackupStorage.remote,
+      );
+    }).toList();
+  }
+
+  Future<BackupRecord> _createRemoteBackup({
+    required String shopId,
+    required String type,
+    String? name,
+  }) async {
+    final firestore = FirebaseFirestore.instance;
+    final shopRef = firestore.collection('shops').doc(shopId);
+    final backupRef = shopRef.collection('backups').doc();
+    final now = DateTime.now();
+
+    final shopSnapshot = await shopRef.get();
+    final shopData = shopSnapshot.data() ?? <String, dynamic>{};
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'backups',
+      documentCount: shopSnapshot.exists ? 1 : 0,
+      payload: shopData,
+    );
+
+    final collectionSnapshots = <String, QuerySnapshot<Map<String, dynamic>>>{};
+    var totalBytes = _jsonSize(shopData);
+    var totalDocuments = 0;
+
+    for (final collectionName in _onlineCollections) {
+      final snapshot = await shopRef.collection(collectionName).get();
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'backups',
+        documentCount: snapshot.docs.length,
+        payload: snapshot.docs.map((doc) => doc.data()).toList(),
+      );
+      collectionSnapshots[collectionName] = snapshot;
+      totalDocuments += snapshot.docs.length;
+      for (final doc in snapshot.docs) {
+        totalBytes += _jsonSize(doc.data());
+      }
+    }
+
+    await backupRef.set({
+      'name': name ?? 'Cloud Shop Snapshot',
+      'type': type,
+      'status': 'Completed',
+      'storage': BackupStorage.remote.name,
+      'shopId': shopId,
+      'createdAt': now,
+      'sizeBytes': totalBytes,
+      'totalDocuments': totalDocuments,
+      'collectionNames': _onlineCollections,
+      'shopData': shopData,
+    });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'backups',
+      payload: <String, dynamic>{
+        'backupId': backupRef.id,
+        'type': type,
+        'totalDocuments': totalDocuments,
+        'sizeBytes': totalBytes,
+      },
+    );
+
+    for (final entry in collectionSnapshots.entries) {
+      await _copyCollectionSnapshotToBackup(
+        backupRef: backupRef,
+        collectionName: entry.key,
+        snapshot: entry.value,
+      );
+    }
+
+    return BackupRecord(
+      id: backupRef.id,
+      name: name ?? 'Cloud Shop Snapshot',
+      filePath: 'remote://$shopId/${backupRef.id}',
+      createdAt: now,
+      sizeBytes: totalBytes,
+      status: 'Completed',
+      type: type,
+      storage: BackupStorage.remote,
+    );
+  }
+
+  Future<void> _copyCollectionSnapshotToBackup({
+    required DocumentReference<Map<String, dynamic>> backupRef,
+    required String collectionName,
+    required QuerySnapshot<Map<String, dynamic>> snapshot,
+  }) async {
+    var totalWrites = 0;
+    for (var start = 0; start < snapshot.docs.length; start += 400) {
+      final batch = FirebaseFirestore.instance.batch();
+      final end = math.min(start + 400, snapshot.docs.length);
+      for (final doc in snapshot.docs.sublist(start, end)) {
+        batch.set(
+          backupRef.collection(collectionName).doc(doc.id),
+          doc.data(),
+          SetOptions(merge: false),
+        );
+      }
+      await batch.commit();
+      totalWrites += end - start;
+    }
+    if (totalWrites > 0) {
+      await SubscriptionUsageService.instance.recordWrite(
+        shopId: backupRef.parent.parent?.id ?? '',
+        module: 'backups',
+        documentCount: totalWrites,
+        payload: <String, dynamic>{
+          'backupId': backupRef.id,
+          'collection': collectionName,
+        },
+      );
+    }
+  }
+
+  Future<void> _restoreRemoteBackup(BackupRecord record) async {
+    final setupState = await SetupService.instance.loadState();
+    final shopId = setupState.selectedShopId.trim();
+    if (shopId.isEmpty) {
+      throw Exception('Online shop is not selected');
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    final shopRef = firestore.collection('shops').doc(shopId);
+    final backupRef = shopRef.collection('backups').doc(record.id);
+    final backupSnapshot = await backupRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'backups',
+      documentCount: backupSnapshot.exists ? 1 : 0,
+      payload: backupSnapshot.data(),
+    );
+    if (!backupSnapshot.exists) {
+      throw Exception('Cloud snapshot not found');
+    }
+
+    final backupData = backupSnapshot.data() ?? <String, dynamic>{};
+    final shopData = backupData['shopData'];
+    if (shopData is Map<String, dynamic>) {
+      await shopRef.set(shopData, SetOptions(merge: true));
+      await SubscriptionUsageService.instance.recordWrite(
+        shopId: shopId,
+        module: 'backups',
+        payload: shopData,
+      );
+    }
+
+    for (final collectionName in _onlineCollections) {
+      await _replaceShopCollectionFromBackup(
+        shopRef: shopRef,
+        backupRef: backupRef,
+        collectionName: collectionName,
+      );
+    }
+  }
+
+  Future<void> _replaceShopCollectionFromBackup({
+    required DocumentReference<Map<String, dynamic>> shopRef,
+    required DocumentReference<Map<String, dynamic>> backupRef,
+    required String collectionName,
+  }) async {
+    final targetSnapshot = await shopRef.collection(collectionName).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopRef.id,
+      module: 'backups',
+      documentCount: targetSnapshot.docs.length,
+      payload: targetSnapshot.docs.map((doc) => doc.data()).toList(),
+    );
+    var deleteCount = 0;
+    for (var start = 0; start < targetSnapshot.docs.length; start += 400) {
+      final batch = FirebaseFirestore.instance.batch();
+      final end = math.min(start + 400, targetSnapshot.docs.length);
+      for (final doc in targetSnapshot.docs.sublist(start, end)) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      deleteCount += end - start;
+    }
+    if (deleteCount > 0) {
+      await SubscriptionUsageService.instance.recordDelete(
+        shopId: shopRef.id,
+        module: 'backups',
+        documentCount: deleteCount,
+        payload: <String, dynamic>{'collection': collectionName},
+      );
+    }
+
+    final backupSnapshot = await backupRef.collection(collectionName).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopRef.id,
+      module: 'backups',
+      documentCount: backupSnapshot.docs.length,
+      payload: backupSnapshot.docs.map((doc) => doc.data()).toList(),
+    );
+    var writeCount = 0;
+    for (var start = 0; start < backupSnapshot.docs.length; start += 400) {
+      final batch = FirebaseFirestore.instance.batch();
+      final end = math.min(start + 400, backupSnapshot.docs.length);
+      for (final doc in backupSnapshot.docs.sublist(start, end)) {
+        batch.set(shopRef.collection(collectionName).doc(doc.id), doc.data());
+      }
+      await batch.commit();
+      writeCount += end - start;
+    }
+    if (writeCount > 0) {
+      await SubscriptionUsageService.instance.recordWrite(
+        shopId: shopRef.id,
+        module: 'backups',
+        documentCount: writeCount,
+        payload: <String, dynamic>{'collection': collectionName},
+      );
+    }
+  }
+
+  DateTime _readDateTime(Object? value) {
+    if (value is Timestamp) {
+      return value.toDate();
+    }
+    if (value is DateTime) {
+      return value;
+    }
+    return DateTime.tryParse(value?.toString() ?? '') ?? DateTime.now();
+  }
+
+  int _jsonSize(Map<String, dynamic> value) =>
+      utf8.encode(jsonEncode(_normalizeForJson(value))).length;
+
+  Object? _normalizeForJson(Object? value) {
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    if (value is Timestamp) {
+      return value.toDate().toIso8601String();
+    }
+    if (value is DateTime) {
+      return value.toIso8601String();
+    }
+    if (value is GeoPoint) {
+      return <String, double>{
+        'latitude': value.latitude,
+        'longitude': value.longitude,
+      };
+    }
+    if (value is Iterable) {
+      return value.map(_normalizeForJson).toList();
+    }
+    if (value is Map) {
+      return value.map(
+        (key, nestedValue) =>
+            MapEntry(key.toString(), _normalizeForJson(nestedValue)),
+      );
+    }
+    return value.toString();
   }
 }

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/services/change_log_service.dart';
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'grn_repository.dart';
 
@@ -62,6 +63,12 @@ class GrnRemoteRepository implements GrnRepository {
     double? dueAbove,
   }) async {
     final snapshot = await _grnsRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     final records = snapshot.docs.map(_mapGrnDocumentToRecord).toList()
       ..sort((left, right) => right.date.compareTo(left.date));
 
@@ -109,6 +116,12 @@ class GrnRemoteRepository implements GrnRepository {
   @override
   Future<List<String>> fetchProductSuggestions() async {
     final snapshot = await _productsRef.orderBy('nameLower').limit(50).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     return snapshot.docs
         .map((doc) => doc.data()['name']?.toString().trim() ?? '')
         .where((name) => name.isNotEmpty)
@@ -122,6 +135,12 @@ class GrnRemoteRepository implements GrnRepository {
         .orderBy('supplierName')
         .limit(50)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     return snapshot.docs
         .map((doc) => doc.data()['supplierName']?.toString().trim() ?? '')
         .where((name) => name.isNotEmpty)
@@ -132,11 +151,23 @@ class GrnRemoteRepository implements GrnRepository {
   @override
   Future<GrnRecord?> fetchGrnById(String grnId) async {
     final doc = await _grnsRef.doc(grnId).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: doc.exists ? 1 : 0,
+      payload: doc.data(),
+    );
     if (!doc.exists) {
       final snapshot = await _grnsRef
           .where('code', isEqualTo: grnId)
           .limit(1)
           .get();
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'grn',
+        documentCount: snapshot.docs.length,
+        payload: snapshot.docs.map((doc) => doc.data()).toList(),
+      );
       if (snapshot.docs.isEmpty) {
         return null;
       }
@@ -191,6 +222,18 @@ class GrnRemoteRepository implements GrnRepository {
       'createdAt': now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'grn',
+      payload: <String, dynamic>{
+        'code': record.id,
+        'supplierName': supplierName,
+        'subTotal': record.subTotal,
+        'discount': record.discount,
+        'paidAmount': record.paidAmount,
+        'itemCount': record.items.length,
+      },
+    );
 
     if (addToStock) {
       for (final item in record.items) {
@@ -258,6 +301,17 @@ class GrnRemoteRepository implements GrnRepository {
         'updatedAt': DateTime.now(),
       });
     });
+    await SubscriptionUsageService.instance.recordTransaction(
+      shopId: shopId,
+      module: 'grn',
+      reads: 1,
+      writes: 1,
+      payload: <String, dynamic>{
+        'grnId': grnId,
+        'amount': amount,
+        'method': method,
+      },
+    );
 
     final savedRecord = await fetchGrnById(grnId);
     if (savedRecord != null) {
@@ -281,6 +335,12 @@ class GrnRemoteRepository implements GrnRepository {
   Future<GrnRecord?> addPendingItemsToStock(String grnId) async {
     final docRef = _grnsRef.doc(grnId);
     final snapshot = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.exists ? 1 : 0,
+      payload: snapshot.data(),
+    );
     if (!snapshot.exists) {
       return null;
     }
@@ -310,6 +370,14 @@ class GrnRemoteRepository implements GrnRepository {
     }
 
     await docRef.update({'items': items, 'updatedAt': now});
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'grn',
+      payload: <String, dynamic>{
+        'grnId': grnId,
+        'pendingItemCount': pending.length,
+      },
+    );
     final savedRecord = await fetchGrnById(grnId);
     if (savedRecord != null) {
       await ChangeLogService.instance.logChange(
@@ -331,6 +399,12 @@ class GrnRemoteRepository implements GrnRepository {
         .where('supplierName', isEqualTo: supplierName)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isNotEmpty) {
       return snapshot.docs.first.id;
     }
@@ -342,6 +416,12 @@ class GrnRemoteRepository implements GrnRepository {
         .where('name', isEqualTo: productName)
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       return null;
     }
@@ -368,6 +448,16 @@ class GrnRemoteRepository implements GrnRepository {
       'createdAt': createdAt,
       'updatedAt': createdAt,
     });
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'grn',
+      payload: <String, dynamic>{
+        'barcode': item.stockBarcode,
+        'productName': item.product,
+        'grnCode': grnId,
+        'quantity': item.quantity,
+      },
+    );
   }
 
   GrnRecord _mapGrnDocumentToRecord(

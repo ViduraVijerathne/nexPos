@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'report_repository.dart';
 
@@ -67,6 +68,19 @@ class ReportRemoteRepository implements ReportRepository {
     final invoicesSnapshot = await _invoicesRef.get();
     final productsSnapshot = await _productsRef.get();
     final stocksSnapshot = await _stocksRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'reports',
+      documentCount:
+          invoicesSnapshot.docs.length +
+          productsSnapshot.docs.length +
+          stocksSnapshot.docs.length,
+      payload: <Object?>[
+        invoicesSnapshot.docs.map((doc) => doc.data()).toList(),
+        productsSnapshot.docs.map((doc) => doc.data()).toList(),
+        stocksSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
 
     final invoices = invoicesSnapshot.docs
         .map((doc) => _ReportInvoiceRecord.fromMap(doc.data()))

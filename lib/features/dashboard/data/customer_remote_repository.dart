@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import 'customer_repository.dart';
 
@@ -49,6 +50,15 @@ class CustomerRemoteRepository implements CustomerRepository {
   }) async {
     final customerSnapshot = await _customersRef.get();
     final invoiceSnapshot = await _invoicesRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: customerSnapshot.docs.length + invoiceSnapshot.docs.length,
+      payload: <Object?>[
+        customerSnapshot.docs.map((doc) => doc.data()).toList(),
+        invoiceSnapshot.docs.map((doc) => doc.data()).toList(),
+      ],
+    );
     final invoicesByCustomer = _groupInvoicesByCustomer(invoiceSnapshot.docs);
     final normalizedQuery = searchQuery?.trim().toLowerCase() ?? '';
 
@@ -118,6 +128,12 @@ class CustomerRemoteRepository implements CustomerRepository {
     }
 
     final customerDoc = await _customersRef.doc(docId).get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: customerDoc.exists ? 1 : 0,
+      payload: customerDoc.data(),
+    );
     if (!customerDoc.exists) {
       return null;
     }
@@ -125,6 +141,12 @@ class CustomerRemoteRepository implements CustomerRepository {
     QuerySnapshot<Map<String, dynamic>> invoices = await _invoicesRef
         .where('customerId', isEqualTo: docId)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: invoices.docs.length,
+      payload: invoices.docs.map((doc) => doc.data()).toList(),
+    );
     final customerName =
         (customerDoc.data() ?? const <String, dynamic>{})['name']
             ?.toString()
@@ -134,6 +156,12 @@ class CustomerRemoteRepository implements CustomerRepository {
       invoices = await _invoicesRef
           .where('customerName', isEqualTo: customerName)
           .get();
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'customers',
+        documentCount: invoices.docs.length,
+        payload: invoices.docs.map((doc) => doc.data()).toList(),
+      );
     }
 
     final invoiceDocs = invoices.docs.toList()
@@ -161,6 +189,12 @@ class CustomerRemoteRepository implements CustomerRepository {
         .where('phoneLower', isEqualTo: trimmedPhone.toLowerCase())
         .limit(1)
         .get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
     if (snapshot.docs.isEmpty) {
       return null;
     }
@@ -189,6 +223,12 @@ class CustomerRemoteRepository implements CustomerRepository {
           .where('emailLower', isEqualTo: normalizedEmail)
           .limit(1)
           .get();
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'customers',
+        documentCount: conflict.docs.length,
+        payload: conflict.docs.map((doc) => doc.data()).toList(),
+      );
       if (conflict.docs.isNotEmpty &&
           conflict.docs.first.id != customer.cloudId) {
         throw CustomerRemoteRepositoryException(
@@ -201,6 +241,12 @@ class CustomerRemoteRepository implements CustomerRepository {
         ? _customersRef.doc()
         : _customersRef.doc(customer.cloudId);
     final existing = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: existing.exists ? 1 : 0,
+      payload: existing.data(),
+    );
     final existingData = existing.data();
     final now = DateTime.now();
 
@@ -216,8 +262,24 @@ class CustomerRemoteRepository implements CustomerRepository {
       'createdAt': existingData?['createdAt'] ?? now,
       'updatedAt': now,
     }, SetOptions(merge: true));
+    await SubscriptionUsageService.instance.recordWrite(
+      shopId: shopId,
+      module: 'customers',
+      payload: <String, dynamic>{
+        'name': customer.name.trim(),
+        'email': trimmedEmail,
+        'phone': customer.phone.trim(),
+        'address': customer.address.trim(),
+      },
+    );
 
     final saved = await docRef.get();
+    await SubscriptionUsageService.instance.recordRead(
+      shopId: shopId,
+      module: 'customers',
+      documentCount: saved.exists ? 1 : 0,
+      payload: saved.data(),
+    );
     return _mapCustomerDocumentToRecord(
       saved.id,
       saved.data() ?? <String, dynamic>{},

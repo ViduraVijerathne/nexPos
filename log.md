@@ -192,3 +192,4 @@
 - Completed the reports page hybrid data flow so offline mode continues using Isar while online mode now reads shop-scoped invoices, products, and stocks from Firestore for report analytics.
 - Added a report repository abstraction plus a Firestore report repository, covering revenue, tax, order, stock, low-stock, stock-valuation, and top-customer analytics for the selected date range in online mode.
 - Improved report page UX with loading feedback by adding a full-page skeleton while report cards, charts, and tables are being prepared.
+- Optimized POS fast billing by removing unnecessary full catalog refreshes when adding items to the cart or starting a new transaction, and instead recalculating visible stock quantities locally from the in-memory cart state.

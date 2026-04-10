@@ -91,6 +91,28 @@ class _PosPageState extends State<PosPage> {
   double get _total => _subtotal + _tax;
   double get _amountPaid => double.tryParse(_amountController.text.trim()) ?? 0;
   double get _balance => _amountPaid - _total;
+  List<PosCatalogItem> get _visibleCatalogItems {
+    return _catalogItems
+        .map((item) {
+          final inCartQty = _cartItems
+              .where((cartItem) => cartItem.stockKey == item.stockKey)
+              .fold<int>(0, (sum, cartItem) => sum + cartItem.quantity);
+          final remainingQty = item.availableQty - inCartQty;
+          return PosCatalogItem(
+            stockId: item.stockId,
+            stockCloudId: item.stockCloudId,
+            stockBarcode: item.stockBarcode,
+            productName: item.productName,
+            productBarcode: item.productBarcode,
+            category: item.category,
+            availableQty: remainingQty,
+            sellingPrice: item.sellingPrice,
+          );
+        })
+        .where((item) => item.availableQty > 0)
+        .toList();
+  }
+
   bool get _canProcessPayment =>
       !_isProcessing && _cartItems.isNotEmpty && _amountPaid >= _total;
 
@@ -304,7 +326,6 @@ class _PosPageState extends State<PosPage> {
       });
     }
 
-    _loadCatalog();
     _searchFocusNode.requestFocus();
   }
 
@@ -352,7 +373,6 @@ class _PosPageState extends State<PosPage> {
       _selectedStockKey = null;
     });
     _resetToWalkInCustomer();
-    _loadCatalog();
     _searchFocusNode.requestFocus();
     AppToast.success('New transaction started');
   }
@@ -629,10 +649,10 @@ class _PosPageState extends State<PosPage> {
               const Expanded(child: _PosHeader()),
               const SizedBox(width: 16),
               _PrimaryActionButton(
-                label: _isCatalogLoading ? 'Refreshing...' : 'New Transaction',
+                label: 'New Transaction',
                 icon: Icons.add,
                 onPressed: _isProcessing ? null : _startNewTransaction,
-                isLoading: _isCatalogLoading && _cartItems.isEmpty,
+                isLoading: false,
               ),
             ],
           ),
@@ -654,7 +674,7 @@ class _PosPageState extends State<PosPage> {
                           searchFocusNode: _searchFocusNode,
                           categories: _categories,
                           selectedCategory: _selectedCategory,
-                          products: _catalogItems,
+                          products: _visibleCatalogItems,
                           selectedStockKey: _selectedStockKey,
                           isCatalogLoading: _isCatalogLoading,
                           onSearchChanged: _handleSearchChanged,

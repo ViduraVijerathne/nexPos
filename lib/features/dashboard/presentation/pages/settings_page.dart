@@ -77,6 +77,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isTaxEnabled = false;
   bool _createCustomerOnlyContact = false;
   PosInvoicePrintMode _posInvoicePrintMode = PosInvoicePrintMode.preview;
+  PosShortcutSettings _posShortcutSettings = PosShortcutSettings.defaults;
   ShopInfo _shopInfo = const ShopInfo(
     logoPath: '',
     shopName: '',
@@ -117,6 +118,16 @@ class _SettingsPageState extends State<SettingsPage> {
     DropdownMenuItem(value: 'Nirmala UI', child: Text('Nirmala UI')),
   ];
 
+  static final List<DropdownMenuItem<PosShortcutKey>> _shortcutItems =
+      PosShortcutKey.values
+          .map(
+            (key) => DropdownMenuItem<PosShortcutKey>(
+              value: key,
+              child: Text(key.label),
+            ),
+          )
+          .toList();
+
   @override
   void initState() {
     super.initState();
@@ -149,6 +160,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosCustomerSettings();
       final posPrintSettings = await AppSettingsService.instance
           .loadPosPrintSettings();
+      final posShortcutSettings = await AppSettingsService.instance
+          .loadPosShortcutSettings();
       final invoiceSettings = await AppSettingsService.instance
           .loadInvoiceLayoutSettings();
       final reportHeaderSettings = await AppSettingsService.instance
@@ -164,6 +177,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _taxPercentController.text = _formatNumber(taxSettings.taxPercent);
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
         _posInvoicePrintMode = posPrintSettings.invoicePrintMode;
+        _posShortcutSettings = posShortcutSettings;
         _shopInfo = setupState.shopInfo;
         _paperSize = invoiceSettings.paperSize;
         _invoiceLanguage = invoiceSettings.language;
@@ -218,9 +232,20 @@ class _SettingsPageState extends State<SettingsPage> {
     final reportHeaderMarginBottom = double.tryParse(
       _reportHeaderBottomMarginController.text.trim(),
     );
+    final uniqueShortcuts = <PosShortcutKey>{
+      _posShortcutSettings.productSearchKey,
+      _posShortcutSettings.customerSearchKey,
+      _posShortcutSettings.amountPaidKey,
+      _posShortcutSettings.processPaymentKey,
+    };
 
     if (taxPercent == null || taxPercent < 0 || taxPercent > 100) {
       AppToast.error('Enter a valid tax percentage between 0 and 100');
+      return;
+    }
+
+    if (uniqueShortcuts.length != 4) {
+      AppToast.error('Assign a different shortcut key for each POS action');
       return;
     }
 
@@ -254,6 +279,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       await AppSettingsService.instance.savePosPrintSettings(
         invoicePrintMode: _posInvoicePrintMode,
+      );
+      await AppSettingsService.instance.savePosShortcutSettings(
+        _posShortcutSettings,
       );
       await AppSettingsService.instance.saveInvoiceLayoutSettings(
         InvoiceLayoutSettings(
@@ -613,6 +641,152 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     );
                   }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'POS Keyboard Shortcuts',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Cashier shortcuts for quickly focusing POS fields and processing payments.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF8A98AD),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Product Search'),
+                          const SizedBox(height: 8),
+                          _ShortcutDropdownField(
+                            value: _posShortcutSettings.productSearchKey,
+                            items: _shortcutItems,
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() {
+                                _posShortcutSettings = PosShortcutSettings(
+                                  productSearchKey: value,
+                                  customerSearchKey:
+                                      _posShortcutSettings.customerSearchKey,
+                                  amountPaidKey:
+                                      _posShortcutSettings.amountPaidKey,
+                                  processPaymentKey:
+                                      _posShortcutSettings.processPaymentKey,
+                                );
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Customer Search'),
+                          const SizedBox(height: 8),
+                          _ShortcutDropdownField(
+                            value: _posShortcutSettings.customerSearchKey,
+                            items: _shortcutItems,
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() {
+                                _posShortcutSettings = PosShortcutSettings(
+                                  productSearchKey:
+                                      _posShortcutSettings.productSearchKey,
+                                  customerSearchKey: value,
+                                  amountPaidKey:
+                                      _posShortcutSettings.amountPaidKey,
+                                  processPaymentKey:
+                                      _posShortcutSettings.processPaymentKey,
+                                );
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Amount Paid'),
+                          const SizedBox(height: 8),
+                          _ShortcutDropdownField(
+                            value: _posShortcutSettings.amountPaidKey,
+                            items: _shortcutItems,
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() {
+                                _posShortcutSettings = PosShortcutSettings(
+                                  productSearchKey:
+                                      _posShortcutSettings.productSearchKey,
+                                  customerSearchKey:
+                                      _posShortcutSettings.customerSearchKey,
+                                  amountPaidKey: value,
+                                  processPaymentKey:
+                                      _posShortcutSettings.processPaymentKey,
+                                );
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel('Process Payment'),
+                          const SizedBox(height: 8),
+                          _ShortcutDropdownField(
+                            value: _posShortcutSettings.processPaymentKey,
+                            items: _shortcutItems,
+                            onChanged: (value) {
+                              if (value == null) {
+                                return;
+                              }
+                              setState(() {
+                                _posShortcutSettings = PosShortcutSettings(
+                                  productSearchKey:
+                                      _posShortcutSettings.productSearchKey,
+                                  customerSearchKey:
+                                      _posShortcutSettings.customerSearchKey,
+                                  amountPaidKey:
+                                      _posShortcutSettings.amountPaidKey,
+                                  processPaymentKey: value,
+                                );
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1945,6 +2119,49 @@ class _DropdownField extends StatelessWidget {
         ),
       ),
       items: items,
+    );
+  }
+}
+
+class _ShortcutDropdownField extends StatelessWidget {
+  const _ShortcutDropdownField({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final PosShortcutKey value;
+  final List<DropdownMenuItem<PosShortcutKey>> items;
+  final ValueChanged<PosShortcutKey?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<PosShortcutKey>(
+      value: value,
+      items: items,
+      onChanged: onChanged,
+      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+      borderRadius: BorderRadius.circular(14),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: AppColors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.6),
+        ),
+      ),
     );
   }
 }

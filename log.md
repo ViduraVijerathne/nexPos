@@ -193,3 +193,9 @@
 - Added a report repository abstraction plus a Firestore report repository, covering revenue, tax, order, stock, low-stock, stock-valuation, and top-customer analytics for the selected date range in online mode.
 - Improved report page UX with loading feedback by adding a full-page skeleton while report cards, charts, and tables are being prepared.
 - Optimized POS fast billing by removing unnecessary full catalog refreshes when adding items to the cart or starting a new transaction, and instead recalculating visible stock quantities locally from the in-memory cart state.
+- Changed the POS product area from square grid cards to compact row-style stock items so cashiers can scan, review, and click products faster during billing.
+- Added keyboard-first POS catalog navigation so cashiers can move through visible product rows with arrow keys and press `Enter` to add the highlighted item, a single visible search result, or an exact stock/product barcode match directly to the cart.
+- Fixed the POS barcode entry flow so when a searched barcode is added to the cart and the search box is cleared, the product rows now reload back to the full visible catalog instead of staying stuck on the old filtered result.
+- Restructured the POS screen into three columns so the product list is slightly smaller, cart items are shown in their own dedicated column, and customer/payment/summary controls are isolated in a separate checkout column for clearer cashier workflow.
+- Added configurable POS keyboard shortcuts so cashiers can focus product search, customer search, and amount paid fields or trigger `Process Payment` with function keys.
+- Added a new POS shortcuts settings block under system preferences, with persistent function-key mappings and validation to prevent duplicate shortcut assignments.

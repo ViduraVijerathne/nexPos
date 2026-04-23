@@ -85,10 +85,10 @@ void main() {
   );
 
   // Firebase JSON encryption example:
-  unawaited(
-    encryptFirebaseJsonFile(
-      inputFilePath: '/Users/vidura/Documents/industry-projects/aisha/nexPos/lib/firebase.json',
-      activationKey: buildActivationKey('7304-69DE-611E-4285-E597-7CBB'),
-    ).then(print),
-  );
+  // unawaited(
+  //   encryptFirebaseJsonFile(
+  //     inputFilePath: '/Users/vidura/Documents/industry-projects/aisha/nexPos/lib/firebase.json',
+  //     activationKey: buildActivationKey('7304-69DE-611E-4285-E597-7CBB'),
+  //   ).then(print),
+  // );
 }

@@ -69,32 +69,35 @@ class AppThemeController extends ChangeNotifier {
   AppThemeSettings get settings => _settings;
   Color get accentColor => _settings.accentColor;
 
-  AppThemePalette get palette => switch (_settings.style) {
-    AppThemeStyle.defaultLight => const AppThemePalette(
-      background: Color(0xFFF7FAFC),
-      surface: Color(0xFFFFFFFF),
-      sidebarBackground: Color(0xFFFFFFFF),
-      sectionBannerTint: Color(0xFFF6F9FC),
-    ),
-    AppThemeStyle.skyLight => const AppThemePalette(
-      background: Color(0xFFF4F8FF),
-      surface: Color(0xFFFFFFFF),
-      sidebarBackground: Color(0xFFFDFEFF),
-      sectionBannerTint: Color(0xFFF3F8FF),
-    ),
-    AppThemeStyle.sageLight => const AppThemePalette(
-      background: Color(0xFFF5FBF7),
-      surface: Color(0xFFFFFFFF),
-      sidebarBackground: Color(0xFFFCFEFD),
-      sectionBannerTint: Color(0xFFF3FBF5),
-    ),
-    AppThemeStyle.sandLight => const AppThemePalette(
-      background: Color(0xFFFBF8F3),
-      surface: Color(0xFFFFFFFF),
-      sidebarBackground: Color(0xFFFFFEFC),
-      sectionBannerTint: Color(0xFFFCF7EF),
-    ),
-  };
+  AppThemePalette get palette => paletteFor(_settings);
+
+  static AppThemePalette paletteFor(AppThemeSettings settings) =>
+      switch (settings.style) {
+        AppThemeStyle.defaultLight => const AppThemePalette(
+          background: Color(0xFFF7FAFC),
+          surface: Color(0xFFFFFFFF),
+          sidebarBackground: Color(0xFFFFFFFF),
+          sectionBannerTint: Color(0xFFF6F9FC),
+        ),
+        AppThemeStyle.skyLight => const AppThemePalette(
+          background: Color(0xFFF4F8FF),
+          surface: Color(0xFFFFFFFF),
+          sidebarBackground: Color(0xFFFDFEFF),
+          sectionBannerTint: Color(0xFFF3F8FF),
+        ),
+        AppThemeStyle.sageLight => const AppThemePalette(
+          background: Color(0xFFF5FBF7),
+          surface: Color(0xFFFFFFFF),
+          sidebarBackground: Color(0xFFFCFEFD),
+          sectionBannerTint: Color(0xFFF3FBF5),
+        ),
+        AppThemeStyle.sandLight => const AppThemePalette(
+          background: Color(0xFFFBF8F3),
+          surface: Color(0xFFFFFFFF),
+          sidebarBackground: Color(0xFFFFFEFC),
+          sectionBannerTint: Color(0xFFFCF7EF),
+        ),
+      };
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();

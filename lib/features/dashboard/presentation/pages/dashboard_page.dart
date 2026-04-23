@@ -12,6 +12,7 @@ import 'extension_page.dart';
 import 'grn_page.dart';
 import 'insight_page.dart';
 import 'invoice_page.dart';
+import 'label_printer_page.dart';
 import 'pos_page.dart';
 import 'product_page.dart';
 import 'report_page.dart';
@@ -29,6 +30,7 @@ enum DashboardSection {
   supplies,
   customers,
   invoice,
+  labelPrinter,
   expenses,
   reports,
   extensions,
@@ -63,6 +65,7 @@ class _DashboardPageState extends State<DashboardPage> {
     DashboardSection.supplies: () => const SupplierPage(),
     DashboardSection.customers: () => const CustomerPage(),
     DashboardSection.invoice: () => const InvoicePage(),
+    DashboardSection.labelPrinter: () => const LabelPrinterPage(),
     DashboardSection.expenses: () => const ExpensePage(),
     DashboardSection.reports: () => const ReportPage(),
     DashboardSection.extensions: () => const ExtensionPage(),
@@ -97,6 +100,11 @@ class _DashboardPageState extends State<DashboardPage> {
       'Invoice',
     ),
     _NavItemData(
+      DashboardSection.labelPrinter,
+      Icons.local_print_shop_outlined,
+      'Label Printer',
+    ),
+    _NavItemData(
       DashboardSection.expenses,
       Icons.money_off_csred_outlined,
       'Expenses',
@@ -123,7 +131,21 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
+    AppThemeController.instance.addListener(_handleThemeChanged);
     _loadAppMode();
+  }
+
+  @override
+  void dispose() {
+    AppThemeController.instance.removeListener(_handleThemeChanged);
+    super.dispose();
+  }
+
+  void _handleThemeChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _loadAppMode() async {

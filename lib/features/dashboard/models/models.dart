@@ -192,6 +192,57 @@ class StockPageResult {
   }
 }
 
+enum LabelPrinterSource {
+  product('Product'),
+  stock('Stock');
+
+  const LabelPrinterSource(this.label);
+
+  final String label;
+}
+
+class LabelPrinterItem {
+  const LabelPrinterItem({
+    required this.source,
+    required this.id,
+    required this.title,
+    required this.barcode,
+    required this.secondaryText,
+    this.quantity,
+    this.productBarcode,
+  });
+
+  final LabelPrinterSource source;
+  final String id;
+  final String title;
+  final String barcode;
+  final String secondaryText;
+  final int? quantity;
+  final String? productBarcode;
+}
+
+class LabelPrinterPageResult {
+  const LabelPrinterPageResult({
+    required this.items,
+    required this.totalCount,
+    required this.currentPage,
+    required this.pageSize,
+  });
+
+  final List<LabelPrinterItem> items;
+  final int totalCount;
+  final int currentPage;
+  final int pageSize;
+
+  int get totalPages {
+    if (totalCount == 0) {
+      return 1;
+    }
+
+    return (totalCount / pageSize).ceil();
+  }
+}
+
 class PosCatalogItem {
   const PosCatalogItem({
     this.stockId,

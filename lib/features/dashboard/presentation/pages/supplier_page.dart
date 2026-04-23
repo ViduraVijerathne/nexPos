@@ -341,7 +341,7 @@ class _SupplierHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -349,7 +349,7 @@ class _SupplierHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF334155),
+            color: AppColors.textPrimary,
           ),
         ),
         SizedBox(height: 6),
@@ -358,7 +358,7 @@ class _SupplierHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF8391A7),
+            color: AppColors.textSecondary,
           ),
         ),
       ],
@@ -386,9 +386,9 @@ class _SupplierSearchCard extends StatelessWidget {
         decoration: InputDecoration(
           hintText:
               'Search suppliers by name, contact person, email, or company...',
-          prefixIcon: const Icon(
+          prefixIcon: Icon(
             Icons.search_rounded,
-            color: Color(0xFF9AA8BC),
+            color: AppColors.textSecondary,
             size: 21,
           ),
           contentPadding: const EdgeInsets.symmetric(
@@ -488,7 +488,7 @@ class _SupplierCard extends StatelessWidget {
                 child: _StatColumn(
                   label: 'Paid Amount',
                   value: _formatCurrency(supplier.totalPaid),
-                  valueColor: const Color(0xFF36B4AE),
+                  valueColor: AppColors.primaryTeal,
                 ),
               ),
             ],
@@ -497,7 +497,7 @@ class _SupplierCard extends StatelessWidget {
           _StatColumn(
             label: 'Due Amount',
             value: _formatCurrency(supplier.totalDue),
-            valueColor: const Color(0xFFF35E5E),
+            valueColor: AppColors.error,
           ),
           const Spacer(),
           SizedBox(
@@ -676,9 +676,9 @@ class _SupplierTableCard extends StatelessWidget {
                         flex: 12,
                         child: Text(
                           _formatCurrency(supplier.totalPaid),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF36B4AE),
+                            color: AppColors.primaryTeal,
                           ),
                         ),
                       ),
@@ -689,8 +689,8 @@ class _SupplierTableCard extends StatelessWidget {
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             color: supplier.totalDue > 0
-                                ? const Color(0xFFF45D5D)
-                                : const Color(0xFF36B4AE),
+                                ? AppColors.error
+                                : AppColors.primaryTeal,
                           ),
                         ),
                       ),
@@ -1136,8 +1136,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
               ),
               child: Row(
@@ -1156,8 +1156,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                       const SizedBox(height: 4),
                       Text(
                         widget.supplier.companyName,
-                        style: const TextStyle(
-                          color: Color(0xFFE5FFFA),
+                        style: TextStyle(
+                          color: AppColors.primaryLight,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -1232,8 +1232,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                             },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: widget.supplier.isActive
-                                  ? const Color(0xFFF45050)
-                                  : const Color(0xFF36B4AE),
+                                  ? AppColors.error
+                                  : AppColors.primaryTeal,
                               foregroundColor: AppColors.white,
                               minimumSize: const Size(110, 40),
                               shape: RoundedRectangleBorder(
@@ -1478,8 +1478,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                                       flex: 12,
                                       child: Text(
                                         _formatCurrency(grn.paid),
-                                        style: const TextStyle(
-                                          color: Color(0xFF36B4AE),
+                                        style: TextStyle(
+                                          color: AppColors.primaryTeal,
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -1490,8 +1490,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                                         _formatCurrency(grn.due),
                                         style: TextStyle(
                                           color: grn.due > 0
-                                              ? const Color(0xFFF45D5D)
-                                              : const Color(0xFF36B4AE),
+                                              ? AppColors.error
+                                              : AppColors.primaryTeal,
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -1514,9 +1514,8 @@ class _SupplierDetailsDialogState extends State<SupplierDetailsDialog> {
                                                 widget.onPayDue(grn);
                                               },
                                               style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(
-                                                  0xFF36B4AE,
-                                                ),
+                                                backgroundColor:
+                                                    AppColors.primaryTeal,
                                                 foregroundColor:
                                                     AppColors.white,
                                                 minimumSize: const Size(82, 38),
@@ -1622,13 +1621,13 @@ class _SupplierPayDueDialogState extends State<SupplierPayDueDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 18, 12, 18),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
               ),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1644,7 +1643,7 @@ class _SupplierPayDueDialogState extends State<SupplierPayDueDialog> {
                         Text(
                           'Supplier payment settlement',
                           style: TextStyle(
-                            color: Color(0xFFE6FFFA),
+                            color: AppColors.primaryLight,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -1670,26 +1669,26 @@ class _SupplierPayDueDialogState extends State<SupplierPayDueDialog> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFE5E5),
+                      color: AppColors.error.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Current Due Amount',
                           style: TextStyle(
-                            color: Color(0xFFEE6C6C),
+                            color: AppColors.error,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _formatCurrency(widget.grn.due),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF374151),
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ],
@@ -1759,26 +1758,26 @@ class _SupplierPayDueDialogState extends State<SupplierPayDueDialog> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDDFBF6),
+                      color: AppColors.primaryLight,
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Final Balance to Pay',
                           style: TextStyle(
-                            color: Color(0xFF4AAEA6),
+                            color: AppColors.primaryTeal,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _formatCurrency(_finalBalance),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF374151),
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ],
@@ -1816,7 +1815,7 @@ class _SupplierActionButton extends StatelessWidget {
     return ElevatedButton.icon(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF36B4AE),
+        backgroundColor: AppColors.primaryTeal,
         foregroundColor: AppColors.white,
         minimumSize: const Size(114, 44),
         padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -2064,7 +2063,9 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: active ? const Color(0xFFE7FCF8) : const Color(0xFFFFE8E8),
+        color: active
+            ? AppColors.primaryLight
+            : AppColors.error.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -2072,7 +2073,7 @@ class _StatusPill extends StatelessWidget {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w700,
-          color: active ? const Color(0xFF45C2B6) : const Color(0xFFF05E5E),
+          color: active ? AppColors.primaryTeal : AppColors.error,
         ),
       ),
     );
@@ -2150,7 +2151,7 @@ class _DialogFooter extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: onPrimaryPressed,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF36B4AE),
+                backgroundColor: AppColors.primaryTeal,
                 foregroundColor: AppColors.white,
               ),
               icon: isPrimaryLoading
@@ -2169,7 +2170,7 @@ class _DialogFooter extends StatelessWidget {
             ElevatedButton(
               onPressed: onPrimaryPressed,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF36B4AE),
+                backgroundColor: AppColors.primaryTeal,
                 foregroundColor: AppColors.white,
               ),
               child: isPrimaryLoading

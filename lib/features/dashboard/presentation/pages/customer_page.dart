@@ -292,7 +292,7 @@ class _CustomerHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -300,7 +300,7 @@ class _CustomerHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF334155),
+            color: AppColors.textPrimary,
           ),
         ),
         SizedBox(height: 6),
@@ -309,7 +309,7 @@ class _CustomerHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF8391A7),
+            color: AppColors.textSecondary,
           ),
         ),
       ],
@@ -338,12 +338,12 @@ class _CustomerFilterCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Search & Filter Customers',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF364255),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 14),
@@ -462,7 +462,7 @@ class _CustomerTableCard extends StatelessWidget {
                         loadingCustomerId == customer.id);
 
                 return Container(
-                  color: index == 2 ? const Color(0xFFF8FBFF) : null,
+                  color: index == 2 ? AppColors.primaryLight : null,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 12,
@@ -475,7 +475,7 @@ class _CustomerTableCard extends StatelessWidget {
                           children: [
                             CircleAvatar(
                               radius: 17,
-                              backgroundColor: const Color(0xFF36B4AE),
+                              backgroundColor: AppColors.primaryTeal,
                               child: Text(
                                 customer.avatarText,
                                 style: const TextStyle(
@@ -528,9 +528,9 @@ class _CustomerTableCard extends StatelessWidget {
                         flex: 12,
                         child: Text(
                           _currency(customer.totalSpent),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF36B4AE),
+                            color: AppColors.primaryTeal,
                           ),
                         ),
                       ),
@@ -811,7 +811,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             ),
             _DialogFooter(
               primaryLabel: _isEditing ? 'Update Customer' : 'Add Customer',
-              primaryColor: const Color(0xFF36B4AE),
+              primaryColor: AppColors.primaryTeal,
               onPrimaryPressed: _isSubmitting ? null : _submit,
               onSecondaryPressed: _isSubmitting
                   ? null
@@ -908,8 +908,8 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
               ),
               child: Row(
@@ -929,8 +929,8 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                         const SizedBox(height: 4),
                         Text(
                           'Customer ID: ${widget.customer.id}',
-                          style: const TextStyle(
-                            color: Color(0xFFE6FFFA),
+                          style: TextStyle(
+                            color: AppColors.primaryLight,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -940,7 +940,7 @@ class _CustomerDetailsDialogState extends State<CustomerDetailsDialog> {
                   TextButton.icon(
                     onPressed: widget.onEdit,
                     style: TextButton.styleFrom(
-                      backgroundColor: const Color(0x55FFFFFF),
+                      backgroundColor: AppColors.white.withValues(alpha: 0.33),
                       foregroundColor: AppColors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -1278,7 +1278,7 @@ class _PageActionButton extends StatelessWidget {
     return ElevatedButton.icon(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF36B4AE),
+        backgroundColor: AppColors.primaryTeal,
         foregroundColor: AppColors.white,
         minimumSize: const Size(124, 44),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1673,7 +1673,7 @@ class _MetricCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFDDFBF6),
+        color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -1685,9 +1685,9 @@ class _MetricCard extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF4AAEA6),
+                  color: AppColors.primaryTeal,
                 ),
               ),
             ],
@@ -1695,10 +1695,10 @@ class _MetricCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF334155),
+              color: AppColors.textPrimary,
             ),
           ),
         ],
@@ -1713,7 +1713,7 @@ ButtonStyle _tableActionStyle() {
     padding: const EdgeInsets.symmetric(horizontal: 10),
     side: const BorderSide(color: Color(0xFFE3E9F2)),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    foregroundColor: const Color(0xFF39475B),
+    foregroundColor: AppColors.textPrimary,
     textStyle: const TextStyle(fontWeight: FontWeight.w700),
   );
 }

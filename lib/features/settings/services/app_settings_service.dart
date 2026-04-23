@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 class PosTaxSettings {
   const PosTaxSettings({required this.isTaxEnabled, required this.taxPercent});
@@ -19,6 +20,12 @@ class GrnEntrySettings {
   const GrnEntrySettings({required this.addItemOnEnter});
 
   final bool addItemOnEnter;
+}
+
+class TouchUiSettings {
+  const TouchUiSettings({required this.isEnabled});
+
+  final bool isEnabled;
 }
 
 enum PosInvoicePrintMode {
@@ -170,6 +177,7 @@ class AppSettingsService {
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
   static const String _grnAddItemOnEnterKey = 'settings.grn_add_item_on_enter';
+  static const String _touchUiEnabledKey = 'settings.touch_ui_enabled';
   static const String _posInvoicePrintModeKey =
       'settings.pos_invoice_print_mode';
   static const String _posShortcutProductSearchKey =
@@ -204,6 +212,8 @@ class AppSettingsService {
       'settings.report_header_margin_top';
   static const String _reportHeaderMarginBottomKey =
       'settings.report_header_margin_bottom';
+
+  final ValueNotifier<bool> touchModeNotifier = ValueNotifier<bool>(false);
 
   Future<PosTaxSettings> loadPosTaxSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -247,6 +257,21 @@ class AppSettingsService {
   Future<void> saveGrnEntrySettings({required bool addItemOnEnter}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_grnAddItemOnEnterKey, addItemOnEnter);
+  }
+
+  Future<TouchUiSettings> loadTouchUiSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settings = TouchUiSettings(
+      isEnabled: prefs.getBool(_touchUiEnabledKey) ?? false,
+    );
+    touchModeNotifier.value = settings.isEnabled;
+    return settings;
+  }
+
+  Future<void> saveTouchUiSettings({required bool isEnabled}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_touchUiEnabledKey, isEnabled);
+    touchModeNotifier.value = isEnabled;
   }
 
   Future<PosPrintSettings> loadPosPrintSettings() async {

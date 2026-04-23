@@ -81,7 +81,7 @@ Future<String> encryptFirebaseJsonFile({
 void main() {
   // Example usage:
   print(
-    'Generated Activation Key is : ${buildActivationKey('7304-69DE-611E-4285-E597-7CBB')}',
+    'Generated Activation Key is : ${buildActivationKey('95B3-D416-A309-F1D6-B328-DA32')}',
   );
 
   // Firebase JSON encryption example:

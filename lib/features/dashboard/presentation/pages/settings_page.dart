@@ -75,6 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isTaxEnabled = false;
+  bool _touchUiEnabled = false;
   bool _createCustomerOnlyContact = false;
   bool _grnAddItemOnEnter = true;
   PosInvoicePrintMode _posInvoicePrintMode = PosInvoicePrintMode.preview;
@@ -159,6 +160,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final touchUiSettings = await AppSettingsService.instance
+          .loadTouchUiSettings();
       final grnEntrySettings = await AppSettingsService.instance
           .loadGrnEntrySettings();
       final posPrintSettings = await AppSettingsService.instance
@@ -178,6 +181,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _isTaxEnabled = taxSettings.isTaxEnabled;
         _taxPercentController.text = _formatNumber(taxSettings.taxPercent);
+        _touchUiEnabled = touchUiSettings.isEnabled;
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
         _grnAddItemOnEnter = grnEntrySettings.addItemOnEnter;
         _posInvoicePrintMode = posPrintSettings.invoicePrintMode;
@@ -280,6 +284,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       await AppSettingsService.instance.savePosCustomerSettings(
         createCustomerOnlyContact: _createCustomerOnlyContact,
+      );
+      await AppSettingsService.instance.saveTouchUiSettings(
+        isEnabled: _touchUiEnabled,
       );
       await AppSettingsService.instance.saveGrnEntrySettings(
         addItemOnEnter: _grnAddItemOnEnter,
@@ -1063,6 +1070,23 @@ class _SettingsPageState extends State<SettingsPage> {
                   }).toList(),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Touchscreen Support',
+            child: _SwitchTile(
+              title: 'Enable Touchscreen Mode',
+              description: _touchUiEnabled
+                  ? 'Sidebar navigation is hidden and a large launcher screen is used for touch-friendly navigation.'
+                  : 'Keep the classic sidebar layout for keyboard and mouse driven workflows.',
+              value: _touchUiEnabled,
+              onChanged: (value) async {
+                setState(() => _touchUiEnabled = value);
+                await AppSettingsService.instance.saveTouchUiSettings(
+                  isEnabled: value,
+                );
+              },
             ),
           ),
         ],

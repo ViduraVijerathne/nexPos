@@ -4,6 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../auth/presentation/pages/login_page.dart';
+import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
 import 'backup_page.dart';
 import 'customer_page.dart';
@@ -22,6 +23,7 @@ import 'subscription_page.dart';
 import 'supplier_page.dart';
 
 enum DashboardSection {
+  launcher,
   insight,
   pos,
   products,
@@ -49,6 +51,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DashboardSection _selectedSection = DashboardSection.pos;
   bool _isOnlineMode = false;
+  bool _isTouchMode = false;
   late final Set<DashboardSection> _loadedSections = <DashboardSection>{
     _selectedSection,
   };
@@ -57,6 +60,10 @@ class _DashboardPageState extends State<DashboardPage> {
   };
 
   late final Map<DashboardSection, Widget Function()> _pageBuilders = {
+    DashboardSection.launcher: () => _TouchLauncherPage(
+      items: _visibleNavItems,
+      onSectionSelected: _openSection,
+    ),
     DashboardSection.insight: () => const InsightPage(),
     DashboardSection.pos: () => const PosPage(),
     DashboardSection.products: () => const ProductPage(),
@@ -132,12 +139,18 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     AppThemeController.instance.addListener(_handleThemeChanged);
+    AppSettingsService.instance.touchModeNotifier.addListener(
+      _handleTouchModeChanged,
+    );
     _loadAppMode();
   }
 
   @override
   void dispose() {
     AppThemeController.instance.removeListener(_handleThemeChanged);
+    AppSettingsService.instance.touchModeNotifier.removeListener(
+      _handleTouchModeChanged,
+    );
     super.dispose();
   }
 
@@ -148,12 +161,53 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {});
   }
 
-  Future<void> _loadAppMode() async {
-    final state = await SetupService.instance.loadState();
+  void _handleTouchModeChanged() {
     if (!mounted) {
       return;
     }
-    setState(() => _isOnlineMode = state.mode == AppMode.online);
+
+    final isEnabled = AppSettingsService.instance.touchModeNotifier.value;
+    setState(() {
+      _isTouchMode = isEnabled;
+      if (_isTouchMode) {
+        _selectedSection = DashboardSection.launcher;
+        _loadedSections.add(DashboardSection.launcher);
+        _pageVersions[DashboardSection.launcher] =
+            (_pageVersions[DashboardSection.launcher] ?? 0) + 1;
+      } else if (_selectedSection == DashboardSection.launcher) {
+        _selectedSection = DashboardSection.pos;
+        _loadedSections.add(DashboardSection.pos);
+        _pageVersions[DashboardSection.pos] =
+            (_pageVersions[DashboardSection.pos] ?? 0) + 1;
+      }
+    });
+  }
+
+  Future<void> _loadAppMode() async {
+    final state = await SetupService.instance.loadState();
+    final touchUiSettings = await AppSettingsService.instance
+        .loadTouchUiSettings();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isOnlineMode = state.mode == AppMode.online;
+      _isTouchMode = touchUiSettings.isEnabled;
+      if (_isTouchMode) {
+        _selectedSection = DashboardSection.launcher;
+        _loadedSections.add(DashboardSection.launcher);
+        _pageVersions[DashboardSection.launcher] =
+            (_pageVersions[DashboardSection.launcher] ?? 0) + 1;
+      }
+    });
+  }
+
+  void _openSection(DashboardSection section) {
+    setState(() {
+      _selectedSection = section;
+      _loadedSections.add(section);
+      _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
+    });
   }
 
   List<_NavItemData> get _visibleNavItems => _navItems
@@ -165,35 +219,37 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    final activeSection =
+        _isTouchMode &&
+            _selectedSection != DashboardSection.launcher &&
+            !_loadedSections.contains(_selectedSection)
+        ? DashboardSection.launcher
+        : _selectedSection;
+
     return Scaffold(
       backgroundColor: AppThemeController.instance.palette.background,
       body: Row(
         children: [
-          _DashboardSidebar(
-            items: _visibleNavItems,
-            selectedSection: _selectedSection,
-            onSectionSelected: (section) {
-              setState(() {
-                _selectedSection = section;
-                _loadedSections.add(section);
-                _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
-              });
-            },
-            onLogout: () {
-              AppToast.info('Logged out successfully');
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute<void>(builder: (_) => const LoginPage()),
-                (route) => false,
-              );
-            },
-          ),
+          if (!_isTouchMode)
+            _DashboardSidebar(
+              items: _visibleNavItems,
+              selectedSection: activeSection,
+              onSectionSelected: _openSection,
+              onLogout: _logout,
+            ),
           Expanded(
             child: Column(
               children: [
-                const _DashboardTopBar(),
+                _DashboardTopBar(
+                  isTouchMode: _isTouchMode,
+                  selectedSection: activeSection,
+                  onOpenLauncher: _isTouchMode
+                      ? () => _openSection(DashboardSection.launcher)
+                      : null,
+                ),
                 Expanded(
                   child: IndexedStack(
-                    index: DashboardSection.values.indexOf(_selectedSection),
+                    index: DashboardSection.values.indexOf(activeSection),
                     children: DashboardSection.values
                         .map(
                           (section) => _loadedSections.contains(section)
@@ -213,6 +269,14 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _logout() {
+    AppToast.info('Logged out successfully');
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+      (route) => false,
     );
   }
 }
@@ -314,7 +378,15 @@ class _DashboardSidebar extends StatelessWidget {
 }
 
 class _DashboardTopBar extends StatelessWidget {
-  const _DashboardTopBar();
+  const _DashboardTopBar({
+    required this.isTouchMode,
+    required this.selectedSection,
+    this.onOpenLauncher,
+  });
+
+  final bool isTouchMode;
+  final DashboardSection selectedSection;
+  final VoidCallback? onOpenLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -327,6 +399,28 @@ class _DashboardTopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (isTouchMode) ...[
+            FilledButton.icon(
+              onPressed: selectedSection == DashboardSection.launcher
+                  ? null
+                  : onOpenLauncher,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryTeal,
+                foregroundColor: AppColors.white,
+                minimumSize: const Size(124, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.apps_rounded, size: 18),
+              label: const Text(
+                'Launcher',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 14),
+          ],
           Container(
             width: 26,
             height: 26,
@@ -461,4 +555,143 @@ class _NavItemData {
   final DashboardSection section;
   final IconData icon;
   final String label;
+}
+
+class _TouchLauncherPage extends StatelessWidget {
+  const _TouchLauncherPage({
+    required this.items,
+    required this.onSectionSelected,
+  });
+
+  final List<_NavItemData> items;
+  final ValueChanged<DashboardSection> onSectionSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Touch Launcher',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose a module to continue. Large touch-friendly tiles are enabled while touchscreen mode is active.',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final crossAxisCount = constraints.maxWidth >= 1400
+                    ? 4
+                    : constraints.maxWidth >= 1000
+                    ? 3
+                    : 2;
+                return GridView.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: 18,
+                    mainAxisSpacing: 18,
+                    childAspectRatio: 1.45,
+                  ),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return _LauncherTile(
+                      item: item,
+                      onTap: () => onSectionSelected(item.section),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LauncherTile extends StatelessWidget {
+  const _LauncherTile({required this.item, required this.onTap});
+
+  final _NavItemData item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.primaryLight),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x120F172A),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    item.icon,
+                    size: 32,
+                    color: AppColors.primaryTeal,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  item.label,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Open ${item.label.toLowerCase()} tools',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
 import '../../data/insight_remote_repository.dart';
@@ -294,6 +295,7 @@ class _SalesPerformanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = AppColors.primaryTeal;
     return _DashboardCard(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
       child: Column(
@@ -327,20 +329,16 @@ class _SalesPerformanceCard extends StatelessWidget {
           const SizedBox(height: 16),
           SizedBox(height: 254, child: _SalesChart(points: data.salesPoints)),
           const SizedBox(height: 8),
-          const Center(
+          Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.show_chart_rounded,
-                  size: 15,
-                  color: Color(0xFF43C2BE),
-                ),
+                Icon(Icons.show_chart_rounded, size: 15, color: accentColor),
                 SizedBox(width: 4),
                 Text(
                   'Sales (Rs)',
                   style: TextStyle(
-                    color: Color(0xFF43C2BE),
+                    color: accentColor,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
@@ -729,6 +727,14 @@ class _SalesChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = AppColors.primaryTeal;
+    final accentFillColor = Color.lerp(
+      Colors.white,
+      AppColors.primaryLight,
+      0.88,
+    )!;
+    final gridColor = Color.lerp(const Color(0xFFE7EDF5), accentColor, 0.08)!;
+    final axisColor = Color.lerp(const Color(0xFFB8C4D3), accentColor, 0.16)!;
     final maxValue = points.isEmpty
         ? 1.0
         : points
@@ -774,7 +780,15 @@ class _SalesChart extends StatelessWidget {
             children: [
               Expanded(
                 child: CustomPaint(
-                  painter: _SalesChartPainter(points, maxValue),
+                  painter: _SalesChartPainter(
+                    points,
+                    maxValue,
+                    lineColor: accentColor,
+                    pointColor: accentColor,
+                    fillColor: accentFillColor,
+                    gridColor: gridColor,
+                    axisColor: axisColor,
+                  ),
                   child: const SizedBox.expand(),
                 ),
               ),
@@ -1090,10 +1104,23 @@ class _InsightPageSkeleton extends StatelessWidget {
 }
 
 class _SalesChartPainter extends CustomPainter {
-  const _SalesChartPainter(this.points, this.maxValue);
+  const _SalesChartPainter(
+    this.points,
+    this.maxValue, {
+    required this.lineColor,
+    required this.pointColor,
+    required this.fillColor,
+    required this.gridColor,
+    required this.axisColor,
+  });
 
   final List<InsightSalesPoint> points;
   final double maxValue;
+  final Color lineColor;
+  final Color pointColor;
+  final Color fillColor;
+  final Color gridColor;
+  final Color axisColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1102,17 +1129,17 @@ class _SalesChartPainter extends CustomPainter {
     }
 
     final gridPaint = Paint()
-      ..color = const Color(0xFFE7EDF5)
+      ..color = gridColor
       ..strokeWidth = 1;
     final axisPaint = Paint()
-      ..color = const Color(0xFFB8C4D3)
+      ..color = axisColor
       ..strokeWidth = 1.2;
     final linePaint = Paint()
-      ..color = const Color(0xFF45C1BC)
+      ..color = lineColor
       ..strokeWidth = 2.2
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    final pointPaint = Paint()..color = const Color(0xFF45C1BC);
+    final pointPaint = Paint()..color = pointColor;
 
     final chartHeight = size.height - 10;
     final stepX = points.length == 1
@@ -1130,7 +1157,7 @@ class _SalesChartPainter extends CustomPainter {
         Offset(x, 0),
         Offset(x, chartHeight),
         Paint()
-          ..color = const Color(0xFFE9EEF6)
+          ..color = fillColor
           ..strokeWidth = 1,
       );
     }
@@ -1166,7 +1193,13 @@ class _SalesChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SalesChartPainter oldDelegate) {
-    return oldDelegate.points != points || oldDelegate.maxValue != maxValue;
+    return oldDelegate.points != points ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.pointColor != pointColor ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.gridColor != gridColor ||
+        oldDelegate.axisColor != axisColor;
   }
 }
 

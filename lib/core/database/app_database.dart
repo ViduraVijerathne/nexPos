@@ -6,7 +6,7 @@ import 'isar_schemas.dart';
 class AppDatabase {
   AppDatabase._();
 
-  static const String databaseName = 'nex_pos_db2';
+  static const String databaseName = 'nex_pos_db';
   static Future<Isar>? _openFuture;
 
   static Future<Isar> get instance {

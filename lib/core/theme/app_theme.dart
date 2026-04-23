@@ -7,7 +7,7 @@ class AppTheme {
   const AppTheme._();
 
   static ThemeData lightTheme(AppThemeSettings settings) {
-    final palette = AppThemeController.instance.palette;
+    final palette = AppThemeController.paletteFor(settings);
     final baseTextTheme = Typography.material2021().black.apply(
       bodyColor: AppColors.textPrimary,
       displayColor: AppColors.textPrimary,

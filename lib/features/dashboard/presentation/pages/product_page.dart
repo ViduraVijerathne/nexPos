@@ -17,6 +17,12 @@ import '../../data/stock_repository_factory.dart';
 import '../../models/models.dart';
 import 'stock_page.dart';
 
+Color _productAccentSurface([double amount = 0.14]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
+Color _productAccentBorder([double amount = 0.34]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
 class ProductPage extends StatefulWidget {
   const ProductPage({super.key});
 
@@ -360,9 +366,7 @@ class _ProductPageState extends State<ProductPage> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF36B4AE),
-                          ),
+                          borderSide: BorderSide(color: AppColors.primaryTeal),
                         ),
                       ),
                     ),
@@ -841,7 +845,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                             child: ElevatedButton.icon(
                               onPressed: _generateBarcode,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF36B4AE),
+                                backgroundColor: AppColors.primaryTeal,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 14,
                                 ),
@@ -1031,9 +1035,8 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                                       child: ElevatedButton.icon(
                                         onPressed: _generateOpeningStockBarcode,
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: const Color(
-                                            0xFF36B4AE,
-                                          ),
+                                          backgroundColor:
+                                              AppColors.primaryTeal,
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 14,
                                           ),
@@ -1184,7 +1187,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                     onPressed: _isSubmitting ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(140, 40),
-                      backgroundColor: const Color(0xFF36B4AE),
+                      backgroundColor: AppColors.primaryTeal,
                     ),
                     child: _isSubmitting
                         ? const SizedBox(
@@ -1260,12 +1263,10 @@ class _FilterChipButton extends StatelessWidget {
         height: 30,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF36B4AE) : AppColors.white,
+          color: isSelected ? AppColors.primaryTeal : AppColors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFF36B4AE)
-                : const Color(0xFFE3E9F1),
+            color: isSelected ? AppColors.primaryTeal : const Color(0xFFE3E9F1),
           ),
         ),
         child: Row(
@@ -1365,12 +1366,12 @@ class _ProductTableRow extends StatelessWidget {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE7FBF7),
+                    color: _productAccentSurface(),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.inventory_2_outlined,
-                    color: Color(0xFF36B4AE),
+                    color: AppColors.primaryTeal,
                     size: 18,
                   ),
                 ),
@@ -1465,7 +1466,7 @@ class _ProductTableRow extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: isActive
-                      ? const Color(0xFFE7FBF7)
+                      ? _productAccentSurface()
                       : const Color(0xFFFCE8E8),
                   borderRadius: BorderRadius.circular(999),
                 ),
@@ -1475,7 +1476,7 @@ class _ProductTableRow extends StatelessWidget {
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
                     color: isActive
-                        ? const Color(0xFF36B4AE)
+                        ? AppColors.primaryTeal
                         : const Color(0xFFF56565),
                   ),
                 ),
@@ -1706,8 +1707,8 @@ class _ProductDetailsDialogState extends State<ProductDetailsDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
               ),
               child: Row(
@@ -1794,7 +1795,7 @@ class _ProductDetailsDialogState extends State<ProductDetailsDialog> {
                               ? Icons.check_circle_outline_rounded
                               : Icons.block_outlined,
                           valueColor: isActive
-                              ? const Color(0xFF36B4AE)
+                              ? AppColors.primaryTeal
                               : const Color(0xFFF56565),
                         ),
                       ),
@@ -1835,10 +1836,10 @@ class _ProductDetailsDialogState extends State<ProductDetailsDialog> {
                         ),
                         const Divider(height: 1, color: Color(0xFFEFF3F8)),
                         if (_isLoadingStocks)
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.all(24),
                             child: CircularProgressIndicator(
-                              color: Color(0xFF36B4AE),
+                              color: AppColors.primaryTeal,
                             ),
                           )
                         else if (_stocks.isEmpty)
@@ -1912,10 +1913,10 @@ class _ProductDetailsDialogState extends State<ProductDetailsDialog> {
                                         flex: 16,
                                         child: Text(
                                           'Rs ${stock.sellingPrice.toStringAsFixed(2)}',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
-                                            color: Color(0xFF36B4AE),
+                                            color: AppColors.primaryTeal,
                                           ),
                                         ),
                                       ),
@@ -2012,7 +2013,7 @@ class _ProductInfoTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFD),
+        color: _productAccentSurface(0.08),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE7EDF5)),
       ),
@@ -2075,8 +2076,8 @@ class _ReadOnlyGrnDetailsDialog extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
@@ -2095,8 +2096,8 @@ class _ReadOnlyGrnDetailsDialog extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         'ID: ${record.id}',
-                        style: const TextStyle(
-                          color: Color(0xFFE6FFFA),
+                        style: TextStyle(
+                          color: _productAccentSurface(0.08),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -2154,7 +2155,7 @@ class _ReadOnlyGrnDetailsDialog extends StatelessWidget {
                           icon: Icons.warning_amber_rounded,
                           valueColor: record.dueAmount > 0
                               ? const Color(0xFFF56565)
-                              : const Color(0xFF36B4AE),
+                              : AppColors.primaryTeal,
                         ),
                       ),
                     ],
@@ -2235,7 +2236,7 @@ class _ReadOnlyGrnDetailsDialog extends StatelessWidget {
                                         style: TextStyle(
                                           fontWeight: FontWeight.w700,
                                           color: item.inStock
-                                              ? const Color(0xFF36B4AE)
+                                              ? AppColors.primaryTeal
                                               : const Color(0xFFF59E0B),
                                         ),
                                       ),
@@ -2463,7 +2464,7 @@ class _DialogTextField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
     );
@@ -2507,7 +2508,7 @@ class _DialogDropdown<T> extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
       items: items
@@ -2565,7 +2566,7 @@ class _ActionButton extends StatelessWidget {
       child: ElevatedButton.icon(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF36B4AE),
+          backgroundColor: AppColors.primaryTeal,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
@@ -2605,7 +2606,7 @@ class _PaginationButton extends StatelessWidget {
         child: Icon(
           icon,
           size: 18,
-          color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+          color: enabled ? AppColors.primaryTeal : const Color(0xFFC1CAD6),
         ),
       ),
     );

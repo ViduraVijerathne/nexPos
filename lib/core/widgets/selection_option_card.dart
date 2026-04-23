@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_colors.dart';
+
 class SelectionOptionCard<T> extends StatelessWidget {
   const SelectionOptionCard({
     super.key,
@@ -32,13 +34,11 @@ class SelectionOptionCard<T> extends StatelessWidget {
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: enabled
-              ? (isSelected ? const Color(0xFFE7FCF8) : Colors.white)
+              ? (isSelected ? AppColors.primaryLight : Colors.white)
               : const Color(0xFFF7F9FC),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFF36B4AE)
-                : const Color(0xFFE4EAF2),
+            color: isSelected ? AppColors.primaryTeal : const Color(0xFFE4EAF2),
             width: isSelected ? 1.8 : 1,
           ),
         ),
@@ -48,7 +48,7 @@ class SelectionOptionCard<T> extends StatelessWidget {
               value: value,
               groupValue: groupValue,
               onChanged: enabled ? (_) => onTap() : null,
-              activeColor: const Color(0xFF36B4AE),
+              activeColor: AppColors.primaryTeal,
             ),
             Expanded(
               child: Column(

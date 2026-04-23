@@ -16,6 +16,9 @@ import '../../data/supplier_repository_factory.dart';
 import '../../models/models.dart';
 import 'supplier_page.dart' show SupplierFormDialog;
 
+Color _grnAccentSurface([double amount = 0.14]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
 class GrnPage extends StatefulWidget {
   const GrnPage({super.key});
 
@@ -950,9 +953,8 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                                               });
                                             },
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(
-                                                0xFF36B4AE,
-                                              ),
+                                              backgroundColor:
+                                                  AppColors.primaryTeal,
                                               padding:
                                                   const EdgeInsets.symmetric(
                                                     horizontal: 14,
@@ -1040,7 +1042,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                               child: ElevatedButton.icon(
                                 onPressed: _addItem,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF36B4AE),
+                                  backgroundColor: AppColors.primaryTeal,
                                 ),
                                 icon: const Icon(Icons.add, size: 16),
                                 label: const Text(
@@ -1197,13 +1199,13 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                               label: 'Total:',
                               value: '\$${_total.toStringAsFixed(2)}',
                               large: true,
-                              valueColor: const Color(0xFF36B4AE),
+                              valueColor: AppColors.primaryTeal,
                             ),
                             const SizedBox(height: 8),
                             _SummaryValueRow(
                               label: 'Paid Amount:',
                               value: '\$${_paidAmount.toStringAsFixed(2)}',
-                              valueColor: const Color(0xFF36B4AE),
+                              valueColor: AppColors.primaryTeal,
                             ),
                             const SizedBox(height: 8),
                             _SummaryValueRow(
@@ -1243,7 +1245,7 @@ class _CreateGrnDialogState extends State<CreateGrnDialog> {
                         ? null
                         : () => _saveGrn(addToStock: false),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF36B4AE),
+                      backgroundColor: AppColors.primaryTeal,
                       foregroundColor: Colors.white,
                       disabledBackgroundColor: const Color(0xFFD6DDE7),
                       disabledForegroundColor: const Color(0xFF98A5B7),
@@ -1369,8 +1371,8 @@ class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
@@ -1389,8 +1391,8 @@ class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
                       const SizedBox(height: 4),
                       Text(
                         'ID: ${record.id}',
-                        style: const TextStyle(
-                          color: Color(0xFFE6FFFA),
+                        style: TextStyle(
+                          color: _grnAccentSurface(0.08),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1480,7 +1482,7 @@ class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
                                 ? null
                                 : _handleAddPendingToStock,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF48BB78),
+                              backgroundColor: AppColors.primaryTeal,
                             ),
                             icon: _isAddingStock
                                 ? const SizedBox(
@@ -1510,7 +1512,7 @@ class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
                               ? null
                               : _handlePayDue,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF36B4AE),
+                            backgroundColor: AppColors.primaryTeal,
                           ),
                           icon: _isPayingDue
                               ? const SizedBox(
@@ -1609,6 +1611,10 @@ class _GrnDetailsDialogState extends State<GrnDetailsDialog> {
                 padding: const EdgeInsets.fromLTRB(0, 0, 20, 20),
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: _grnAccentSurface(0.34)),
+                    foregroundColor: AppColors.primaryTeal,
+                  ),
                   child: const Text('Close'),
                 ),
               ),
@@ -1674,8 +1680,8 @@ class _PayDueDialogState extends State<PayDueDialog> {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
@@ -1694,8 +1700,8 @@ class _PayDueDialogState extends State<PayDueDialog> {
                       const SizedBox(height: 4),
                       Text(
                         'Supplier: ${widget.record.supplier}',
-                        style: const TextStyle(
-                          color: Color(0xFFE6FFFA),
+                        style: TextStyle(
+                          color: _grnAccentSurface(0.08),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1780,16 +1786,16 @@ class _PayDueDialogState extends State<PayDueDialog> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDDF8F4),
+                      color: _grnAccentSurface(0.20),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Final Balance to Pay',
                           style: TextStyle(
-                            color: Color(0xFF36B4AE),
+                            color: AppColors.primaryTeal,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -1828,7 +1834,7 @@ class _PayDueDialogState extends State<PayDueDialog> {
                   ElevatedButton.icon(
                     onPressed: _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF36B4AE),
+                      backgroundColor: AppColors.primaryTeal,
                     ),
                     icon: const Icon(Icons.attach_money_rounded, size: 16),
                     label: const Text('Pay'),
@@ -1965,7 +1971,7 @@ class _GrnFilterCard extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: onApply,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF36B4AE),
+                backgroundColor: AppColors.primaryTeal,
               ),
               icon: const Icon(Icons.search_rounded, size: 16),
               label: const Text('Apply Filters'),
@@ -2092,9 +2098,7 @@ class _GrnTableCard extends StatelessWidget {
                               flex: 16,
                               child: Text(
                                 '\$${record.total.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  color: Color(0xFF36B4AE),
-                                ),
+                                style: TextStyle(color: AppColors.primaryTeal),
                               ),
                             ),
                             Expanded(
@@ -2103,7 +2107,7 @@ class _GrnTableCard extends StatelessWidget {
                                 '\$${record.dueAmount.toStringAsFixed(2)}',
                                 style: TextStyle(
                                   color: record.dueAmount <= 0
-                                      ? const Color(0xFF36B4AE)
+                                      ? AppColors.primaryTeal
                                       : const Color(0xFFFA6A6A),
                                 ),
                               ),
@@ -2411,7 +2415,7 @@ class _SimpleTable extends StatelessWidget {
                                 ),
                                 decoration: BoxDecoration(
                                   color: row[i] == 'In Stock'
-                                      ? const Color(0xFFE7FBF7)
+                                      ? _grnAccentSurface(0.16)
                                       : const Color(0xFFF8FBFD),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
@@ -2420,7 +2424,7 @@ class _SimpleTable extends StatelessWidget {
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     color: row[i] == 'In Stock'
-                                        ? const Color(0xFF36B4AE)
+                                        ? AppColors.primaryTeal
                                         : const Color(0xFF8492A6),
                                   ),
                                 ),
@@ -2433,7 +2437,7 @@ class _SimpleTable extends StatelessWidget {
                                     ? FontWeight.w700
                                     : FontWeight.w600,
                                 color: emphasizeColumn == i
-                                    ? const Color(0xFF36B4AE)
+                                    ? AppColors.primaryTeal
                                     : const Color(0xFF5B687B),
                               ),
                             ),
@@ -2515,7 +2519,7 @@ class _AmountTile extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: positive ? const Color(0xFFDDF8F4) : const Color(0xFFFFE3E3),
+        color: positive ? _grnAccentSurface(0.20) : const Color(0xFFFFE3E3),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -2525,9 +2529,7 @@ class _AmountTile extends StatelessWidget {
             label,
             style: TextStyle(
               fontWeight: FontWeight.w700,
-              color: positive
-                  ? const Color(0xFF36B4AE)
-                  : const Color(0xFFF46A6A),
+              color: positive ? AppColors.primaryTeal : const Color(0xFFF46A6A),
             ),
           ),
           const SizedBox(height: 8),
@@ -2602,7 +2604,7 @@ class _ActionButton extends StatelessWidget {
       child: ElevatedButton.icon(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF36B4AE),
+          backgroundColor: AppColors.primaryTeal,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
@@ -2642,7 +2644,7 @@ class _PagerButton extends StatelessWidget {
         child: Icon(
           icon,
           size: 18,
-          color: enabled ? const Color(0xFF526177) : const Color(0xFFC1CAD6),
+          color: enabled ? AppColors.primaryTeal : const Color(0xFFC1CAD6),
         ),
       ),
     );
@@ -2810,7 +2812,7 @@ InputDecoration _dialogFieldDecoration({String? hintText}) {
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+      borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
     ),
   );
 }
@@ -2837,7 +2839,7 @@ InputDecoration _filterFieldDecoration({
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 1.6),
+      borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.6),
     ),
   );
 }

@@ -484,21 +484,21 @@ class _SettingsPageState extends State<SettingsPage> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Settings',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF2E3A4D),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   'Manage your system preferences and configurations.',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF8090A4),
+                    color: AppColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -563,12 +563,12 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'System Preferences',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 18),
@@ -633,12 +633,12 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Choose what happens after the cashier presses `Process Payment` in POS.',
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF8A98AD),
+                    color: AppColors.textSecondary,
                     height: 1.5,
                   ),
                 ),
@@ -672,12 +672,12 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Cashier shortcuts for quickly focusing POS fields and processing payments.',
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF8A98AD),
+                    color: AppColors.textSecondary,
                     height: 1.5,
                   ),
                 ),
@@ -834,12 +834,12 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Profile Settings',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 18),
@@ -852,17 +852,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   height: 104,
                   width: 104,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF3F8FC),
+                    color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: const Color(0xFFE6EDF5)),
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: hasLogo
                       ? Image.file(File(_shopInfo.logoPath), fit: BoxFit.cover)
-                      : const Icon(
+                      : Icon(
                           Icons.storefront_outlined,
                           size: 40,
-                          color: Color(0xFF8AA0B8),
+                          color: AppColors.textSecondary,
                         ),
                 ),
                 const SizedBox(width: 18),
@@ -874,10 +874,10 @@ class _SettingsPageState extends State<SettingsPage> {
                         _shopInfo.shopName.trim().isEmpty
                             ? 'Shop name not set'
                             : _shopInfo.shopName,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF334156),
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -986,12 +986,12 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Themes',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 18),
@@ -1035,12 +1035,12 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Select the primary accent color used across buttons, highlights, active navigation, and focused inputs.',
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF8A98AD),
+                    color: AppColors.textSecondary,
                     height: 1.5,
                   ),
                 ),
@@ -1075,12 +1075,12 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Invoice Layout',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 18),
@@ -1099,7 +1099,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       onSelected: (_) {
                         setState(() => _invoiceLanguage = language);
                       },
-                      selectedColor: const Color(0xFFE8FBF7),
+                      selectedColor: AppColors.primaryLight,
                       side: BorderSide(
                         color: selected
                             ? AppColors.primaryTeal
@@ -1242,12 +1242,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       label: const Text('Reset Default Layout'),
                     ),
                     const Spacer(),
-                    const Text(
+                    Text(
                       'Shop logo and title come from setup information.',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFF8A98AD),
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -1257,7 +1257,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF7FAFC),
+                    color: AppColors.background,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE6EDF5)),
                   ),
@@ -1313,7 +1313,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       onSelected: (_) {
                         setState(() => _reportHeaderLanguage = language);
                       },
-                      selectedColor: const Color(0xFFE8FBF7),
+                      selectedColor: AppColors.primaryLight,
                       side: BorderSide(
                         color: selected
                             ? AppColors.primaryTeal
@@ -1401,12 +1401,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       label: const Text('Reset Report Header'),
                     ),
                     const Spacer(),
-                    const Text(
+                    Text(
                       'Preview updates the reports page header.',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFF8A98AD),
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -1416,7 +1416,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF7FAFC),
+                    color: AppColors.background,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: const Color(0xFFE6EDF5)),
                   ),
@@ -1450,12 +1450,12 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'About',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 18),
@@ -1524,12 +1524,12 @@ class _MenuCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'SETTINGS MENU',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF8594AA),
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 18),
@@ -1568,7 +1568,7 @@ class _MenuItem extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFD9F7F3) : Colors.transparent,
+          color: isSelected ? AppColors.primaryLight : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? AppColors.primaryTeal : Colors.transparent,
@@ -1581,7 +1581,7 @@ class _MenuItem extends StatelessWidget {
               size: 20,
               color: isSelected
                   ? AppColors.primaryTeal
-                  : const Color(0xFF71829B),
+                  : AppColors.textSecondary,
             ),
             const SizedBox(width: 14),
             Text(
@@ -1591,7 +1591,7 @@ class _MenuItem extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 color: isSelected
                     ? AppColors.primaryTeal
-                    : const Color(0xFF4A586B),
+                    : AppColors.textPrimary,
               ),
             ),
           ],
@@ -1633,7 +1633,7 @@ class _SettingsBlock extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FBFD),
+        color: AppColors.background,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE6EDF5)),
       ),
@@ -1642,10 +1642,10 @@ class _SettingsBlock extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334156),
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 14),
@@ -1677,7 +1677,7 @@ class _SelectableCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFFE8FBF7) : AppColors.white,
+          color: selected ? AppColors.primaryLight : AppColors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? AppColors.primaryTeal : const Color(0xFFE3EAF2),
@@ -1691,10 +1691,10 @@ class _SelectableCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF334156),
+                color: AppColors.textPrimary,
               ),
             ),
           ],
@@ -1727,7 +1727,7 @@ class _InfoPanel extends StatelessWidget {
               height: 72,
               width: 72,
               decoration: BoxDecoration(
-                color: const Color(0xFFE8FBF7),
+                color: AppColors.primaryLight,
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Icon(icon, color: AppColors.primaryTeal, size: 34),
@@ -1735,20 +1735,20 @@ class _InfoPanel extends StatelessWidget {
             const SizedBox(height: 18),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF334156),
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 10),
             Text(
               description,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: Color(0xFF8090A4),
+                color: AppColors.textSecondary,
                 height: 1.6,
               ),
             ),
@@ -1770,15 +1770,15 @@ class _PreviewInfoText extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 16, color: const Color(0xFF7E91A8)),
+        Icon(icon, size: 16, color: AppColors.textSecondary),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13.5,
               fontWeight: FontWeight.w500,
-              color: Color(0xFF5D6D81),
+              color: AppColors.textPrimary,
               height: 1.4,
             ),
           ),
@@ -1872,10 +1872,10 @@ class _ThemeStyleCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF334156),
+                color: AppColors.textPrimary,
               ),
             ),
           ],
@@ -1905,7 +1905,7 @@ class _AccentColorOption extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           border: Border.all(
-            color: selected ? const Color(0xFF334156) : Colors.transparent,
+            color: selected ? AppColors.textPrimary : Colors.transparent,
             width: 2,
           ),
           shape: BoxShape.circle,
@@ -1953,19 +1953,19 @@ class _SwitchTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF334156),
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   description,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: Color(0xFF8A98AD),
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
@@ -1973,7 +1973,8 @@ class _SwitchTile extends StatelessWidget {
           ),
           Switch(
             value: value,
-            activeColor: AppColors.primaryTeal,
+            activeThumbColor: AppColors.white,
+            activeTrackColor: AppColors.primaryTeal,
             onChanged: onChanged,
           ),
         ],
@@ -1991,10 +1992,10 @@ class _FieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 13.5,
         fontWeight: FontWeight.w700,
-        color: Color(0xFF4A586B),
+        color: AppColors.textPrimary,
       ),
     );
   }
@@ -2090,10 +2091,10 @@ class _LabeledNumberField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12.5,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF6E7E94),
+            color: AppColors.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
@@ -2241,20 +2242,20 @@ class _InfoRow extends StatelessWidget {
             width: 120,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF6E7E94),
+                color: AppColors.textSecondary,
               ),
             ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF334156),
+                color: AppColors.textPrimary,
               ),
             ),
           ),

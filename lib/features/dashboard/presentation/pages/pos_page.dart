@@ -913,6 +913,15 @@ extension on PosShortcutKey {
   };
 }
 
+Color _posAccentSurface([double amount = 0.12]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
+Color _posAccentBorder([double amount = 0.34]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
+Color _posAccentStrong([double amount = 0.18]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
 class _PosHeader extends StatelessWidget {
   const _PosHeader();
 
@@ -1235,7 +1244,7 @@ class _ProductsPanel extends StatelessWidget {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+                    borderSide: BorderSide(color: AppColors.primaryTeal),
                   ),
                 ),
               ),
@@ -1441,10 +1450,10 @@ class _CheckoutPanel extends StatelessWidget {
           ),
           if (isCustomerLoading) ...[
             const SizedBox(height: 8),
-            const LinearProgressIndicator(
+            LinearProgressIndicator(
               minHeight: 2,
-              color: Color(0xFF36B4AE),
-              backgroundColor: Color(0xFFE5F5F3),
+              color: AppColors.primaryTeal,
+              backgroundColor: _posAccentSurface(),
             ),
           ],
           if (showCustomerSuggestions && customerSuggestions.isNotEmpty) ...[
@@ -1487,10 +1496,10 @@ class _CheckoutPanel extends StatelessWidget {
               const Spacer(),
               Text(
                 'Rs ${total.toStringAsFixed(2)}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF41C0BC),
+                  color: AppColors.primaryTeal,
                 ),
               ),
             ],
@@ -1570,15 +1579,15 @@ class _CheckoutPanel extends StatelessWidget {
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+                  borderSide: BorderSide(color: AppColors.primaryTeal),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+                  borderSide: BorderSide(color: AppColors.primaryTeal),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+                  borderSide: BorderSide(color: AppColors.primaryTeal),
                 ),
               ),
             ),
@@ -1590,12 +1599,12 @@ class _CheckoutPanel extends StatelessWidget {
             decoration: BoxDecoration(
               color: hasShortPayment
                   ? const Color(0xFFFFEFEF)
-                  : const Color(0xFFD8F5F0),
+                  : _posAccentSurface(0.20),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: hasShortPayment
                     ? const Color(0xFFF2B5B5)
-                    : const Color(0xFF7ED9D3),
+                    : _posAccentBorder(0.46),
               ),
             ),
             child: Row(
@@ -1614,7 +1623,7 @@ class _CheckoutPanel extends StatelessWidget {
                   style: TextStyle(
                     color: hasShortPayment
                         ? const Color(0xFFEA5A5A)
-                        : const Color(0xFF36B4AE),
+                        : AppColors.primaryTeal,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1629,8 +1638,8 @@ class _CheckoutPanel extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: canProcessPayment ? onProcessPayment : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF36B4AE),
-                disabledBackgroundColor: const Color(0xFF9ADCD8),
+                backgroundColor: AppColors.primaryTeal,
+                disabledBackgroundColor: _posAccentBorder(0.45),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -1761,12 +1770,10 @@ class _CategoryChip extends StatelessWidget {
         height: 30,
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF36B4AE) : AppColors.white,
+          color: isSelected ? AppColors.primaryTeal : AppColors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFF36B4AE)
-                : const Color(0xFFE2E8F0),
+            color: isSelected ? AppColors.primaryTeal : const Color(0xFFE2E8F0),
           ),
         ),
         alignment: Alignment.center,
@@ -1806,14 +1813,14 @@ class _ProductRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF54D2CC)
+                ? _posAccentBorder(0.52)
                 : const Color(0xFFE7EDF5),
             width: isSelected ? 1.6 : 1,
           ),
           boxShadow: isSelected
-              ? const [
+              ? [
                   BoxShadow(
-                    color: Color(0x1436B4AE),
+                    color: AppColors.primaryTeal.withValues(alpha: 0.12),
                     blurRadius: 16,
                     offset: Offset(0, 6),
                   ),
@@ -1887,10 +1894,10 @@ class _ProductRow extends StatelessWidget {
               children: [
                 Text(
                   'Rs ${product.sellingPrice.toStringAsFixed(2)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF36B4AE),
+                    color: AppColors.primaryTeal,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1901,7 +1908,7 @@ class _ProductRow extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFFE2FAF8)
+                        ? _posAccentSurface(0.16)
                         : const Color(0xFFF5F8FB),
                     borderRadius: BorderRadius.circular(999),
                   ),
@@ -1911,7 +1918,7 @@ class _ProductRow extends StatelessWidget {
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
                       color: isSelected
-                          ? const Color(0xFF36B4AE)
+                          ? AppColors.primaryTeal
                           : const Color(0xFF64748B),
                     ),
                   ),
@@ -2013,10 +2020,10 @@ class _OrderLineItem extends StatelessWidget {
               const Spacer(),
               Text(
                 'Rs ${item.subtotal.toStringAsFixed(2)}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF36B4AE),
+                  color: AppColors.primaryTeal,
                 ),
               ),
             ],
@@ -2075,7 +2082,7 @@ class _CustomerSearchField extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFF36B4AE)),
+            borderSide: BorderSide(color: AppColors.primaryTeal),
           ),
         ),
       ),
@@ -2163,16 +2170,16 @@ class _SelectedCustomerCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFD8F5F0),
+        color: _posAccentSurface(0.20),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF65D4CC)),
+        border: Border.all(color: _posAccentBorder(0.46)),
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.person_outline_rounded,
             size: 16,
-            color: Color(0xFF37AFA9),
+            color: AppColors.primaryTeal,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -2274,12 +2281,10 @@ class _PaymentMethodButton extends StatelessWidget {
       child: Container(
         height: 42,
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF36B4AE) : AppColors.white,
+          color: isSelected ? AppColors.primaryTeal : AppColors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFF36B4AE)
-                : const Color(0xFFE1E8F1),
+            color: isSelected ? AppColors.primaryTeal : const Color(0xFFE1E8F1),
           ),
         ),
         child: Column(
@@ -2351,7 +2356,7 @@ class _PrimaryActionButton extends StatelessWidget {
       child: ElevatedButton.icon(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF36B4AE),
+          backgroundColor: AppColors.primaryTeal,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 18),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),

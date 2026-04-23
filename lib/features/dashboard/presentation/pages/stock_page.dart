@@ -21,6 +21,12 @@ import '../../data/stock_repository_factory.dart';
 import '../../models/models.dart';
 import 'grn_page.dart';
 
+Color _stockAccentSurface([double amount = 0.14]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
+Color _stockAccentBorder([double amount = 0.34]) =>
+    Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
+
 class StockPage extends StatefulWidget {
   const StockPage({super.key});
 
@@ -41,7 +47,7 @@ class _StockPageState extends State<StockPage> {
   ProductRepository? _productRepository;
 
   String _selectedStatusFilter = 'All';
-  bool _isFilterExpanded = true;
+  bool _isFilterExpanded = false;
   List<String> _productSuggestions = <String>[];
   List<String> _grnSuggestions = <String>[];
   List<StockRecord> _stocks = <StockRecord>[];
@@ -744,7 +750,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
                           child: ElevatedButton.icon(
                             onPressed: _generateBarcode,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF36B4AE),
+                              backgroundColor: AppColors.primaryTeal,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 14,
                               ),
@@ -926,8 +932,8 @@ class _StockFormDialogState extends State<StockFormDialog> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF36B4AE),
+                          borderSide: BorderSide(
+                            color: AppColors.primaryTeal,
                             width: 2,
                           ),
                         ),
@@ -992,7 +998,7 @@ class _StockFormDialogState extends State<StockFormDialog> {
                     onPressed: _isSubmitting ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(130, 40),
-                      backgroundColor: const Color(0xFF36B4AE),
+                      backgroundColor: AppColors.primaryTeal,
                     ),
                     child: _isSubmitting
                         ? const SizedBox(
@@ -1101,8 +1107,8 @@ class StockDetailsDialog extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
@@ -1227,18 +1233,18 @@ class StockDetailsDialog extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDDF8F4),
+                      color: _stockAccentSurface(0.20),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Stock Utilization',
                           style: TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
-                            color: Color(0xFF36B4AE),
+                            color: AppColors.primaryTeal,
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -1247,7 +1253,7 @@ class StockDetailsDialog extends StatelessWidget {
                             Container(
                               height: 8,
                               decoration: BoxDecoration(
-                                color: const Color(0xFFBCEFE6),
+                                color: _stockAccentSurface(0.30),
                                 borderRadius: BorderRadius.circular(999),
                               ),
                             ),
@@ -1256,7 +1262,7 @@ class StockDetailsDialog extends StatelessWidget {
                               child: Container(
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF36A7A0),
+                                  color: AppColors.primaryTeal,
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                               ),
@@ -1268,10 +1274,10 @@ class StockDetailsDialog extends StatelessWidget {
                           alignment: Alignment.centerRight,
                           child: Text(
                             '${(utilization * 100).toStringAsFixed(1)}%',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w800,
-                              color: Color(0xFF36B4AE),
+                              color: AppColors.primaryTeal,
                             ),
                           ),
                         ),
@@ -1287,6 +1293,10 @@ class StockDetailsDialog extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(0, 0, 18, 18),
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: _stockAccentBorder()),
+                    foregroundColor: AppColors.primaryTeal,
+                  ),
                   child: const Text('Close'),
                 ),
               ),
@@ -1325,8 +1335,8 @@ class ProductInfoDialog extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
@@ -1415,6 +1425,10 @@ class ProductInfoDialog extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(0, 0, 18, 18),
                 child: OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: _stockAccentBorder()),
+                    foregroundColor: AppColors.primaryTeal,
+                  ),
                   child: const Text('Close'),
                 ),
               ),
@@ -1470,8 +1484,8 @@ class _StockSummaryCards extends StatelessWidget {
             title: 'Total Stock Items',
             value: '${summary.totalStockItems}',
             icon: Icons.inventory_2_outlined,
-            accent: const Color(0xFF36B4AE),
-            tint: const Color(0xFFE8FBF7),
+            accent: AppColors.primaryTeal,
+            tint: _stockAccentSurface(0.16),
           ),
         ),
         const SizedBox(width: 16),
@@ -1480,8 +1494,8 @@ class _StockSummaryCards extends StatelessWidget {
             title: 'Active Stocks',
             value: '${summary.activeStocks}',
             icon: Icons.check_circle_outline_rounded,
-            accent: const Color(0xFF36B4AE),
-            tint: const Color(0xFFE8FBF7),
+            accent: AppColors.primaryTeal,
+            tint: _stockAccentSurface(0.16),
           ),
         ),
         const SizedBox(width: 16),
@@ -1672,7 +1686,7 @@ class _StockFilterCard extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: onApply,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF36B4AE),
+                      backgroundColor: AppColors.primaryTeal,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1874,7 +1888,7 @@ class _StockTableRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = stock.status == StockStatus.active
-        ? const Color(0xFF36B4AE)
+        ? AppColors.primaryTeal
         : const Color(0xFF98A4B7);
 
     return Padding(
@@ -2002,7 +2016,7 @@ class _StockTableRow extends StatelessWidget {
               children: [
                 _ActionIconButton(
                   icon: Icons.remove_red_eye_outlined,
-                  color: const Color(0xFF36B4AE),
+                  color: AppColors.primaryTeal,
                   isLoading: isViewing,
                   onTap: onView,
                 ),
@@ -2154,7 +2168,7 @@ class _DialogTextField extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
         ),
       ),
     );
@@ -2300,14 +2314,14 @@ class _DetailMetric extends StatelessWidget {
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   color: onTap != null
-                      ? const Color(0xFF36B4AE)
+                      ? AppColors.primaryTeal
                       : highlight
-                      ? const Color(0xFF36B4AE)
+                      ? AppColors.primaryTeal
                       : const Color(0xFF334156),
                   decoration: onTap != null
                       ? TextDecoration.underline
                       : TextDecoration.none,
-                  decorationColor: const Color(0xFF36B4AE),
+                  decorationColor: AppColors.primaryTeal,
                 ),
               ),
             ),
@@ -2337,7 +2351,7 @@ class _ActionButton extends StatelessWidget {
       child: ElevatedButton.icon(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF36B4AE),
+          backgroundColor: AppColors.primaryTeal,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
@@ -2482,7 +2496,7 @@ InputDecoration _filterDecoration({String? hintText}) {
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: Color(0xFF36B4AE), width: 2),
+      borderSide: BorderSide(color: AppColors.primaryTeal, width: 2),
     ),
   );
 }

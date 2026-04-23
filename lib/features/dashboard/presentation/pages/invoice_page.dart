@@ -44,6 +44,7 @@ class _InvoicePageState extends State<InvoicePage> {
   int _totalPages = 1;
   int _totalCount = 0;
   bool _isLoading = true;
+  bool _isFilterExpanded = false;
   String? _viewingInvoiceId;
   String? _printingInvoiceId;
   Timer? _searchDebounce;
@@ -274,7 +275,7 @@ class _InvoicePageState extends State<InvoicePage> {
                 child: _SummaryCard(
                   label: 'Total Invoices',
                   value: '${_summary.totalInvoices}',
-                  valueColor: const Color(0xFF334155),
+                  valueColor: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(width: 16),
@@ -282,7 +283,7 @@ class _InvoicePageState extends State<InvoicePage> {
                 child: _SummaryCard(
                   label: 'Paid',
                   value: '${_summary.paidInvoices}',
-                  valueColor: const Color(0xFF36B4AE),
+                  valueColor: AppColors.primaryTeal,
                 ),
               ),
               const SizedBox(width: 16),
@@ -305,6 +306,7 @@ class _InvoicePageState extends State<InvoicePage> {
           ),
           const SizedBox(height: 18),
           _InvoiceFilterCard(
+            isExpanded: _isFilterExpanded,
             invoiceIdController: _invoiceIdController,
             customerController: _customerController,
             dateFromController: _dateFromController,
@@ -313,6 +315,11 @@ class _InvoicePageState extends State<InvoicePage> {
             amountGreaterController: _amountGreaterController,
             selectedStatus: _statusFilter,
             onChanged: _refreshFilters,
+            onToggleExpanded: () {
+              setState(() {
+                _isFilterExpanded = !_isFilterExpanded;
+              });
+            },
             onStatusChanged: (value) {
               setState(() {
                 _statusFilter = value;
@@ -361,7 +368,7 @@ class _InvoiceHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -369,7 +376,7 @@ class _InvoiceHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF334155),
+            color: AppColors.textPrimary,
           ),
         ),
         SizedBox(height: 6),
@@ -378,7 +385,7 @@ class _InvoiceHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF8391A7),
+            color: AppColors.textSecondary,
           ),
         ),
       ],
@@ -429,6 +436,7 @@ class _SummaryCard extends StatelessWidget {
 
 class _InvoiceFilterCard extends StatelessWidget {
   const _InvoiceFilterCard({
+    required this.isExpanded,
     required this.invoiceIdController,
     required this.customerController,
     required this.dateFromController,
@@ -437,9 +445,11 @@ class _InvoiceFilterCard extends StatelessWidget {
     required this.amountGreaterController,
     required this.selectedStatus,
     required this.onChanged,
+    required this.onToggleExpanded,
     required this.onStatusChanged,
   });
 
+  final bool isExpanded;
   final TextEditingController invoiceIdController;
   final TextEditingController customerController;
   final TextEditingController dateFromController;
@@ -448,6 +458,7 @@ class _InvoiceFilterCard extends StatelessWidget {
   final TextEditingController amountGreaterController;
   final String selectedStatus;
   final VoidCallback onChanged;
+  final VoidCallback onToggleExpanded;
   final ValueChanged<String> onStatusChanged;
 
   @override
@@ -458,117 +469,149 @@ class _InvoiceFilterCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Search & Filter Invoices',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF364255),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Invoice ID',
-                  child: TextField(
-                    controller: invoiceIdController,
-                    onChanged: (_) => onChanged(),
-                    decoration: _fieldDecoration(hintText: 'Search by ID...'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Customer',
-                  child: TextField(
-                    controller: customerController,
-                    onChanged: (_) => onChanged(),
-                    decoration: _fieldDecoration(
-                      hintText: 'Search by customer...',
+          InkWell(
+            onTap: onToggleExpanded,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Text(
+                    'Search & Filter Invoices',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Date From',
-                  child: AppDateField(
-                    controller: dateFromController,
-                    onChanged: (_) => onChanged(),
-                    hintText: 'yyyy-mm-dd',
-                    decoration: _fieldDecoration(),
+                  const Spacer(),
+                  Icon(
+                    isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: AppColors.textSecondary,
                   ),
-                ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Date To',
-                  child: AppDateField(
-                    controller: dateToController,
-                    onChanged: (_) => onChanged(),
-                    hintText: 'yyyy-mm-dd',
-                    decoration: _fieldDecoration(),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Amount Less Than',
-                  child: TextField(
-                    controller: amountLessController,
-                    onChanged: (_) => onChanged(),
-                    keyboardType: TextInputType.number,
-                    decoration: _fieldDecoration(hintText: 'e.g. 100.00'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Amount Greater Than',
-                  child: TextField(
-                    controller: amountGreaterController,
-                    onChanged: (_) => onChanged(),
-                    keyboardType: TextInputType.number,
-                    decoration: _fieldDecoration(hintText: 'e.g. 50.00'),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _FieldGroup(
-                  label: 'Status',
-                  child: DropdownButtonFormField<String>(
-                    value: selectedStatus,
-                    decoration: _fieldDecoration(),
-                    items: const ['All Status', 'Paid', 'Pending', 'Overdue']
-                        .map(
-                          (status) => DropdownMenuItem<String>(
-                            value: status,
-                            child: Text(status),
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 180),
+            crossFadeState: isExpanded
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: Column(
+              children: [
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Invoice ID',
+                        child: TextField(
+                          controller: invoiceIdController,
+                          onChanged: (_) => onChanged(),
+                          decoration: _fieldDecoration(
+                            hintText: 'Search by ID...',
                           ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        onStatusChanged(value);
-                      }
-                    },
-                  ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Customer',
+                        child: TextField(
+                          controller: customerController,
+                          onChanged: (_) => onChanged(),
+                          decoration: _fieldDecoration(
+                            hintText: 'Search by customer...',
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Date From',
+                        child: AppDateField(
+                          controller: dateFromController,
+                          onChanged: (_) => onChanged(),
+                          hintText: 'yyyy-mm-dd',
+                          decoration: _fieldDecoration(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Date To',
+                        child: AppDateField(
+                          controller: dateToController,
+                          onChanged: (_) => onChanged(),
+                          hintText: 'yyyy-mm-dd',
+                          decoration: _fieldDecoration(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const Spacer(),
-            ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Amount Less Than',
+                        child: TextField(
+                          controller: amountLessController,
+                          onChanged: (_) => onChanged(),
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecoration(hintText: 'e.g. 100.00'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Amount Greater Than',
+                        child: TextField(
+                          controller: amountGreaterController,
+                          onChanged: (_) => onChanged(),
+                          keyboardType: TextInputType.number,
+                          decoration: _fieldDecoration(hintText: 'e.g. 50.00'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _FieldGroup(
+                        label: 'Status',
+                        child: DropdownButtonFormField<String>(
+                          value: selectedStatus,
+                          decoration: _fieldDecoration(),
+                          items:
+                              const ['All Status', 'Paid', 'Pending', 'Overdue']
+                                  .map(
+                                    (status) => DropdownMenuItem<String>(
+                                      value: status,
+                                      child: Text(status),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              onStatusChanged(value);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              ],
+            ),
+            secondChild: const SizedBox.shrink(),
           ),
         ],
       ),
@@ -645,10 +688,10 @@ class _InvoiceTableCard extends StatelessWidget {
                         flex: 18,
                         child: Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.receipt_long_outlined,
                               size: 18,
-                              color: Color(0xFF55C2BD),
+                              color: AppColors.primaryTeal,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -741,10 +784,10 @@ class _InvoiceTableCard extends StatelessWidget {
                             else
                               IconButton(
                                 onPressed: () => onView(invoice),
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.visibility_outlined,
                                   size: 18,
-                                  color: Color(0xFF4B8BD8),
+                                  color: AppColors.primaryTeal,
                                 ),
                               ),
                             if (printingInvoiceId == invoice.invoiceId)
@@ -880,8 +923,8 @@ class InvoiceDetailsDialog extends StatelessWidget {
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFF36B4AE),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
               ),
               child: Row(
@@ -901,8 +944,8 @@ class InvoiceDetailsDialog extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           'Sales invoice details',
-                          style: const TextStyle(
-                            color: Color(0xFFE6FFFA),
+                          style: TextStyle(
+                            color: AppColors.primaryLight,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -912,7 +955,7 @@ class InvoiceDetailsDialog extends StatelessWidget {
                   TextButton.icon(
                     onPressed: onPrint,
                     style: TextButton.styleFrom(
-                      backgroundColor: const Color(0x55FFFFFF),
+                      backgroundColor: AppColors.white.withValues(alpha: 0.33),
                       foregroundColor: AppColors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -1176,7 +1219,7 @@ class _MetricCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFDDFBF6),
+        color: AppColors.primaryLight,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -1188,9 +1231,9 @@ class _MetricCard extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 label,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF4AAEA6),
+                  color: AppColors.primaryTeal,
                 ),
               ),
             ],
@@ -1198,10 +1241,10 @@ class _MetricCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF334155),
+              color: AppColors.textPrimary,
             ),
           ),
         ],
@@ -1289,9 +1332,7 @@ class _AmountRow extends StatelessWidget {
           style: TextStyle(
             fontSize: emphasize ? 16 : 14,
             fontWeight: FontWeight.w800,
-            color: emphasize
-                ? const Color(0xFF36B4AE)
-                : const Color(0xFF445166),
+            color: emphasize ? AppColors.primaryTeal : AppColors.textPrimary,
           ),
         ),
       ],
@@ -1307,12 +1348,12 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      InvoiceStatus.paid => const Color(0xFF36C3B7),
+      InvoiceStatus.paid => AppColors.primaryTeal,
       InvoiceStatus.pending => const Color(0xFFE3A72C),
       InvoiceStatus.overdue => const Color(0xFFE24B5E),
     };
     final background = switch (status) {
-      InvoiceStatus.paid => const Color(0xFFE7FCF8),
+      InvoiceStatus.paid => AppColors.primaryLight,
       InvoiceStatus.pending => const Color(0xFFFFF3DA),
       InvoiceStatus.overdue => const Color(0xFFFFE8EC),
     };

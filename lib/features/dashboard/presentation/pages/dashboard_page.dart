@@ -49,6 +49,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   DashboardSection _selectedSection = DashboardSection.pos;
   bool _isOnlineMode = false;
   bool _isTouchMode = false;
@@ -226,49 +227,84 @@ class _DashboardPageState extends State<DashboardPage> {
         ? DashboardSection.launcher
         : _selectedSection;
 
-    return Scaffold(
-      backgroundColor: AppThemeController.instance.palette.background,
-      body: Row(
-        children: [
-          if (!_isTouchMode)
-            _DashboardSidebar(
-              items: _visibleNavItems,
-              selectedSection: activeSection,
-              onSectionSelected: _openSection,
-              onLogout: _logout,
-            ),
-          Expanded(
-            child: Column(
-              children: [
-                _DashboardTopBar(
-                  isTouchMode: _isTouchMode,
-                  selectedSection: activeSection,
-                  onOpenLauncher: _isTouchMode
-                      ? () => _openSection(DashboardSection.launcher)
-                      : null,
-                ),
-                Expanded(
-                  child: IndexedStack(
-                    index: DashboardSection.values.indexOf(activeSection),
-                    children: DashboardSection.values
-                        .map(
-                          (section) => _loadedSections.contains(section)
-                              ? KeyedSubtree(
-                                  key: ValueKey<String>(
-                                    '${section.name}-${_pageVersions[section]}',
-                                  ),
-                                  child: _pageBuilders[section]!(),
-                                )
-                              : const SizedBox.shrink(),
-                        )
-                        .toList(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useDrawer = !_isTouchMode && constraints.maxWidth < 960;
+        final useCompactRail =
+            !_isTouchMode &&
+            constraints.maxWidth >= 960 &&
+            constraints.maxWidth < 1240;
+
+        return Scaffold(
+          key: _scaffoldKey,
+          backgroundColor: AppThemeController.instance.palette.background,
+          drawer: useDrawer
+              ? Drawer(
+                  width: 280,
+                  child: SafeArea(
+                    child: _DashboardSidebar(
+                      items: _visibleNavItems,
+                      selectedSection: activeSection,
+                      onSectionSelected: (section) {
+                        Navigator.of(context).pop();
+                        _openSection(section);
+                      },
+                      onLogout: () {
+                        Navigator.of(context).pop();
+                        _logout();
+                      },
+                    ),
                   ),
+                )
+              : null,
+          body: Row(
+            children: [
+              if (!_isTouchMode && !useDrawer)
+                _DashboardSidebar(
+                  items: _visibleNavItems,
+                  selectedSection: activeSection,
+                  onSectionSelected: _openSection,
+                  onLogout: _logout,
+                  isCompact: useCompactRail,
                 ),
-              ],
-            ),
+              Expanded(
+                child: Column(
+                  children: [
+                    _DashboardTopBar(
+                      isTouchMode: _isTouchMode,
+                      selectedSection: activeSection,
+                      showMenuButton: useDrawer,
+                      onOpenMenu: useDrawer
+                          ? () => _scaffoldKey.currentState?.openDrawer()
+                          : null,
+                      onOpenLauncher: _isTouchMode
+                          ? () => _openSection(DashboardSection.launcher)
+                          : null,
+                    ),
+                    Expanded(
+                      child: IndexedStack(
+                        index: DashboardSection.values.indexOf(activeSection),
+                        children: DashboardSection.values
+                            .map(
+                              (section) => _loadedSections.contains(section)
+                                  ? KeyedSubtree(
+                                      key: ValueKey<String>(
+                                        '${section.name}-${_pageVersions[section]}',
+                                      ),
+                                      child: _pageBuilders[section]!(),
+                                    )
+                                  : const SizedBox.shrink(),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -287,17 +323,19 @@ class _DashboardSidebar extends StatelessWidget {
     required this.selectedSection,
     required this.onSectionSelected,
     required this.onLogout,
+    this.isCompact = false,
   });
 
   final List<_NavItemData> items;
   final DashboardSection selectedSection;
   final ValueChanged<DashboardSection> onSectionSelected;
   final VoidCallback onLogout;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 204,
+      width: isCompact ? 84 : 204,
       decoration: BoxDecoration(
         color: AppThemeController.instance.palette.sidebarBackground,
         border: const Border(right: BorderSide(color: Color(0xFFE4EAF2))),
@@ -307,36 +345,52 @@ class _DashboardSidebar extends StatelessWidget {
           Container(
             height: 82,
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            padding: EdgeInsets.fromLTRB(
+              isCompact ? 10 : 18,
+              16,
+              isCompact ? 10 : 18,
+              14,
+            ),
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: Color(0xFFE8EDF4))),
             ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'NexPos',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2E3A4D),
+            child: isCompact
+                ? const Center(
+                    child: Text(
+                      'N',
+                      style: TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF2E3A4D),
+                      ),
+                    ),
+                  )
+                : const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'NexPos',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF2E3A4D),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'POS System',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF8C99AD),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'POS System',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF8C99AD),
-                  ),
-                ),
-              ],
-            ),
           ),
           Expanded(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               child: Column(
                 children: [
@@ -344,6 +398,7 @@ class _DashboardSidebar extends StatelessWidget {
                     _SidebarNavItem(
                       item: item,
                       isActive: item.section == selectedSection,
+                      isCompact: isCompact,
                       onTap: () => onSectionSelected(item.section),
                     ),
                     const SizedBox(height: 4),
@@ -357,7 +412,7 @@ class _DashboardSidebar extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: onLogout,
               style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 30),
+                minimumSize: Size(double.infinity, isCompact ? 42 : 30),
                 side: const BorderSide(color: Color(0xFFE0E7F0)),
                 foregroundColor: const Color(0xFF66758B),
                 shape: RoundedRectangleBorder(
@@ -365,10 +420,15 @@ class _DashboardSidebar extends StatelessWidget {
                 ),
               ),
               icon: const Icon(Icons.logout_rounded, size: 16),
-              label: const Text(
-                'Logout',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
+              label: isCompact
+                  ? const SizedBox.shrink()
+                  : const Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -381,24 +441,42 @@ class _DashboardTopBar extends StatelessWidget {
   const _DashboardTopBar({
     required this.isTouchMode,
     required this.selectedSection,
+    this.showMenuButton = false,
+    this.onOpenMenu,
     this.onOpenLauncher,
   });
 
   final bool isTouchMode;
   final DashboardSection selectedSection;
+  final bool showMenuButton;
+  final VoidCallback? onOpenMenu;
   final VoidCallback? onOpenLauncher;
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 720;
+
     return Container(
       height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: EdgeInsets.symmetric(horizontal: isNarrow ? 12 : 18),
       decoration: const BoxDecoration(
         color: AppColors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE5EBF2))),
       ),
       child: Row(
         children: [
+          if (showMenuButton) ...[
+            IconButton(
+              onPressed: onOpenMenu,
+              tooltip: 'Open navigation',
+              icon: const Icon(
+                Icons.menu_rounded,
+                size: 22,
+                color: Color(0xFF5C6B7D),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
           if (isTouchMode) ...[
             FilledButton.icon(
               onPressed: selectedSection == DashboardSection.launcher
@@ -439,30 +517,41 @@ class _DashboardTopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Admin User',
-                style: TextStyle(
-                  color: Color(0xFF465366),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+          if (!isNarrow)
+            const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Admin User',
+                  style: TextStyle(
+                    color: Color(0xFF465366),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-              SizedBox(height: 1),
-              Text(
-                'Administrator',
-                style: TextStyle(
-                  color: Color(0xFF94A1B5),
-                  fontWeight: FontWeight.w500,
-                  fontSize: 11.5,
+                SizedBox(height: 1),
+                Text(
+                  'Administrator',
+                  style: TextStyle(
+                    color: Color(0xFF94A1B5),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 11.5,
+                  ),
                 ),
+              ],
+            )
+          else
+            const Text(
+              'Admin',
+              style: TextStyle(
+                color: Color(0xFF465366),
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
               ),
-            ],
-          ),
+            ),
           const Spacer(),
+          if (isTouchMode && !isNarrow) const SizedBox(width: 8),
           Stack(
             clipBehavior: Clip.none,
             children: [
@@ -510,11 +599,13 @@ class _SidebarNavItem extends StatelessWidget {
     required this.item,
     required this.isActive,
     required this.onTap,
+    this.isCompact = false,
   });
 
   final _NavItemData item;
   final bool isActive;
   final VoidCallback onTap;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -524,26 +615,33 @@ class _SidebarNavItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: 40,
+        height: isCompact ? 48 : 40,
         decoration: BoxDecoration(
           color: isActive ? AppColors.primaryTeal : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Row(
-          children: [
-            Icon(item.icon, size: 19, color: textColor),
-            const SizedBox(width: 12),
-            Text(
-              item.label,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 14,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+        padding: EdgeInsets.symmetric(horizontal: isCompact ? 0 : 14),
+        child: isCompact
+            ? Center(
+                child: Tooltip(
+                  message: item.label,
+                  child: Icon(item.icon, size: 21, color: textColor),
+                ),
+              )
+            : Row(
+                children: [
+                  Icon(item.icon, size: 19, color: textColor),
+                  const SizedBox(width: 12),
+                  Text(
+                    item.label,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 14,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -598,7 +696,9 @@ class _TouchLauncherPage extends StatelessWidget {
                     ? 4
                     : constraints.maxWidth >= 1000
                     ? 3
-                    : 2;
+                    : constraints.maxWidth >= 640
+                    ? 2
+                    : 1;
                 return GridView.builder(
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: crossAxisCount,

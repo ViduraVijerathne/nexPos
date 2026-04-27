@@ -157,31 +157,38 @@ class _InsightPageState extends State<InsightPage> {
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _InsightHeader(),
-          const SizedBox(height: 18),
-          _InsightMetrics(data: dashboardData),
-          const SizedBox(height: 18),
-          _SalesPerformanceCard(
-            data: dashboardData,
-            onFromTap: _pickFromDate,
-            onToTap: _pickToDate,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth < 640 ? 12.0 : 18.0;
+        final verticalSpacing = constraints.maxWidth < 640 ? 14.0 : 18.0;
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.all(horizontalPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _InsightHeader(),
+              SizedBox(height: verticalSpacing),
+              _InsightMetrics(data: dashboardData),
+              SizedBox(height: verticalSpacing),
+              _SalesPerformanceCard(
+                data: dashboardData,
+                onFromTap: _pickFromDate,
+                onToTap: _pickToDate,
+              ),
+              SizedBox(height: verticalSpacing),
+              _DashboardBottomPanels(data: dashboardData),
+              SizedBox(height: verticalSpacing),
+              _ExpiredStocksCard(
+                items: dashboardData.expiredStockItems,
+                onDeactivate: _deactivateExpiredStock,
+                deactivatingItemKey: _deactivatingExpiredStockKey,
+                isDeactivating: _isDeactivatingExpiredStock,
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
-          _DashboardBottomPanels(data: dashboardData),
-          const SizedBox(height: 18),
-          _ExpiredStocksCard(
-            items: dashboardData.expiredStockItems,
-            onDeactivate: _deactivateExpiredStock,
-            deactivatingItemKey: _deactivatingExpiredStockKey,
-            isDeactivating: _isDeactivatingExpiredStock,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -264,7 +271,13 @@ class _InsightMetrics extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final itemWidth = (constraints.maxWidth - 36) / 4;
+        final columns = constraints.maxWidth >= 1180
+            ? 4
+            : constraints.maxWidth >= 760
+            ? 2
+            : 1;
+        final totalSpacing = 12.0 * (columns - 1);
+        final itemWidth = (constraints.maxWidth - totalSpacing) / columns;
 
         return Wrap(
           spacing: 12,
@@ -296,58 +309,106 @@ class _SalesPerformanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accentColor = AppColors.primaryTeal;
-    return _DashboardCard(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 760;
+
+        return _DashboardCard(
+          padding: EdgeInsets.fromLTRB(
+            isCompact ? 14 : 20,
+            18,
+            isCompact ? 14 : 20,
+            20,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Sales Performance',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF374457),
-                ),
-              ),
-              const Spacer(),
-              _DateRangeChip(data.chartDateFromLabel, onTap: onFromTap),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Text(
-                  'to',
+              if (isCompact) ...[
+                const Text(
+                  'Sales Performance',
                   style: TextStyle(
-                    color: Color(0xFF8A98AC),
-                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF374457),
                   ),
                 ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _DateRangeChip(data.chartDateFromLabel, onTap: onFromTap),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        'to',
+                        style: TextStyle(
+                          color: Color(0xFF8A98AC),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    _DateRangeChip(data.chartDateToLabel, onTap: onToTap),
+                  ],
+                ),
+              ] else
+                Row(
+                  children: [
+                    const Text(
+                      'Sales Performance',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF374457),
+                      ),
+                    ),
+                    const Spacer(),
+                    _DateRangeChip(data.chartDateFromLabel, onTap: onFromTap),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        'to',
+                        style: TextStyle(
+                          color: Color(0xFF8A98AC),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    _DateRangeChip(data.chartDateToLabel, onTap: onToTap),
+                  ],
+                ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: isCompact ? 220 : 254,
+                child: _SalesChart(points: data.salesPoints),
               ),
-              _DateRangeChip(data.chartDateToLabel, onTap: onToTap),
+              const SizedBox(height: 8),
+              Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.show_chart_rounded,
+                      size: 15,
+                      color: accentColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Sales (Rs)',
+                      style: TextStyle(
+                        color: accentColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          SizedBox(height: 254, child: _SalesChart(points: data.salesPoints)),
-          const SizedBox(height: 8),
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.show_chart_rounded, size: 15, color: accentColor),
-                SizedBox(width: 4),
-                Text(
-                  'Sales (Rs)',
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -359,19 +420,33 @@ class _DashboardBottomPanels extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          flex: 11,
-          child: _StockAllocationCard(items: data.categoryAllocation),
-        ),
-        const SizedBox(width: 18),
-        Expanded(
-          flex: 11,
-          child: _LowStockAlertCard(alerts: data.lowStockItems),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 980) {
+          return Column(
+            children: [
+              _StockAllocationCard(items: data.categoryAllocation),
+              const SizedBox(height: 18),
+              _LowStockAlertCard(alerts: data.lowStockItems),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 11,
+              child: _StockAllocationCard(items: data.categoryAllocation),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              flex: 11,
+              child: _LowStockAlertCard(alerts: data.lowStockItems),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -396,30 +471,39 @@ class _StockAllocationCard extends StatelessWidget {
               ),
           ];
 
-    return _DashboardCard(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Stock Allocation by Category',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF374457),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 640;
+
+        return _DashboardCard(
+          padding: EdgeInsets.fromLTRB(
+            isCompact ? 14 : 20,
+            18,
+            isCompact ? 14 : 20,
+            18,
           ),
-          const SizedBox(height: 22),
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 188,
-                height: 188,
-                child: _CategoryDonutChart(items: chartItems),
+              const Text(
+                'Stock Allocation by Category',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF374457),
+                ),
               ),
-              const SizedBox(width: 22),
-              Expanded(
-                child: Column(
+              const SizedBox(height: 22),
+              if (isCompact) ...[
+                Center(
+                  child: SizedBox(
+                    width: 188,
+                    height: 188,
+                    child: _CategoryDonutChart(items: chartItems),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Column(
                   children: [
                     for (final item in chartItems) ...[
                       _CategoryLegendRow(item: item),
@@ -427,11 +511,31 @@ class _StockAllocationCard extends StatelessWidget {
                     ],
                   ],
                 ),
-              ),
+              ] else
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 188,
+                      height: 188,
+                      child: _CategoryDonutChart(items: chartItems),
+                    ),
+                    const SizedBox(width: 22),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          for (final item in chartItems) ...[
+                            _CategoryLegendRow(item: item),
+                            const SizedBox(height: 14),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -907,33 +1011,64 @@ class _LowStockRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              item.name,
-              style: const TextStyle(
-                color: Color(0xFF4C5A6D),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            item.status,
-            style: TextStyle(
-              color: item.status == 'Out of Stock'
-                  ? const Color(0xFFEA5A5A)
-                  : const Color(0xFFF0AE42),
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 420;
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: isCompact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        color: Color(0xFF4C5A6D),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      item.status,
+                      style: TextStyle(
+                        color: item.status == 'Out of Stock'
+                            ? const Color(0xFFEA5A5A)
+                            : const Color(0xFFF0AE42),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        style: const TextStyle(
+                          color: Color(0xFF4C5A6D),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      item.status,
+                      style: TextStyle(
+                        color: item.status == 'Out of Stock'
+                            ? const Color(0xFFEA5A5A)
+                            : const Color(0xFFF0AE42),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -951,81 +1086,116 @@ class _ExpiredStockRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 34,
-            child: Text(
-              item.name,
-              style: const TextStyle(
-                color: Color(0xFF4C5A6D),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 760;
+        final actionButton = TextButton(
+          onPressed: isLoading ? null : onDeactivate,
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFFE45A5A),
+            backgroundColor: const Color(0xFFFFEEEE),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
             ),
           ),
-          Expanded(
-            flex: 24,
-            child: Text(
-              item.barcode,
-              style: const TextStyle(
-                color: Color(0xFF8E9BB0),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 18,
-            child: Text(
-              item.expiryDate,
-              style: const TextStyle(
-                color: Color(0xFFE45A5A),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 24,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: isLoading ? null : onDeactivate,
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFFE45A5A),
-                  backgroundColor: const Color(0xFFFFEEEE),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+          child: isLoading
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFFE45A5A),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                )
+              : const Text(
+                  'Deactivate',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
-                child: isLoading
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFFE45A5A),
+        );
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: isCompact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: const TextStyle(
+                        color: Color(0xFF4C5A6D),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      item.barcode,
+                      style: const TextStyle(
+                        color: Color(0xFF8E9BB0),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      item.expiryDate,
+                      style: const TextStyle(
+                        color: Color(0xFFE45A5A),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    actionButton,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      flex: 34,
+                      child: Text(
+                        item.name,
+                        style: const TextStyle(
+                          color: Color(0xFF4C5A6D),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
                         ),
-                      )
-                    : const Text(
-                        'Deactivate',
-                        style: TextStyle(
+                      ),
+                    ),
+                    Expanded(
+                      flex: 24,
+                      child: Text(
+                        item.barcode,
+                        style: const TextStyle(
+                          color: Color(0xFF8E9BB0),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 18,
+                      child: Text(
+                        item.expiryDate,
+                        style: const TextStyle(
+                          color: Color(0xFFE45A5A),
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-              ),
-            ),
-          ),
-        ],
-      ),
+                    ),
+                    Expanded(
+                      flex: 24,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: actionButton,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -1035,70 +1205,102 @@ class _InsightPageSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _InsightHeader(),
-          const SizedBox(height: 18),
-          Row(
-            children: List<Widget>.generate(
-              4,
-              (index) => Expanded(
-                child: Container(
-                  height: 132,
-                  margin: EdgeInsets.only(right: index == 3 ? 0 : 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF4F7FB),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            height: 340,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F7FB),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 760;
+        final columns = constraints.maxWidth >= 1180
+            ? 4
+            : constraints.maxWidth >= 760
+            ? 2
+            : 1;
+        final totalSpacing = 12.0 * (columns - 1);
+        final metricWidth = (constraints.maxWidth - totalSpacing) / columns;
+
+        return SingleChildScrollView(
+          padding: EdgeInsets.all(isCompact ? 12 : 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Container(
+              const _InsightHeader(),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: List<Widget>.generate(
+                  4,
+                  (index) => SizedBox(
+                    width: metricWidth.clamp(220.0, 420.0),
+                    child: Container(
+                      height: 132,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F7FB),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                height: isCompact ? 300 : 340,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              const SizedBox(height: 18),
+              if (constraints.maxWidth < 980) ...[
+                Container(
                   height: 260,
                   decoration: BoxDecoration(
                     color: const Color(0xFFF4F7FB),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Container(
+                const SizedBox(height: 18),
+                Container(
                   height: 260,
                   decoration: BoxDecoration(
                     color: const Color(0xFFF4F7FB),
                     borderRadius: BorderRadius.circular(16),
                   ),
+                ),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 260,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F7FB),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Container(
+                        height: 260,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F7FB),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 18),
+              Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          Container(
-            height: 220,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF4F7FB),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

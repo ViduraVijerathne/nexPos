@@ -16,6 +16,7 @@ class InvoicePrintService {
     required ShopInfo shopInfo,
     required InvoiceLayoutSettings settings,
     required InvoicePreviewData preview,
+    Printer? printer,
   }) async {
     final document = pw.Document();
     final logo = await _loadLogo(shopInfo.logoPath);
@@ -37,6 +38,15 @@ class InvoicePrintService {
         ),
       ),
     );
+
+    if (printer != null) {
+      await Printing.directPrintPdf(
+        printer: printer,
+        name: preview.invoiceNumber,
+        onLayout: (_) async => document.save(),
+      );
+      return;
+    }
 
     await Printing.layoutPdf(
       name: preview.invoiceNumber,

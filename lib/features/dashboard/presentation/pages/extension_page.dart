@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
+import '../../../settings/services/app_settings_service.dart';
 
 class ExtensionPage extends StatefulWidget {
   const ExtensionPage({super.key});
@@ -13,6 +14,8 @@ class ExtensionPage extends StatefulWidget {
 class _ExtensionPageState extends State<ExtensionPage> {
   final TextEditingController _searchController = TextEditingController();
   String _filter = 'All';
+  bool _isLoading = true;
+  bool _restaurantExtensionEnabled = false;
 
   static const List<_ExtensionItem> _extensions = <_ExtensionItem>[
     _ExtensionItem(
@@ -50,6 +53,17 @@ class _ExtensionPageState extends State<ExtensionPage> {
       downloads: '14.5k',
       installed: true,
       icon: Icons.inventory_2_outlined,
+    ),
+    _ExtensionItem(
+      name: 'Restaurant',
+      description:
+          'Enable invoice + kitchen order ticket printing flow for restaurant counters.',
+      version: 'v1.0.0',
+      rating: 4.8,
+      downloads: '6.4k',
+      installed: true,
+      icon: Icons.restaurant_menu_rounded,
+      supportsEnableToggle: true,
     ),
     _ExtensionItem(
       name: 'Advanced Analytics',
@@ -94,7 +108,7 @@ class _ExtensionPageState extends State<ExtensionPage> {
 
   List<_ExtensionItem> get _filteredExtensions {
     final query = _searchController.text.trim().toLowerCase();
-    return _extensions.where((item) {
+    return _runtimeExtensions.where((item) {
       final matchesFilter = switch (_filter) {
         'Installed' => item.installed,
         'Not Installed' => !item.installed,
@@ -108,7 +122,17 @@ class _ExtensionPageState extends State<ExtensionPage> {
     }).toList();
   }
 
-  int get _installedCount => _extensions.where((item) => item.installed).length;
+  int get _installedCount =>
+      _runtimeExtensions.where((item) => item.installed).length;
+
+  List<_ExtensionItem> get _runtimeExtensions {
+    return _extensions.map((item) {
+      if (!item.supportsEnableToggle) {
+        return item;
+      }
+      return item.copyWith(isEnabled: _restaurantExtensionEnabled);
+    }).toList();
+  }
 
   String get _totalDownloadsText {
     final total = _extensions.fold<double>(
@@ -119,12 +143,43 @@ class _ExtensionPageState extends State<ExtensionPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadState();
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
+  Future<void> _loadState() async {
+    try {
+      final enabled = await AppSettingsService.instance
+          .loadRestaurantExtensionEnabled();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _restaurantExtensionEnabled = enabled;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isLoading = false);
+      AppToast.error('Failed to load extensions: $error');
+    }
+  }
+
   void _handleExtensionTap(_ExtensionItem item) {
+    if (item.supportsEnableToggle) {
+      _toggleRestaurantExtension();
+      return;
+    }
+
     if (item.installed) {
       AppToast.info('${item.name} extension is already installed');
       return;
@@ -155,73 +210,95 @@ class _ExtensionPageState extends State<ExtensionPage> {
     );
   }
 
+  Future<void> _toggleRestaurantExtension() async {
+    final nextValue = !_restaurantExtensionEnabled;
+    try {
+      await AppSettingsService.instance.saveRestaurantExtensionEnabled(
+        isEnabled: nextValue,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _restaurantExtensionEnabled = nextValue);
+      AppToast.success(
+        nextValue
+            ? 'Restaurant extension enabled'
+            : 'Restaurant extension disabled',
+      );
+    } catch (error) {
+      AppToast.error('Failed to update restaurant extension: $error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final extensions = _filteredExtensions;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _ExtensionHeader(),
-          const SizedBox(height: 18),
-          _ExtensionFilterBar(
-            searchController: _searchController,
-            selectedFilter: _filter,
-            onChanged: () => setState(() {}),
-            onFilterChanged: (value) => setState(() => _filter = value),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _SummaryCard(
-                  icon: Icons.extension_outlined,
-                  value: '${_extensions.length}',
-                  label: 'Available Extensions',
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _ExtensionHeader(),
+                const SizedBox(height: 18),
+                _ExtensionFilterBar(
+                  searchController: _searchController,
+                  selectedFilter: _filter,
+                  onChanged: () => setState(() {}),
+                  onFilterChanged: (value) => setState(() => _filter = value),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _SummaryCard(
-                  icon: Icons.check_rounded,
-                  value: '$_installedCount',
-                  label: 'Installed',
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: Icons.extension_outlined,
+                        value: '${_runtimeExtensions.length}',
+                        label: 'Available Extensions',
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: Icons.check_rounded,
+                        value: '$_installedCount',
+                        label: 'Installed',
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _SummaryCard(
+                        icon: Icons.download_outlined,
+                        value: _totalDownloadsText,
+                        label: 'Total Downloads',
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _SummaryCard(
-                  icon: Icons.download_outlined,
-                  value: _totalDownloadsText,
-                  label: 'Total Downloads',
+                const SizedBox(height: 18),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: extensions.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio: 1.28,
+                  ),
+                  itemBuilder: (context, index) {
+                    final item = extensions[index];
+                    return _ExtensionCard(
+                      item: item,
+                      onTap: () => _handleExtensionTap(item),
+                    );
+                  },
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: extensions.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.28,
+              ],
             ),
-            itemBuilder: (context, index) {
-              final item = extensions[index];
-              return _ExtensionCard(
-                item: item,
-                onTap: () => _handleExtensionTap(item),
-              );
-            },
-          ),
-        ],
-      ),
-    );
+          );
   }
 }
 
@@ -531,11 +608,19 @@ class _ExtensionCard extends StatelessWidget {
                 ),
               ),
               icon: Icon(
-                item.installed ? Icons.check_rounded : Icons.download_outlined,
+                item.installed
+                    ? (item.isEnabled
+                          ? Icons.toggle_on_rounded
+                          : Icons.toggle_off_rounded)
+                    : Icons.download_outlined,
                 size: 16,
               ),
               label: Text(
-                item.installed ? 'Installed' : 'Install',
+                item.installed
+                    ? item.supportsEnableToggle
+                          ? (item.isEnabled ? 'Enabled' : 'Enable')
+                          : 'Installed'
+                    : 'Install',
                 style: const TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
@@ -569,6 +654,8 @@ class _ExtensionItem {
     required this.downloads,
     required this.installed,
     required this.icon,
+    this.supportsEnableToggle = false,
+    this.isEnabled = false,
   });
 
   final String name;
@@ -578,4 +665,20 @@ class _ExtensionItem {
   final String downloads;
   final bool installed;
   final IconData icon;
+  final bool supportsEnableToggle;
+  final bool isEnabled;
+
+  _ExtensionItem copyWith({bool? isEnabled}) {
+    return _ExtensionItem(
+      name: name,
+      description: description,
+      version: version,
+      rating: rating,
+      downloads: downloads,
+      installed: installed,
+      icon: icon,
+      supportsEnableToggle: supportsEnableToggle,
+      isEnabled: isEnabled ?? this.isEnabled,
+    );
+  }
 }

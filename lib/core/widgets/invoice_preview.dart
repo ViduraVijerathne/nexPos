@@ -424,3 +424,244 @@ class _InvoicePrintPreviewDialogState extends State<InvoicePrintPreviewDialog> {
     );
   }
 }
+
+class KotPreviewCard extends StatelessWidget {
+  const KotPreviewCard({
+    super.key,
+    required this.shopInfo,
+    required this.preview,
+  });
+
+  final ShopInfo shopInfo;
+  final InvoicePreviewData preview;
+
+  TextStyle _style({
+    double size = 12,
+    FontWeight weight = FontWeight.w500,
+    Color color = const Color(0xFF111111),
+  }) {
+    return TextStyle(
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      height: 1.2,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 300,
+      color: AppColors.white,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          border: Border.all(color: const Color(0xFFDDE5EE)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Text(
+                shopInfo.shopName.trim().isEmpty
+                    ? 'Your Shop Name'
+                    : shopInfo.shopName,
+                textAlign: TextAlign.center,
+                style: _style(size: 18, weight: FontWeight.w900),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Center(
+              child: Text(
+                'Kitchen Order Ticket',
+                textAlign: TextAlign.center,
+                style: _style(size: 13.5, weight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Color(0xFF888888)),
+            const SizedBox(height: 8),
+            _infoRow('Invoice', preview.invoiceNumber),
+            _infoRow('Date', preview.dateTimeText),
+            _infoRow('Customer', preview.customerName),
+            if (preview.customerMobile.trim().isNotEmpty)
+              _infoRow('Mobile', preview.customerMobile),
+            _infoRow('Payment', preview.paymentMethod),
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: Color(0xFF888888)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Item',
+                    style: _style(size: 11, weight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text('Qty', style: _style(size: 11, weight: FontWeight.w800)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (var i = 0; i < preview.items.length; i++) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${i + 1}. ${preview.items[i].name}',
+                      style: _style(size: 11, weight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${preview.items[i].quantity}',
+                    style: _style(size: 11, weight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Divider(height: 1, color: Color(0xFFE7EBF0)),
+              const SizedBox(height: 8),
+            ],
+            _infoRow('Items Count', '${preview.items.length}'),
+            _infoRow('Grand Total', 'Rs ${preview.total.toStringAsFixed(2)}'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: _style(size: 11, weight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: _style(size: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class KotPrintPreviewDialog extends StatefulWidget {
+  const KotPrintPreviewDialog({
+    super.key,
+    required this.shopInfo,
+    required this.preview,
+    required this.onPrint,
+  });
+
+  final ShopInfo shopInfo;
+  final InvoicePreviewData preview;
+  final Future<void> Function() onPrint;
+
+  @override
+  State<KotPrintPreviewDialog> createState() => _KotPrintPreviewDialogState();
+}
+
+class _KotPrintPreviewDialogState extends State<KotPrintPreviewDialog> {
+  bool _isPrinting = false;
+
+  Future<void> _handlePrint() async {
+    if (_isPrinting) {
+      return;
+    }
+    setState(() => _isPrinting = true);
+    try {
+      await widget.onPrint();
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF6F9FC),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x26000000),
+              blurRadius: 28,
+              offset: Offset(0, 16),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'KOT Print Preview',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF2E3A4D),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Center(
+                  child: KotPreviewCard(
+                    shopInfo: widget.shopInfo,
+                    preview: widget.preview,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: _isPrinting
+                      ? null
+                      : () => Navigator.of(context).pop(),
+                  child: const Text('Close'),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _isPrinting ? null : _handlePrint,
+                  icon: const Icon(Icons.print_outlined, size: 16),
+                  label: Text(_isPrinting ? 'Printing...' : 'Print KOT'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

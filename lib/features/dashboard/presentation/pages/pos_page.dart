@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/services/invoice_print_service.dart';
+import '../../../../core/services/kot_print_service.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
 import '../../data/customer_remote_repository.dart';
@@ -18,6 +19,7 @@ import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
+import 'package:printing/printing.dart';
 
 enum PosPaymentMethod { cash, card, upi }
 
@@ -63,9 +65,7 @@ class _PosPageState extends State<PosPage> {
   PosCustomerSettings _customerSettings = const PosCustomerSettings(
     createCustomerOnlyContact: false,
   );
-  PosPrintSettings _printSettings = const PosPrintSettings(
-    invoicePrintMode: PosInvoicePrintMode.preview,
-  );
+  PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
 
   @override
@@ -550,7 +550,13 @@ class _PosPageState extends State<PosPage> {
       _resetToWalkInCustomer();
       await _loadCatalog();
       _searchFocusNode.requestFocus();
-      if (_printSettings.invoicePrintMode == PosInvoicePrintMode.instant) {
+      final currentPrintSettings = await AppSettingsService.instance
+          .loadPosPrintSettings();
+      if (mounted) {
+        setState(() => _printSettings = currentPrintSettings);
+      }
+      if (currentPrintSettings.invoicePrintMode ==
+          PosInvoicePrintMode.instant) {
         await _printInstantly(preview);
       } else {
         await _showPrintPreview(preview);
@@ -580,6 +586,8 @@ class _PosPageState extends State<PosPage> {
     final setupState = await SetupService.instance.loadState();
     final layoutSettings = await AppSettingsService.instance
         .loadInvoiceLayoutSettings();
+    final printSettings = await AppSettingsService.instance
+        .loadPosPrintSettings();
     if (!mounted) {
       return;
     }
@@ -596,12 +604,24 @@ class _PosPageState extends State<PosPage> {
             shopInfo: setupState.shopInfo,
             settings: layoutSettings,
             preview: preview,
+            printer: await _resolveStoredPrinter(
+              printSettings.invoicePrinterUrl,
+            ),
           );
           if (!context.mounted) {
             return;
           }
           Navigator.of(context).pop();
-          AppToast.success('Invoice sent to printer');
+          await _handlePostInvoiceRestaurantPrint(
+            preview: preview,
+            shopInfo: setupState.shopInfo,
+            printSettings: printSettings,
+          );
+          AppToast.success(
+            printSettings.restaurantExtensionEnabled
+                ? 'Invoice and KOT sent to printer'
+                : 'Invoice sent to printer',
+          );
         },
       ),
     );
@@ -611,15 +631,102 @@ class _PosPageState extends State<PosPage> {
     final setupState = await SetupService.instance.loadState();
     final layoutSettings = await AppSettingsService.instance
         .loadInvoiceLayoutSettings();
+    final printSettings = await AppSettingsService.instance
+        .loadPosPrintSettings();
     await InvoicePrintService.printInvoice(
       shopInfo: setupState.shopInfo,
       settings: layoutSettings,
       preview: preview,
+      printer: await _resolveStoredPrinter(printSettings.invoicePrinterUrl),
+    );
+    await _handlePostInvoiceRestaurantPrint(
+      preview: preview,
+      shopInfo: setupState.shopInfo,
+      printSettings: printSettings,
     );
     if (!mounted) {
       return;
     }
-    AppToast.success('Invoice sent to printer');
+    AppToast.success(
+      printSettings.restaurantExtensionEnabled
+          ? 'Invoice and KOT sent to printer'
+          : 'Invoice sent to printer',
+    );
+  }
+
+  Future<void> _handlePostInvoiceRestaurantPrint({
+    required InvoicePreviewData preview,
+    required ShopInfo shopInfo,
+    required PosPrintSettings printSettings,
+  }) async {
+    if (!printSettings.restaurantExtensionEnabled) {
+      return;
+    }
+
+    if (printSettings.kotPreviewEnabled) {
+      await _showKotPrintPreview(
+        preview: preview,
+        shopInfo: shopInfo,
+        printSettings: printSettings,
+      );
+      return;
+    }
+
+    await KotPrintService.printKot(
+      shopInfo: shopInfo,
+      preview: preview,
+      printer: await _resolveStoredPrinter(printSettings.kotPrinterUrl),
+    );
+  }
+
+  Future<void> _showKotPrintPreview({
+    required InvoicePreviewData preview,
+    required ShopInfo shopInfo,
+    required PosPrintSettings printSettings,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => KotPrintPreviewDialog(
+        shopInfo: shopInfo,
+        preview: preview,
+        onPrint: () async {
+          await KotPrintService.printKot(
+            shopInfo: shopInfo,
+            preview: preview,
+            printer: await _resolveStoredPrinter(printSettings.kotPrinterUrl),
+          );
+          if (!context.mounted) {
+            return;
+          }
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
+
+  Future<Printer?> _resolveStoredPrinter(String printerUrl) async {
+    final printers = await Printing.listPrinters();
+    return _resolvePrinterByUrl(printers, printerUrl);
+  }
+
+  Printer? _resolvePrinterByUrl(List<Printer> printers, String printerUrl) {
+    final normalizedUrl = printerUrl.trim();
+    if (normalizedUrl.isEmpty) {
+      return null;
+    }
+
+    for (final printer in printers) {
+      if (printer.url == normalizedUrl) {
+        return printer;
+      }
+    }
+
+    return null;
   }
 
   Future<PosCustomerOption?> _resolveCheckoutCustomer() async {

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme_controller.dart';
@@ -78,8 +79,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _touchUiEnabled = false;
   bool _createCustomerOnlyContact = false;
   bool _grnAddItemOnEnter = true;
-  PosInvoicePrintMode _posInvoicePrintMode = PosInvoicePrintMode.preview;
+  PosPrintSettings _posPrintSettings = PosPrintSettings.defaults;
   PosShortcutSettings _posShortcutSettings = PosShortcutSettings.defaults;
+  List<Printer> _availablePrinters = const <Printer>[];
+  bool _isLoadingPrinters = false;
   ShopInfo _shopInfo = const ShopInfo(
     logoPath: '',
     shopName: '',
@@ -174,6 +177,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadReportHeaderSettings();
       final setupState = await SetupService.instance.loadState();
 
+      final printers = await Printing.listPrinters();
+
       if (!mounted) {
         return;
       }
@@ -184,8 +189,9 @@ class _SettingsPageState extends State<SettingsPage> {
         _touchUiEnabled = touchUiSettings.isEnabled;
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
         _grnAddItemOnEnter = grnEntrySettings.addItemOnEnter;
-        _posInvoicePrintMode = posPrintSettings.invoicePrintMode;
+        _posPrintSettings = posPrintSettings;
         _posShortcutSettings = posShortcutSettings;
+        _availablePrinters = printers;
         _shopInfo = setupState.shopInfo;
         _paperSize = invoiceSettings.paperSize;
         _invoiceLanguage = invoiceSettings.language;
@@ -292,7 +298,14 @@ class _SettingsPageState extends State<SettingsPage> {
         addItemOnEnter: _grnAddItemOnEnter,
       );
       await AppSettingsService.instance.savePosPrintSettings(
-        invoicePrintMode: _posInvoicePrintMode,
+        invoicePrintMode: _posPrintSettings.invoicePrintMode,
+        restaurantExtensionEnabled:
+            _posPrintSettings.restaurantExtensionEnabled,
+        kotPreviewEnabled: _posPrintSettings.kotPreviewEnabled,
+        invoicePrinterName: _posPrintSettings.invoicePrinterName,
+        invoicePrinterUrl: _posPrintSettings.invoicePrinterUrl,
+        kotPrinterName: _posPrintSettings.kotPrinterName,
+        kotPrinterUrl: _posPrintSettings.kotPrinterUrl,
       );
       await AppSettingsService.instance.savePosShortcutSettings(
         _posShortcutSettings,
@@ -332,6 +345,56 @@ class _SettingsPageState extends State<SettingsPage> {
         setState(() => _isSaving = false);
       }
     }
+  }
+
+  Future<void> _refreshPrinters() async {
+    setState(() => _isLoadingPrinters = true);
+    try {
+      final printers = await Printing.listPrinters();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _availablePrinters = printers);
+      AppToast.success('Printer list refreshed');
+    } catch (error) {
+      AppToast.error('Failed to load printers: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingPrinters = false);
+      }
+    }
+  }
+
+  void _setInvoicePrinter(String? printerUrl) {
+    final printer = _findPrinterByUrl(printerUrl);
+    setState(() {
+      _posPrintSettings = _posPrintSettings.copyWith(
+        invoicePrinterUrl: printer?.url ?? '',
+        invoicePrinterName: printer?.name ?? '',
+      );
+    });
+  }
+
+  void _setKotPrinter(String? printerUrl) {
+    final printer = _findPrinterByUrl(printerUrl);
+    setState(() {
+      _posPrintSettings = _posPrintSettings.copyWith(
+        kotPrinterUrl: printer?.url ?? '',
+        kotPrinterName: printer?.name ?? '',
+      );
+    });
+  }
+
+  Printer? _findPrinterByUrl(String? printerUrl) {
+    if (printerUrl == null || printerUrl.trim().isEmpty) {
+      return null;
+    }
+    for (final printer in _availablePrinters) {
+      if (printer.url == printerUrl) {
+        return printer;
+      }
+    }
+    return null;
   }
 
   void _resetInvoiceLayoutDefaults() {
@@ -654,7 +717,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   spacing: 14,
                   runSpacing: 14,
                   children: PosInvoicePrintMode.values.map((mode) {
-                    final selected = _posInvoicePrintMode == mode;
+                    final selected = _posPrintSettings.invoicePrintMode == mode;
                     return SizedBox(
                       width: 260,
                       child: _SelectableCard(
@@ -664,12 +727,133 @@ class _SettingsPageState extends State<SettingsPage> {
                             : Icons.print_outlined,
                         label: mode.label,
                         onTap: () {
-                          setState(() => _posInvoicePrintMode = mode);
+                          setState(() {
+                            _posPrintSettings = _posPrintSettings.copyWith(
+                              invoicePrintMode: mode,
+                            );
+                          });
                         },
                       ),
                     );
                   }).toList(),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Restaurant Extension',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SwitchTile(
+                  title: 'Enable Restaurant Printing',
+                  description: _posPrintSettings.restaurantExtensionEnabled
+                      ? 'POS will print both the customer invoice and a KOT after checkout.'
+                      : 'Enable this to print invoice and kitchen order ticket separately for restaurant billing.',
+                  value: _posPrintSettings.restaurantExtensionEnabled,
+                  onChanged: (value) {
+                    setState(() {
+                      _posPrintSettings = _posPrintSettings.copyWith(
+                        restaurantExtensionEnabled: value,
+                      );
+                    });
+                  },
+                ),
+                if (_posPrintSettings.restaurantExtensionEnabled) ...[
+                  const SizedBox(height: 16),
+                  _SwitchTile(
+                    title: 'Preview KOT Before Printing',
+                    description: _posPrintSettings.kotPreviewEnabled
+                        ? 'A preview dialog will appear before the kitchen order ticket is printed.'
+                        : 'KOT will print immediately after the invoice without showing a preview.',
+                    value: _posPrintSettings.kotPreviewEnabled,
+                    onChanged: (value) {
+                      setState(() {
+                        _posPrintSettings = _posPrintSettings.copyWith(
+                          kotPreviewEnabled: value,
+                        );
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _availablePrinters.isEmpty
+                              ? 'No printers loaded yet. Refresh the printer list after connecting your printers.'
+                              : 'Choose which printers should handle invoice and KOT printing.',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSecondary,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: _isLoadingPrinters ? null : _refreshPrinters,
+                        icon: Icon(
+                          _isLoadingPrinters
+                              ? Icons.sync_rounded
+                              : Icons.print_outlined,
+                          size: 16,
+                        ),
+                        label: Text(
+                          _isLoadingPrinters
+                              ? 'Loading...'
+                              : 'Refresh Printers',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _FieldLabel('Invoice Printer'),
+                            const SizedBox(height: 8),
+                            _PrinterDropdownField(
+                              value: _posPrintSettings.hasInvoicePrinter
+                                  ? _posPrintSettings.invoicePrinterUrl
+                                  : null,
+                              selectedLabel:
+                                  _posPrintSettings.invoicePrinterName,
+                              printers: _availablePrinters,
+                              hintText: 'Select invoice printer',
+                              onChanged: _setInvoicePrinter,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _FieldLabel('KOT Printer'),
+                            const SizedBox(height: 8),
+                            _PrinterDropdownField(
+                              value: _posPrintSettings.hasKotPrinter
+                                  ? _posPrintSettings.kotPrinterUrl
+                                  : null,
+                              selectedLabel: _posPrintSettings.kotPrinterName,
+                              printers: _availablePrinters,
+                              hintText: 'Select KOT printer',
+                              onChanged: _setKotPrinter,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -2208,6 +2392,79 @@ class _ShortcutDropdownField extends StatelessWidget {
           borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.6),
         ),
       ),
+    );
+  }
+}
+
+class _PrinterDropdownField extends StatelessWidget {
+  const _PrinterDropdownField({
+    required this.value,
+    required this.selectedLabel,
+    required this.printers,
+    required this.hintText,
+    required this.onChanged,
+  });
+
+  final String? value;
+  final String selectedLabel;
+  final List<Printer> printers;
+  final String hintText;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasMissingSelection =
+        value != null &&
+        value!.trim().isNotEmpty &&
+        printers.every((printer) => printer.url != value);
+
+    return DropdownButtonFormField<String>(
+      initialValue: hasMissingSelection ? null : value,
+      onChanged: onChanged,
+      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+      borderRadius: BorderRadius.circular(14),
+      hint: Text(
+        hasMissingSelection && selectedLabel.trim().isNotEmpty
+            ? '$selectedLabel (Unavailable)'
+            : hintText,
+      ),
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: AppColors.white,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE4EAF2)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.6),
+        ),
+      ),
+      items: [
+        const DropdownMenuItem<String>(
+          value: '',
+          child: Text('Use print dialog / system default'),
+        ),
+        ...printers.map(
+          (printer) => DropdownMenuItem<String>(
+            value: printer.url,
+            child: Text(
+              (printer.location ?? '').trim().isEmpty
+                  ? printer.name
+                  : '${printer.name} • ${printer.location}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

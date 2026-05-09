@@ -265,3 +265,4 @@
 - Hardened the Android app configuration for production by setting the public app name to `NexPos`, disabling Android auto-backup/device-transfer, explicitly blocking cleartext traffic, enabling RTL support, and adding release-signing support through `key.properties` or CI environment secrets.
 - Upgraded the Android release workflow to support production signing secrets, upload obfuscation debug symbols, and build hardened release APK/AAB artifacts with `--obfuscate` and `--split-debug-info`.
 - Fixed the Android GitHub Actions signing step so secret presence is checked through job-level environment variables instead of direct `secrets.*` expressions in the step condition, avoiding workflow validation errors.
+- Added an Android Gradle namespace fallback in the root build script so older Flutter plugins like `isar_flutter_libs` can still build under newer Android Gradle Plugin versions in CI without failing on missing `namespace`.

@@ -1,4 +1,7 @@
+import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.gradle.LibraryExtension
+
+val enforcedCompileSdk = 35
 
 allprojects {
     repositories {
@@ -19,8 +22,19 @@ subprojects {
 }
 
 subprojects {
+    plugins.withId("com.android.application") {
+        extensions.configure<ApplicationExtension> {
+            if ((compileSdk ?: 0) < enforcedCompileSdk) {
+                compileSdk = enforcedCompileSdk
+            }
+        }
+    }
+
     plugins.withId("com.android.library") {
         extensions.configure<LibraryExtension> {
+            if ((compileSdk ?: 0) < enforcedCompileSdk) {
+                compileSdk = enforcedCompileSdk
+            }
             if (namespace.isNullOrBlank()) {
                 val manifestFile = project.file("src/main/AndroidManifest.xml")
                 if (manifestFile.exists()) {

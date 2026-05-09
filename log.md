@@ -264,3 +264,4 @@
 - Added a GitHub Actions workflow for Android builds that runs analyze + tests and produces both release APK and release AAB artifacts on pushes, pull requests, and manual dispatches.
 - Hardened the Android app configuration for production by setting the public app name to `NexPos`, disabling Android auto-backup/device-transfer, explicitly blocking cleartext traffic, enabling RTL support, and adding release-signing support through `key.properties` or CI environment secrets.
 - Upgraded the Android release workflow to support production signing secrets, upload obfuscation debug symbols, and build hardened release APK/AAB artifacts with `--obfuscate` and `--split-debug-info`.
+- Fixed the Android GitHub Actions signing step so secret presence is checked through job-level environment variables instead of direct `secrets.*` expressions in the step condition, avoiding workflow validation errors.

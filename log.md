@@ -261,3 +261,4 @@
 - Extended POS print settings with restaurant-specific printer selection so Settings now shows invoice-printer and KOT-printer selectors when the Restaurant extension is enabled, with live printer discovery and persisted printer assignments.
 - Added a dedicated KOT print service and updated the POS checkout print flow so restaurant billing can print both the customer invoice and a kitchen order ticket, while still respecting the existing preview-versus-instant invoice printing mode.
 - Added an optional `Preview KOT Before Printing` restaurant setting plus a dedicated KOT preview dialog/card, so restaurant mode can now show a kitchen order ticket preview before printing while still allowing direct KOT printing when the toggle is off.
+- Added a GitHub Actions workflow for Android builds that runs analyze + tests and produces both release APK and release AAB artifacts on pushes, pull requests, and manual dispatches.

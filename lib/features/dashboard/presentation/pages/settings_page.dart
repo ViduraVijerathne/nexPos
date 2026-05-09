@@ -9,6 +9,7 @@ import '../../../../core/theme/app_theme_controller.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../../../core/widgets/report_header_preview.dart';
+import '../../../online/services/online_firebase_service.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
 
@@ -72,9 +73,21 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _shopEmailController = TextEditingController();
   final TextEditingController _shopPhoneController = TextEditingController();
   final TextEditingController _shopAddressController = TextEditingController();
+  final TextEditingController _currentPasswordController =
+      TextEditingController();
+  final TextEditingController _newPasswordController = TextEditingController();
+  final TextEditingController _confirmNewPasswordController =
+      TextEditingController();
+  final TextEditingController _currentPinController = TextEditingController();
+  final TextEditingController _newPinController = TextEditingController();
+  final TextEditingController _confirmNewPinController =
+      TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isSavingPassword = false;
+  bool _isSavingPin = false;
+  bool _isSavingLoginMethod = false;
   bool _isTaxEnabled = false;
   bool _touchUiEnabled = false;
   bool _createCustomerOnlyContact = false;
@@ -83,6 +96,9 @@ class _SettingsPageState extends State<SettingsPage> {
   PosShortcutSettings _posShortcutSettings = PosShortcutSettings.defaults;
   List<Printer> _availablePrinters = const <Printer>[];
   bool _isLoadingPrinters = false;
+  AppMode? _appMode;
+  String _adminEmail = '';
+  LoginMethod _defaultLoginMethod = LoginMethod.emailPassword;
   ShopInfo _shopInfo = const ShopInfo(
     logoPath: '',
     shopName: '',
@@ -154,6 +170,12 @@ class _SettingsPageState extends State<SettingsPage> {
     _shopEmailController.dispose();
     _shopPhoneController.dispose();
     _shopAddressController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmNewPasswordController.dispose();
+    _currentPinController.dispose();
+    _newPinController.dispose();
+    _confirmNewPinController.dispose();
     super.dispose();
   }
 
@@ -187,6 +209,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _isTaxEnabled = taxSettings.isTaxEnabled;
         _taxPercentController.text = _formatNumber(taxSettings.taxPercent);
         _touchUiEnabled = touchUiSettings.isEnabled;
+        _appMode = setupState.mode;
+        _adminEmail = setupState.adminEmail;
+        _defaultLoginMethod =
+            setupState.defaultLoginMethod ?? LoginMethod.emailPassword;
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
         _grnAddItemOnEnter = grnEntrySettings.addItemOnEnter;
         _posPrintSettings = posPrintSettings;
@@ -488,6 +514,153 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _saveDefaultLoginMethod(LoginMethod method) async {
+    setState(() => _isSavingLoginMethod = true);
+    try {
+      await SetupService.instance.saveDefaultLoginMethod(method);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _defaultLoginMethod = method);
+      AppToast.success('Default login method updated');
+    } catch (error) {
+      AppToast.error('Failed to update login method: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingLoginMethod = false);
+      }
+    }
+  }
+
+  Future<void> _changePassword() async {
+    final currentPassword = _currentPasswordController.text.trim();
+    final newPassword = _newPasswordController.text.trim();
+    final confirmPassword = _confirmNewPasswordController.text.trim();
+
+    if (currentPassword.isEmpty ||
+        newPassword.isEmpty ||
+        confirmPassword.isEmpty) {
+      AppToast.error('Fill all password fields');
+      return;
+    }
+    if (newPassword.length < 4) {
+      AppToast.error('New password should be at least 4 characters');
+      return;
+    }
+    if (newPassword != confirmPassword) {
+      AppToast.error('New password confirmation does not match');
+      return;
+    }
+    if (_adminEmail.trim().isEmpty) {
+      AppToast.error('Admin account information is missing');
+      return;
+    }
+
+    setState(() => _isSavingPassword = true);
+    try {
+      if (_appMode == AppMode.online) {
+        await OnlineFirebaseService.instance.changePassword(
+          email: _adminEmail,
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        );
+      } else {
+        final changed = await SetupService.instance.changeAdminPassword(
+          email: _adminEmail,
+          currentPassword: currentPassword,
+          newPassword: newPassword,
+        );
+        if (!changed) {
+          AppToast.error('Current password is incorrect');
+          return;
+        }
+      }
+
+      await SetupService.instance.saveAdminAccount(
+        email: _adminEmail,
+        password: newPassword,
+      );
+
+      final state = await SetupService.instance.loadState();
+      if (_appMode == AppMode.online && state.pin.length == 4) {
+        await SetupService.instance.saveOnlinePinCredentials(
+          email: _adminEmail,
+          password: newPassword,
+          pin: state.pin,
+        );
+      }
+
+      _currentPasswordController.clear();
+      _newPasswordController.clear();
+      _confirmNewPasswordController.clear();
+      AppToast.success('Password updated successfully');
+    } catch (error) {
+      AppToast.error('Failed to change password: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingPassword = false);
+      }
+    }
+  }
+
+  Future<void> _changePin() async {
+    final currentPin = _currentPinController.text.trim();
+    final newPin = _newPinController.text.trim();
+    final confirmPin = _confirmNewPinController.text.trim();
+
+    if ([currentPin, newPin, confirmPin].any((value) => value.length != 4)) {
+      AppToast.error('Enter valid 4 digit PIN values');
+      return;
+    }
+    if (newPin != confirmPin) {
+      AppToast.error('New PIN confirmation does not match');
+      return;
+    }
+
+    setState(() => _isSavingPin = true);
+    try {
+      ({String email, String password})? onlineCredentials;
+      if (_appMode == AppMode.online) {
+        onlineCredentials = await SetupService.instance
+            .readOnlinePinCredentials(currentPin);
+        if (onlineCredentials == null) {
+          AppToast.error(
+            'Online PIN credentials are missing. Please login with password and reconfigure the PIN.',
+          );
+          return;
+        }
+      }
+
+      final changed = await SetupService.instance.changePin(
+        currentPin: currentPin,
+        newPin: newPin,
+      );
+      if (!changed) {
+        AppToast.error('Current PIN is incorrect');
+        return;
+      }
+
+      if (_appMode == AppMode.online && onlineCredentials != null) {
+        await SetupService.instance.saveOnlinePinCredentials(
+          email: onlineCredentials.email,
+          password: onlineCredentials.password,
+          pin: newPin,
+        );
+      }
+
+      _currentPinController.clear();
+      _newPinController.clear();
+      _confirmNewPinController.clear();
+      AppToast.success('PIN updated successfully');
+    } catch (error) {
+      AppToast.error('Failed to change PIN: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingPin = false);
+      }
+    }
+  }
+
   String _formatNumber(double value) {
     return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
   }
@@ -543,59 +716,132 @@ class _SettingsPageState extends State<SettingsPage> {
         ReportHeaderSettings.defaults.marginBottom,
   );
 
+  Widget _buildResponsiveColumns({
+    required List<Widget> children,
+    double spacing = 16,
+    double breakpoint = 760,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < breakpoint) {
+          return Column(
+            children: [
+              for (var index = 0; index < children.length; index++) ...[
+                children[index],
+                if (index != children.length - 1) SizedBox(height: spacing),
+              ],
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var index = 0; index < children.length; index++) ...[
+              Expanded(child: children[index]),
+              if (index != children.length - 1) SizedBox(width: spacing),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildResponsiveActionRow({
+    required Widget leading,
+    required Widget trailing,
+    double breakpoint = 760,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < breakpoint) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [leading, const SizedBox(height: 12), trailing],
+          );
+        }
+
+        return Row(
+          children: [
+            leading,
+            const Spacer(),
+            Flexible(child: trailing),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(color: AppColors.primaryTeal),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Settings',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 1120;
+        final isNarrow = constraints.maxWidth < 640;
+        final horizontalPadding = constraints.maxWidth < 640 ? 12.0 : 18.0;
+        final verticalGap = constraints.maxWidth < 640 ? 14.0 : 20.0;
+        final menuCard = _MenuCard(
+          selectedSection: _selectedSection,
+          onSelected: (section) {
+            setState(() => _selectedSection = section);
+          },
+        );
+        final contentCard = _ContentCard(child: _buildSelectedSectionContent());
+
+        return Padding(
+          padding: EdgeInsets.all(horizontalPadding),
+          child: _isLoading
+              ? Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.primaryTeal,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Manage your system preferences and configurations.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 375,
-                        child: _MenuCard(
-                          selectedSection: _selectedSection,
-                          onSelected: (section) {
-                            setState(() => _selectedSection = section);
-                          },
-                        ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Settings',
+                      style: TextStyle(
+                        fontSize: isNarrow ? 18 : 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
                       ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: _ContentCard(
-                          child: _buildSelectedSectionContent(),
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Manage your system preferences and configurations.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textSecondary,
                       ),
-                    ],
-                  ),
+                    ),
+                    SizedBox(height: verticalGap),
+                    Expanded(
+                      child: isCompact
+                          ? SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  menuCard,
+                                  SizedBox(height: verticalGap),
+                                  contentCard,
+                                ],
+                              ),
+                            )
+                          : Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(width: 375, child: menuCard),
+                                const SizedBox(width: 18),
+                                Expanded(child: contentCard),
+                              ],
+                            ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+        );
+      },
     );
   }
 
@@ -609,12 +855,7 @@ class _SettingsPageState extends State<SettingsPage> {
             'Email alerts, low-stock notifications, and reminder controls are reserved for the upcoming notification module.',
         icon: Icons.notifications_none_rounded,
       ),
-      _SettingsMenuSection.security => _InfoPanel(
-        title: 'Security',
-        description:
-            'PIN policy, password rules, and access controls will be managed from this section as backend security options expand.',
-        icon: Icons.lock_outline_rounded,
-      ),
+      _SettingsMenuSection.security => _buildSecuritySection(),
       _SettingsMenuSection.languageRegion => _buildLanguageRegionSection(),
       _SettingsMenuSection.systemPreferences =>
         _buildSystemPreferencesSection(),
@@ -1036,10 +1277,10 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 18),
           _SettingsBlock(
             title: 'Shop Preview',
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 760;
+                final logo = Container(
                   height: 104,
                   width: 104,
                   decoration: BoxDecoration(
@@ -1055,53 +1296,73 @@ class _SettingsPageState extends State<SettingsPage> {
                           size: 40,
                           color: AppColors.textSecondary,
                         ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _shopInfo.shopName.trim().isEmpty
-                            ? 'Shop name not set'
-                            : _shopInfo.shopName,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
+                );
+                final details = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _shopInfo.shopName.trim().isEmpty
+                          ? 'Shop name not set'
+                          : _shopInfo.shopName,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
                       ),
-                      const SizedBox(height: 8),
-                      _PreviewInfoText(
-                        icon: Icons.email_outlined,
-                        text: _shopInfo.contactEmail.trim().isEmpty
-                            ? 'No contact email'
-                            : _shopInfo.contactEmail,
-                      ),
-                      const SizedBox(height: 6),
-                      _PreviewInfoText(
-                        icon: Icons.call_outlined,
-                        text: _shopInfo.contactNumber.trim().isEmpty
-                            ? 'No contact number'
-                            : _shopInfo.contactNumber,
-                      ),
-                      const SizedBox(height: 6),
-                      _PreviewInfoText(
-                        icon: Icons.location_on_outlined,
-                        text: _shopInfo.address.trim().isEmpty
-                            ? 'No address'
-                            : _shopInfo.address,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
+                    ),
+                    const SizedBox(height: 8),
+                    _PreviewInfoText(
+                      icon: Icons.email_outlined,
+                      text: _shopInfo.contactEmail.trim().isEmpty
+                          ? 'No contact email'
+                          : _shopInfo.contactEmail,
+                    ),
+                    const SizedBox(height: 6),
+                    _PreviewInfoText(
+                      icon: Icons.call_outlined,
+                      text: _shopInfo.contactNumber.trim().isEmpty
+                          ? 'No contact number'
+                          : _shopInfo.contactNumber,
+                    ),
+                    const SizedBox(height: 6),
+                    _PreviewInfoText(
+                      icon: Icons.location_on_outlined,
+                      text: _shopInfo.address.trim().isEmpty
+                          ? 'No address'
+                          : _shopInfo.address,
+                    ),
+                  ],
+                );
+                final action = OutlinedButton.icon(
                   onPressed: _pickShopLogo,
                   icon: const Icon(Icons.image_outlined, size: 16),
                   label: const Text('Change Logo'),
-                ),
-              ],
+                );
+
+                if (isCompact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      logo,
+                      const SizedBox(height: 16),
+                      details,
+                      const SizedBox(height: 16),
+                      action,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    logo,
+                    const SizedBox(width: 18),
+                    Expanded(child: details),
+                    const SizedBox(width: 12),
+                    action,
+                  ],
+                );
+              },
             ),
           ),
           const SizedBox(height: 18),
@@ -1117,34 +1378,29 @@ class _SettingsPageState extends State<SettingsPage> {
                   hintText: 'Enter shop name',
                 ),
                 const SizedBox(height: 14),
-                Row(
+                _buildResponsiveColumns(
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('Contact Email'),
-                          const SizedBox(height: 8),
-                          _TextInputField(
-                            controller: _shopEmailController,
-                            hintText: 'Enter contact email',
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Contact Email'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _shopEmailController,
+                          hintText: 'Enter contact email',
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('Contact Number'),
-                          const SizedBox(height: 8),
-                          _TextInputField(
-                            controller: _shopPhoneController,
-                            hintText: 'Enter contact number',
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Contact Number'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _shopPhoneController,
+                          hintText: 'Enter contact number',
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1278,6 +1534,229 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildSecuritySection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Security',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Manage your login method, password, and PIN for both offline and online access.',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Login Access',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InfoRow(
+                  label: 'App Mode',
+                  value: _appMode?.label ?? 'Not configured',
+                ),
+                _InfoRow(
+                  label: 'Admin Email',
+                  value: _adminEmail.isEmpty ? '-' : _adminEmail,
+                  expandValue: true,
+                ),
+                const SizedBox(height: 8),
+                const _FieldLabel('Default Login Method'),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: LoginMethod.values.map((method) {
+                    final selected = _defaultLoginMethod == method;
+                    return SizedBox(
+                      width: 220,
+                      child: _SelectableCard(
+                        selected: selected,
+                        icon: method == LoginMethod.emailPassword
+                            ? Icons.lock_outline_rounded
+                            : Icons.pin_outlined,
+                        label: method.label,
+                        onTap: _isSavingLoginMethod
+                            ? () {}
+                            : () => _saveDefaultLoginMethod(method),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                if (_isSavingLoginMethod) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primaryTeal,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Updating login preference...',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Change Password',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildResponsiveColumns(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Current Password'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _currentPasswordController,
+                          hintText: 'Enter current password',
+                          obscureText: true,
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('New Password'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _newPasswordController,
+                          hintText: 'Enter new password',
+                          obscureText: true,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const _FieldLabel('Confirm New Password'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _confirmNewPasswordController,
+                  hintText: 'Re-enter new password',
+                  obscureText: true,
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    onPressed: _isSavingPassword ? null : _changePassword,
+                    child: _isSavingPassword
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Update Password'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Change PIN',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildResponsiveColumns(
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Current PIN'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _currentPinController,
+                          hintText: 'Enter current 4 digit PIN',
+                          obscureText: true,
+                          keyboardType: TextInputType.number,
+                          maxLength: 4,
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('New PIN'),
+                        const SizedBox(height: 8),
+                        _TextInputField(
+                          controller: _newPinController,
+                          hintText: 'Enter new 4 digit PIN',
+                          obscureText: true,
+                          keyboardType: TextInputType.number,
+                          maxLength: 4,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const _FieldLabel('Confirm New PIN'),
+                const SizedBox(height: 8),
+                _TextInputField(
+                  controller: _confirmNewPinController,
+                  hintText: 'Re-enter new PIN',
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  maxLength: 4,
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    onPressed: _isSavingPin ? null : _changePin,
+                    child: _isSavingPin
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Update PIN'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLanguageRegionSection() {
     return SingleChildScrollView(
       child: Column(
@@ -1323,46 +1802,41 @@ class _SettingsPageState extends State<SettingsPage> {
                   }).toList(),
                 ),
                 const SizedBox(height: 18),
-                Row(
+                _buildResponsiveColumns(
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('English Font'),
-                          const SizedBox(height: 8),
-                          _DropdownField(
-                            value: _englishFontFamily,
-                            items: _englishFontItems,
-                            onChanged: (value) {
-                              setState(() => _englishFontFamily = value ?? '');
-                            },
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('English Font'),
+                        const SizedBox(height: 8),
+                        _DropdownField(
+                          value: _englishFontFamily,
+                          items: _englishFontItems,
+                          onChanged: (value) {
+                            setState(() => _englishFontFamily = value ?? '');
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('Sinhala Font'),
-                          const SizedBox(height: 8),
-                          _DropdownField(
-                            value: _sinhalaFontFamily,
-                            items: _sinhalaFontItems,
-                            onChanged: (value) {
-                              setState(() {
-                                _sinhalaFontFamily =
-                                    value ??
-                                    InvoiceLayoutSettings
-                                        .defaults
-                                        .sinhalaFontFamily;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Sinhala Font'),
+                        const SizedBox(height: 8),
+                        _DropdownField(
+                          value: _sinhalaFontFamily,
+                          items: _sinhalaFontItems,
+                          onChanged: (value) {
+                            setState(() {
+                              _sinhalaFontFamily =
+                                  value ??
+                                  InvoiceLayoutSettings
+                                      .defaults
+                                      .sinhalaFontFamily;
+                            });
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1377,59 +1851,91 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 const _FieldLabel('Paper Size'),
                 const SizedBox(height: 10),
-                Row(
-                  children: InvoicePaperSize.values.map((size) {
-                    final selected = _paperSize == size;
-                    return Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          right: size == InvoicePaperSize.thermal80mm ? 12 : 0,
-                        ),
-                        child: _SelectableCard(
-                          selected: selected,
-                          icon: size == InvoicePaperSize.thermal80mm
-                              ? Icons.receipt_long_outlined
-                              : Icons.description_outlined,
-                          label: size.label,
-                          onTap: () => setState(() => _paperSize = size),
-                        ),
-                      ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isCompact = constraints.maxWidth < 760;
+                    if (isCompact) {
+                      return Column(
+                        children: [
+                          for (
+                            var index = 0;
+                            index < InvoicePaperSize.values.length;
+                            index++
+                          ) ...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: _SelectableCard(
+                                selected:
+                                    _paperSize ==
+                                    InvoicePaperSize.values[index],
+                                icon:
+                                    InvoicePaperSize.values[index] ==
+                                        InvoicePaperSize.thermal80mm
+                                    ? Icons.receipt_long_outlined
+                                    : Icons.description_outlined,
+                                label: InvoicePaperSize.values[index].label,
+                                onTap: () => setState(
+                                  () => _paperSize =
+                                      InvoicePaperSize.values[index],
+                                ),
+                              ),
+                            ),
+                            if (index != InvoicePaperSize.values.length - 1)
+                              const SizedBox(height: 12),
+                          ],
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: InvoicePaperSize.values.map((size) {
+                        final selected = _paperSize == size;
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: size == InvoicePaperSize.thermal80mm
+                                  ? 12
+                                  : 0,
+                            ),
+                            child: _SelectableCard(
+                              selected: selected,
+                              icon: size == InvoicePaperSize.thermal80mm
+                                  ? Icons.receipt_long_outlined
+                                  : Icons.description_outlined,
+                              label: size.label,
+                              onTap: () => setState(() => _paperSize = size),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     );
-                  }).toList(),
+                  },
                 ),
                 const SizedBox(height: 18),
-                Row(
+                _buildResponsiveColumns(
+                  spacing: 12,
                   children: [
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Top Margin',
-                        controller: _marginTopController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Top Margin',
+                      controller: _marginTopController,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Right Margin',
-                        controller: _marginRightController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Right Margin',
+                      controller: _marginRightController,
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Row(
+                _buildResponsiveColumns(
+                  spacing: 12,
                   children: [
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Bottom Margin',
-                        controller: _marginBottomController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Bottom Margin',
+                      controller: _marginBottomController,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Left Margin',
-                        controller: _marginLeftController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Left Margin',
+                      controller: _marginLeftController,
                     ),
                   ],
                 ),
@@ -1442,23 +1948,20 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: _resetInvoiceLayoutDefaults,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('Reset Default Layout'),
+                _buildResponsiveActionRow(
+                  leading: TextButton.icon(
+                    onPressed: _resetInvoiceLayoutDefaults,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reset Default Layout'),
+                  ),
+                  trailing: Text(
+                    'Shop logo and title come from setup information.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
                     ),
-                    const Spacer(),
-                    Text(
-                      'Shop logo and title come from setup information.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -1537,87 +2040,75 @@ class _SettingsPageState extends State<SettingsPage> {
                   }).toList(),
                 ),
                 const SizedBox(height: 16),
-                Row(
+                _buildResponsiveColumns(
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('English Font'),
-                          const SizedBox(height: 8),
-                          _DropdownField(
-                            value: _reportHeaderEnglishFontFamily,
-                            items: _englishFontItems,
-                            onChanged: (value) {
-                              setState(() {
-                                _reportHeaderEnglishFontFamily = value ?? '';
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('English Font'),
+                        const SizedBox(height: 8),
+                        _DropdownField(
+                          value: _reportHeaderEnglishFontFamily,
+                          items: _englishFontItems,
+                          onChanged: (value) {
+                            setState(() {
+                              _reportHeaderEnglishFontFamily = value ?? '';
+                            });
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const _FieldLabel('Sinhala Font'),
-                          const SizedBox(height: 8),
-                          _DropdownField(
-                            value: _reportHeaderSinhalaFontFamily,
-                            items: _sinhalaFontItems,
-                            onChanged: (value) {
-                              setState(() {
-                                _reportHeaderSinhalaFontFamily =
-                                    value ??
-                                    ReportHeaderSettings
-                                        .defaults
-                                        .sinhalaFontFamily;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FieldLabel('Sinhala Font'),
+                        const SizedBox(height: 8),
+                        _DropdownField(
+                          value: _reportHeaderSinhalaFontFamily,
+                          items: _sinhalaFontItems,
+                          onChanged: (value) {
+                            setState(() {
+                              _reportHeaderSinhalaFontFamily =
+                                  value ??
+                                  ReportHeaderSettings
+                                      .defaults
+                                      .sinhalaFontFamily;
+                            });
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
+                _buildResponsiveColumns(
+                  spacing: 12,
                   children: [
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Top Margin',
-                        controller: _reportHeaderTopMarginController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Top Margin',
+                      controller: _reportHeaderTopMarginController,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledNumberField(
-                        label: 'Bottom Margin',
-                        controller: _reportHeaderBottomMarginController,
-                      ),
+                    _LabeledNumberField(
+                      label: 'Bottom Margin',
+                      controller: _reportHeaderBottomMarginController,
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: _resetReportHeaderDefaults,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('Reset Report Header'),
+                _buildResponsiveActionRow(
+                  leading: TextButton.icon(
+                    onPressed: _resetReportHeaderDefaults,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Reset Report Header'),
+                  ),
+                  trailing: Text(
+                    'Preview updates the reports page header.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
                     ),
-                    const Spacer(),
-                    Text(
-                      'Preview updates the reports page header.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -1722,37 +2213,42 @@ class _MenuCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE6EDF5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'SETTINGS MENU',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textSecondary,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final padding = constraints.maxWidth < 640 ? 16.0 : 20.0;
+        return Container(
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE6EDF5)),
           ),
-          const SizedBox(height: 18),
-          ..._SettingsMenuSection.values.map(
-            (section) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _MenuItem(
-                section: section,
-                isSelected: section == selectedSection,
-                onTap: () => onSelected(section),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'SETTINGS MENU',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textSecondary,
+                ),
               ),
-            ),
+              const SizedBox(height: 18),
+              ..._SettingsMenuSection.values.map(
+                (section) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _MenuItem(
+                    section: section,
+                    isSelected: section == selectedSection,
+                    onTap: () => onSelected(section),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1816,15 +2312,20 @@ class _ContentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE6EDF5)),
-      ),
-      child: child,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final padding = constraints.maxWidth < 640 ? 16.0 : 20.0;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE6EDF5)),
+          ),
+          child: child,
+        );
+      },
     );
   }
 }
@@ -1837,29 +2338,34 @@ class _SettingsBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE6EDF5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final padding = constraints.maxWidth < 640 ? 14.0 : 18.0;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: AppColors.background,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE6EDF5)),
           ),
-          const SizedBox(height: 14),
-          child,
-        ],
-      ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 14),
+              child,
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -2146,47 +2652,69 @@ class _SwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE6EDF5)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 560;
+        final info = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        );
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE6EDF5)),
           ),
-          Switch(
-            value: value,
-            activeThumbColor: AppColors.white,
-            activeTrackColor: AppColors.primaryTeal,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
+          child: isCompact
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    info,
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Switch(
+                        value: value,
+                        activeThumbColor: AppColors.white,
+                        activeTrackColor: AppColors.primaryTeal,
+                        onChanged: onChanged,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: info),
+                    Switch(
+                      value: value,
+                      activeThumbColor: AppColors.white,
+                      activeTrackColor: AppColors.primaryTeal,
+                      onChanged: onChanged,
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -2250,19 +2778,29 @@ class _TextInputField extends StatelessWidget {
     required this.controller,
     required this.hintText,
     this.maxLines = 1,
+    this.obscureText = false,
+    this.keyboardType,
+    this.maxLength,
   });
 
   final TextEditingController controller;
   final String hintText;
   final int maxLines;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final int? maxLength;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      maxLength: maxLength,
       decoration: InputDecoration(
         hintText: hintText,
+        counterText: '',
         filled: true,
         fillColor: AppColors.white,
         contentPadding: const EdgeInsets.symmetric(
@@ -2512,36 +3050,47 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: expandValue
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textSecondary,
-              ),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final labelWidget = Text(
+          label,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
+        );
+        final valueWidget = Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
           ),
-        ],
-      ),
+        );
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: constraints.maxWidth < 560
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    labelWidget,
+                    const SizedBox(height: 4),
+                    valueWidget,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: expandValue
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(width: 120, child: labelWidget),
+                    Expanded(child: valueWidget),
+                  ],
+                ),
+        );
+      },
     );
   }
 }

@@ -72,7 +72,6 @@ class SetupState {
   bool get hasOnlineFirebaseConfig => true;
   bool get hasOnlinePinCredentials =>
       mode != AppMode.online ||
-      defaultLoginMethod != LoginMethod.pin ||
       (onlineEmailCiphertext.trim().isNotEmpty &&
           onlinePasswordCiphertext.trim().isNotEmpty);
   bool get hasPin => pin.length == 4;
@@ -177,6 +176,36 @@ class SetupService {
   Future<void> savePin(String pin) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_pinPref, pin);
+  }
+
+  Future<bool> changeAdminPassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final isValid = await validateAdminCredentials(
+      email: email,
+      password: currentPassword,
+    );
+    if (!isValid) {
+      return false;
+    }
+
+    await saveAdminAccount(email: email, password: newPassword);
+    return true;
+  }
+
+  Future<bool> changePin({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    final isValid = await validatePin(currentPin);
+    if (!isValid) {
+      return false;
+    }
+
+    await savePin(newPin);
+    return true;
   }
 
   Future<void> saveDefaultLoginMethod(LoginMethod method) async {

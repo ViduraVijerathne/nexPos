@@ -268,3 +268,7 @@
 - Added an Android Gradle namespace fallback in the root build script so older Flutter plugins like `isar_flutter_libs` can still build under newer Android Gradle Plugin versions in CI without failing on missing `namespace`.
 - Added a root Android Gradle `compileSdk` enforcement fallback for both app and library modules so older plugins that still default to API 30 can compile successfully under modern Android resource requirements such as `android:attr/lStar`.
 - Strengthened the Android Gradle compileSdk fallback with an `afterEvaluate` enforcement pass so third-party plugins that reset `compileSdk` late in configuration still build against the required modern SDK level in CI.
+
+- 2026-05-09: Fixed settings page responsiveness by stacking menu/content in compact layouts, enabling full-page scrolling on narrow widths, and making settings cards, switch rows, and info rows adapt better on small screens.
+
+- 2026-05-09: Added functional security settings for changing admin password, changing PIN, updating default login method, and enabled login screen switching between password and PIN auth with online mode support.

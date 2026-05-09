@@ -102,6 +102,17 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    if (_appMode == AppMode.online) {
+      final state = await SetupService.instance.loadState();
+      if (state.pin.length == 4) {
+        await SetupService.instance.saveOnlinePinCredentials(
+          email: _usernameController.text.trim(),
+          password: _passwordController.text.trim(),
+          pin: state.pin,
+        );
+      }
+    }
+
     await _openDashboard();
   }
 
@@ -262,6 +273,22 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
+  void _selectLoginMethod(LoginMethod method) {
+    if (_loginMethod == method) {
+      return;
+    }
+
+    setState(() {
+      _loginMethod = method;
+      _pinController.clear();
+      if (method == LoginMethod.emailPassword &&
+          _adminEmail.isNotEmpty &&
+          _usernameController.text.trim().isEmpty) {
+        _usernameController.text = _adminEmail;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -332,6 +359,8 @@ class _LoginPageState extends State<LoginPage> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
+                            const SizedBox(height: 18),
+                            _buildLoginMethodSelector(textTheme),
                             const SizedBox(height: 28),
                             if (_loginMethod == LoginMethod.emailPassword)
                               _buildPasswordLogin(textTheme)
@@ -530,6 +559,75 @@ class _LoginPageState extends State<LoginPage> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildLoginMethodSelector(TextTheme textTheme) {
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7FB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5EAF1)),
+      ),
+      child: Row(
+        children: LoginMethod.values.map((method) {
+          final isSelected = _loginMethod == method;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: method == LoginMethod.emailPassword ? 6 : 0,
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _isLoading ? null : () => _selectLoginMethod(method),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primaryTeal : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppColors.primaryTeal
+                          : const Color(0xFFE5EAF1),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        method == LoginMethod.emailPassword
+                            ? Icons.lock_outline_rounded
+                            : Icons.pin_outlined,
+                        size: 18,
+                        color: isSelected
+                            ? AppColors.white
+                            : const Color(0xFF6B7A90),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        method == LoginMethod.emailPassword
+                            ? 'Password'
+                            : 'PIN',
+                        style: textTheme.bodyMedium?.copyWith(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: isSelected
+                              ? AppColors.white
+                              : const Color(0xFF445166),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 

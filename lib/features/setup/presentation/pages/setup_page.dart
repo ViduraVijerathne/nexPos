@@ -191,8 +191,7 @@ class _SetupPageState extends State<SetupPage> {
     }
 
     await SetupService.instance.saveDefaultLoginMethod(_selectedLoginMethod!);
-    if (_selectedMode == AppMode.online &&
-        _selectedLoginMethod == LoginMethod.pin) {
+    if (_selectedMode == AppMode.online) {
       await SetupService.instance.saveOnlinePinCredentials(
         email: _adminEmailController.text.trim(),
         password: _adminPasswordController.text.trim(),

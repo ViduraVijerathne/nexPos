@@ -20,6 +20,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const String _developerPassword = '6jfmd672@V';
+
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -248,6 +250,143 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
+  Future<void> _openDeveloperOptions() async {
+    final passwordController = TextEditingController();
+    final accessGranted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text('Developer Access'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter the developer password to continue.',
+                style: TextStyle(fontSize: 13.5),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Developer password',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE3EAF2)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: AppColors.primaryTeal,
+                      width: 1.6,
+                    ),
+                  ),
+                ),
+                onSubmitted: (_) {
+                  Navigator.of(
+                    context,
+                  ).pop(passwordController.text.trim() == _developerPassword);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).pop(passwordController.text.trim() == _developerPassword),
+              child: const Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+    passwordController.dispose();
+
+    if (!mounted || accessGranted != true) {
+      if (accessGranted == false) {
+        AppToast.error('Invalid developer password');
+      }
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text('Developer Options'),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Use these debugging tools carefully.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _handleResetSetup();
+                  },
+                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: const Text('Reset Setup Info'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFDD8C1A),
+                    side: const BorderSide(color: Color(0xFFF4D3A0)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _handleDeleteActivation();
+                  },
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  label: const Text('Delete Activation Info'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE25C5C),
+                    side: const BorderSide(color: Color(0xFFF4B8B8)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _appendPinDigit(String digit) {
     if (_pinController.text.length >= 4) {
       return;
@@ -425,56 +564,20 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             const SizedBox(height: 14),
                             Center(
-                              child: Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 10,
-                                runSpacing: 8,
-                                children: [
-                                  TextButton.icon(
-                                    onPressed: _handleResetSetup,
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: const Color(0xFFDD8C1A),
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: const Size(0, 20),
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.restart_alt_rounded,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      'Reset Setup Info',
-                                      style: textTheme.bodyMedium?.copyWith(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFFDD8C1A),
-                                      ),
-                                    ),
+                              child: IconButton(
+                                tooltip: 'Developer Options',
+                                onPressed: _openDeveloperOptions,
+                                icon: const Icon(
+                                  Icons.settings_rounded,
+                                  size: 22,
+                                  color: Color(0xFF8A98AB),
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF4F7FB),
+                                  side: const BorderSide(
+                                    color: Color(0xFFE3EAF2),
                                   ),
-                                  TextButton.icon(
-                                    onPressed: _handleDeleteActivation,
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: const Color(0xFFE25C5C),
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: const Size(0, 20),
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      'Delete Activation Info',
-                                      style: textTheme.bodyMedium?.copyWith(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFFE25C5C),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ],

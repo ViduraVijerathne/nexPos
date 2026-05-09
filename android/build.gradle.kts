@@ -50,6 +50,22 @@ subprojects {
 }
 
 subprojects {
+    afterEvaluate {
+        extensions.findByType(ApplicationExtension::class.java)?.let { extension ->
+            if ((extension.compileSdk ?: 0) < enforcedCompileSdk) {
+                extension.compileSdk = enforcedCompileSdk
+            }
+        }
+
+        extensions.findByType(LibraryExtension::class.java)?.let { extension ->
+            if ((extension.compileSdk ?: 0) < enforcedCompileSdk) {
+                extension.compileSdk = enforcedCompileSdk
+            }
+        }
+    }
+}
+
+subprojects {
     project.evaluationDependsOn(":app")
 }
 

@@ -267,3 +267,4 @@
 - Fixed the Android GitHub Actions signing step so secret presence is checked through job-level environment variables instead of direct `secrets.*` expressions in the step condition, avoiding workflow validation errors.
 - Added an Android Gradle namespace fallback in the root build script so older Flutter plugins like `isar_flutter_libs` can still build under newer Android Gradle Plugin versions in CI without failing on missing `namespace`.
 - Added a root Android Gradle `compileSdk` enforcement fallback for both app and library modules so older plugins that still default to API 30 can compile successfully under modern Android resource requirements such as `android:attr/lStar`.
+- Strengthened the Android Gradle compileSdk fallback with an `afterEvaluate` enforcement pass so third-party plugins that reset `compileSdk` late in configuration still build against the required modern SDK level in CI.

@@ -272,3 +272,5 @@
 - 2026-05-09: Fixed settings page responsiveness by stacking menu/content in compact layouts, enabling full-page scrolling on narrow widths, and making settings cards, switch rows, and info rows adapt better on small screens.
 
 - 2026-05-09: Added functional security settings for changing admin password, changing PIN, updating default login method, and enabled login screen switching between password and PIN auth with online mode support.
+
+- 2026-05-09: Updated POS checkout so the Amount Paid field is hidden for Card payments and card transactions auto-treat the paid amount as the invoice total.

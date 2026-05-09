@@ -93,7 +93,11 @@ class _PosPageState extends State<PosPage> {
   double get _tax =>
       _taxSettings.isTaxEnabled ? _subtotal * _taxSettings.taxRate : 0;
   double get _total => _subtotal + _tax;
-  double get _amountPaid => double.tryParse(_amountController.text.trim()) ?? 0;
+  double get _enteredAmountPaid =>
+      double.tryParse(_amountController.text.trim()) ?? 0;
+  double get _amountPaid => _selectedPaymentMethod == PosPaymentMethod.card
+      ? _total
+      : _enteredAmountPaid;
   double get _balance => _amountPaid - _total;
   List<PosCatalogItem> get _visibleCatalogItems {
     return _catalogItems
@@ -1630,6 +1634,7 @@ class _CheckoutPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasShortPayment = subtotal > 0 && balance < 0;
+    final showAmountPaidField = selectedPaymentMethod != PosPaymentMethod.card;
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 360;
@@ -1825,63 +1830,65 @@ class _CheckoutPanel extends StatelessWidget {
                             ),
                           ],
                         ),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'Amount Paid',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF4A586B),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 38,
-                        child: TextField(
-                          controller: amountController,
-                          focusNode: amountFocusNode,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          onChanged: onAmountChanged,
-                          decoration: InputDecoration(
-                            prefixIconConstraints: const BoxConstraints(
-                              minWidth: 32,
-                            ),
-                            prefixIcon: const Padding(
-                              padding: EdgeInsets.only(left: 8, right: 2),
-                              child: Icon(
-                                Icons.attach_money_rounded,
-                                size: 16,
-                                color: Color(0xFF78889E),
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: AppColors.primaryTeal,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: AppColors.primaryTeal,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: AppColors.primaryTeal,
-                              ),
-                            ),
+                      if (showAmountPaidField) ...[
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Amount Paid',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF4A586B),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: amountController,
+                            focusNode: amountFocusNode,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            onChanged: onAmountChanged,
+                            decoration: InputDecoration(
+                              prefixIconConstraints: const BoxConstraints(
+                                minWidth: 32,
+                              ),
+                              prefixIcon: const Padding(
+                                padding: EdgeInsets.only(left: 8, right: 2),
+                                child: Icon(
+                                  Icons.attach_money_rounded,
+                                  size: 16,
+                                  color: Color(0xFF78889E),
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       Container(
                         constraints: const BoxConstraints(minHeight: 44),
                         padding: const EdgeInsets.symmetric(

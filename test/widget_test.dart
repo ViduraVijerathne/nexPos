@@ -22,7 +22,7 @@ void main() {
 
     expect(find.text('NexPos'), findsOneWidget);
     expect(find.text('Username / Email'), findsOneWidget);
-    expect(find.text('Password'), findsOneWidget);
+    expect(find.text('PIN'), findsOneWidget);
     expect(find.text('Login'), findsOneWidget);
   });
 }

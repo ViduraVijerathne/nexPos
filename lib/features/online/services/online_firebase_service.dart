@@ -233,6 +233,24 @@ class OnlineFirebaseService {
     await _signInWithPasswordRest(email: email, password: password);
   }
 
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await initializeFromSavedSetup();
+    final signInResult = await _signInWithPasswordRest(
+      email: email,
+      password: currentPassword,
+      returnAuthPayload: true,
+    );
+    final idToken = signInResult?['idToken']?.toString() ?? '';
+    if (idToken.isEmpty) {
+      throw const FormatException('Unable to verify current online password.');
+    }
+    await _updatePasswordRest(idToken: idToken, newPassword: newPassword);
+  }
+
   Future<OnlineShopRecord?> findShopByAdminEmail(String email) async {
     final normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail.isEmpty) {
@@ -356,9 +374,10 @@ class OnlineFirebaseService {
     );
   }
 
-  Future<void> _signInWithPasswordRest({
+  Future<Map<String, dynamic>?> _signInWithPasswordRest({
     required String email,
     required String password,
+    bool returnAuthPayload = false,
   }) async {
     final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
     final uri = Uri.parse(
@@ -382,7 +401,10 @@ class OnlineFirebaseService {
       final decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        return;
+        if (returnAuthPayload && decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+        return <String, dynamic>{};
       }
 
       String? errorCode;
@@ -393,6 +415,53 @@ class OnlineFirebaseService {
         }
       }
       errorCode ??= 'AUTH_REQUEST_FAILED';
+      throw FormatException(_mapFirebaseAuthError(errorCode));
+    } on SocketException {
+      throw const FormatException(
+        'Network error. Please check the internet connection and try again.',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> _updatePasswordRest({
+    required String idToken,
+    required String newPassword,
+  }) async {
+    final apiKey = DefaultFirebaseOptions.currentPlatform.apiKey;
+    final uri = Uri.parse(
+      'https://identitytoolkit.googleapis.com/v1/accounts:update?key=$apiKey',
+    );
+
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(uri);
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.write(
+        jsonEncode({
+          'idToken': idToken,
+          'password': newPassword,
+          'returnSecureToken': true,
+        }),
+      );
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = body.isEmpty ? <String, dynamic>{} : jsonDecode(body);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+
+      String? errorCode;
+      if (decoded is Map<String, dynamic>) {
+        final error = decoded['error'];
+        if (error is Map<String, dynamic>) {
+          errorCode = error['message']?.toString();
+        }
+      }
+      errorCode ??= 'AUTH_UPDATE_FAILED';
       throw FormatException(_mapFirebaseAuthError(errorCode));
     } on SocketException {
       throw const FormatException(

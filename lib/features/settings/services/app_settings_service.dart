@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 class PosTaxSettings {
   const PosTaxSettings({required this.isTaxEnabled, required this.taxPercent});
@@ -21,6 +22,12 @@ class GrnEntrySettings {
   final bool addItemOnEnter;
 }
 
+class TouchUiSettings {
+  const TouchUiSettings({required this.isEnabled});
+
+  final bool isEnabled;
+}
+
 enum PosInvoicePrintMode {
   preview('Show Preview Before Printing'),
   instant('Print Instantly');
@@ -31,9 +38,57 @@ enum PosInvoicePrintMode {
 }
 
 class PosPrintSettings {
-  const PosPrintSettings({required this.invoicePrintMode});
+  const PosPrintSettings({
+    required this.invoicePrintMode,
+    required this.restaurantExtensionEnabled,
+    required this.kotPreviewEnabled,
+    required this.invoicePrinterName,
+    required this.invoicePrinterUrl,
+    required this.kotPrinterName,
+    required this.kotPrinterUrl,
+  });
 
   final PosInvoicePrintMode invoicePrintMode;
+  final bool restaurantExtensionEnabled;
+  final bool kotPreviewEnabled;
+  final String invoicePrinterName;
+  final String invoicePrinterUrl;
+  final String kotPrinterName;
+  final String kotPrinterUrl;
+
+  bool get hasInvoicePrinter => invoicePrinterUrl.trim().isNotEmpty;
+  bool get hasKotPrinter => kotPrinterUrl.trim().isNotEmpty;
+
+  PosPrintSettings copyWith({
+    PosInvoicePrintMode? invoicePrintMode,
+    bool? restaurantExtensionEnabled,
+    bool? kotPreviewEnabled,
+    String? invoicePrinterName,
+    String? invoicePrinterUrl,
+    String? kotPrinterName,
+    String? kotPrinterUrl,
+  }) {
+    return PosPrintSettings(
+      invoicePrintMode: invoicePrintMode ?? this.invoicePrintMode,
+      restaurantExtensionEnabled:
+          restaurantExtensionEnabled ?? this.restaurantExtensionEnabled,
+      kotPreviewEnabled: kotPreviewEnabled ?? this.kotPreviewEnabled,
+      invoicePrinterName: invoicePrinterName ?? this.invoicePrinterName,
+      invoicePrinterUrl: invoicePrinterUrl ?? this.invoicePrinterUrl,
+      kotPrinterName: kotPrinterName ?? this.kotPrinterName,
+      kotPrinterUrl: kotPrinterUrl ?? this.kotPrinterUrl,
+    );
+  }
+
+  static const PosPrintSettings defaults = PosPrintSettings(
+    invoicePrintMode: PosInvoicePrintMode.preview,
+    restaurantExtensionEnabled: false,
+    kotPreviewEnabled: false,
+    invoicePrinterName: '',
+    invoicePrinterUrl: '',
+    kotPrinterName: '',
+    kotPrinterUrl: '',
+  );
 }
 
 enum PosShortcutKey {
@@ -170,8 +225,21 @@ class AppSettingsService {
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
   static const String _grnAddItemOnEnterKey = 'settings.grn_add_item_on_enter';
+  static const String _touchUiEnabledKey = 'settings.touch_ui_enabled';
   static const String _posInvoicePrintModeKey =
       'settings.pos_invoice_print_mode';
+  static const String _restaurantExtensionEnabledKey =
+      'settings.restaurant_extension_enabled';
+  static const String _restaurantKotPreviewEnabledKey =
+      'settings.restaurant_kot_preview_enabled';
+  static const String _restaurantInvoicePrinterNameKey =
+      'settings.restaurant_invoice_printer_name';
+  static const String _restaurantInvoicePrinterUrlKey =
+      'settings.restaurant_invoice_printer_url';
+  static const String _restaurantKotPrinterNameKey =
+      'settings.restaurant_kot_printer_name';
+  static const String _restaurantKotPrinterUrlKey =
+      'settings.restaurant_kot_printer_url';
   static const String _posShortcutProductSearchKey =
       'settings.pos_shortcut_product_search';
   static const String _posShortcutCustomerSearchKey =
@@ -204,6 +272,8 @@ class AppSettingsService {
       'settings.report_header_margin_top';
   static const String _reportHeaderMarginBottomKey =
       'settings.report_header_margin_bottom';
+
+  final ValueNotifier<bool> touchModeNotifier = ValueNotifier<bool>(false);
 
   Future<PosTaxSettings> loadPosTaxSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -249,6 +319,21 @@ class AppSettingsService {
     await prefs.setBool(_grnAddItemOnEnterKey, addItemOnEnter);
   }
 
+  Future<TouchUiSettings> loadTouchUiSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settings = TouchUiSettings(
+      isEnabled: prefs.getBool(_touchUiEnabledKey) ?? false,
+    );
+    touchModeNotifier.value = settings.isEnabled;
+    return settings;
+  }
+
+  Future<void> saveTouchUiSettings({required bool isEnabled}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_touchUiEnabledKey, isEnabled);
+    touchModeNotifier.value = isEnabled;
+  }
+
   Future<PosPrintSettings> loadPosPrintSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final rawMode = prefs.getString(_posInvoicePrintModeKey);
@@ -256,14 +341,75 @@ class AppSettingsService {
       (item) => item.name == rawMode,
       orElse: () => PosInvoicePrintMode.preview,
     );
-    return PosPrintSettings(invoicePrintMode: mode);
+    return PosPrintSettings(
+      invoicePrintMode: mode,
+      restaurantExtensionEnabled:
+          prefs.getBool(_restaurantExtensionEnabledKey) ??
+          PosPrintSettings.defaults.restaurantExtensionEnabled,
+      kotPreviewEnabled:
+          prefs.getBool(_restaurantKotPreviewEnabledKey) ??
+          PosPrintSettings.defaults.kotPreviewEnabled,
+      invoicePrinterName:
+          prefs.getString(_restaurantInvoicePrinterNameKey) ??
+          PosPrintSettings.defaults.invoicePrinterName,
+      invoicePrinterUrl:
+          prefs.getString(_restaurantInvoicePrinterUrlKey) ??
+          PosPrintSettings.defaults.invoicePrinterUrl,
+      kotPrinterName:
+          prefs.getString(_restaurantKotPrinterNameKey) ??
+          PosPrintSettings.defaults.kotPrinterName,
+      kotPrinterUrl:
+          prefs.getString(_restaurantKotPrinterUrlKey) ??
+          PosPrintSettings.defaults.kotPrinterUrl,
+    );
   }
 
   Future<void> savePosPrintSettings({
     required PosInvoicePrintMode invoicePrintMode,
+    bool? restaurantExtensionEnabled,
+    bool? kotPreviewEnabled,
+    String? invoicePrinterName,
+    String? invoicePrinterUrl,
+    String? kotPrinterName,
+    String? kotPrinterUrl,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_posInvoicePrintModeKey, invoicePrintMode.name);
+    if (restaurantExtensionEnabled != null) {
+      await prefs.setBool(
+        _restaurantExtensionEnabledKey,
+        restaurantExtensionEnabled,
+      );
+    }
+    if (kotPreviewEnabled != null) {
+      await prefs.setBool(_restaurantKotPreviewEnabledKey, kotPreviewEnabled);
+    }
+    if (invoicePrinterName != null) {
+      await prefs.setString(
+        _restaurantInvoicePrinterNameKey,
+        invoicePrinterName,
+      );
+    }
+    if (invoicePrinterUrl != null) {
+      await prefs.setString(_restaurantInvoicePrinterUrlKey, invoicePrinterUrl);
+    }
+    if (kotPrinterName != null) {
+      await prefs.setString(_restaurantKotPrinterNameKey, kotPrinterName);
+    }
+    if (kotPrinterUrl != null) {
+      await prefs.setString(_restaurantKotPrinterUrlKey, kotPrinterUrl);
+    }
+  }
+
+  Future<void> saveRestaurantExtensionEnabled({required bool isEnabled}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_restaurantExtensionEnabledKey, isEnabled);
+  }
+
+  Future<bool> loadRestaurantExtensionEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_restaurantExtensionEnabledKey) ??
+        PosPrintSettings.defaults.restaurantExtensionEnabled;
   }
 
   Future<PosShortcutSettings> loadPosShortcutSettings() async {

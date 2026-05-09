@@ -439,72 +439,204 @@ class _StockPageState extends State<StockPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 760;
+        final isVeryCompact = constraints.maxWidth < 520;
+        final minTableHeight = isCompact ? 420.0 : 360.0;
+
+        return Padding(
+          padding: EdgeInsets.all(isVeryCompact ? 12 : 18),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(child: _StockHeader()),
-              const SizedBox(width: 16),
-              _ActionButton(
-                label: _isOpeningDialog ? 'Loading...' : 'Add New Stock',
-                icon: Icons.add,
-                onPressed: _repository == null || _isOpeningDialog
-                    ? null
-                    : () => _openStockDialog(),
-                isLoading: _isOpeningDialog,
+              Flex(
+                direction: isCompact ? Axis.vertical : Axis.horizontal,
+                crossAxisAlignment: isCompact
+                    ? CrossAxisAlignment.stretch
+                    : CrossAxisAlignment.start,
+                children: [
+                  if (isCompact)
+                    const _StockHeader()
+                  else
+                    const Expanded(child: _StockHeader()),
+                  SizedBox(
+                    width: isCompact ? 0 : 16,
+                    height: isCompact ? 14 : 0,
+                  ),
+                  Align(
+                    alignment: isCompact
+                        ? Alignment.centerLeft
+                        : Alignment.centerRight,
+                    child: _ActionButton(
+                      label: _isOpeningDialog ? 'Loading...' : 'Add New Stock',
+                      icon: Icons.add,
+                      onPressed: _repository == null || _isOpeningDialog
+                          ? null
+                          : () => _openStockDialog(),
+                      isLoading: _isOpeningDialog,
+                      expand: isVeryCompact,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 18),
+              _StockSummaryCards(summary: _summary),
+              const SizedBox(height: 18),
+              _StockFilterCard(
+                barcodeController: _barcodeSearchController,
+                productController: _productSearchController,
+                grnController: _grnSearchController,
+                qtyLessController: _qtyLessController,
+                qtyGreaterController: _qtyGreaterController,
+                selectedStatus: _selectedStatusFilter,
+                isExpanded: _isFilterExpanded,
+                onToggleExpanded: () {
+                  setState(() => _isFilterExpanded = !_isFilterExpanded);
+                },
+                onStatusChanged: (value) {
+                  setState(() => _selectedStatusFilter = value ?? 'All');
+                  _applyFiltersDebounced();
+                },
+                onApply: () => _loadStocks(targetPage: 1),
+                onChanged: _applyFiltersDebounced,
+              ),
+              const SizedBox(height: 18),
+              if (isCompact)
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _isLoading
+                        ? SizedBox(
+                            height: minTableHeight,
+                            child: _StockTableSkeleton(isCompact: isCompact),
+                          )
+                        : _StockTableCard(
+                            stocks: _stocks,
+                            footerText: _footerText,
+                            currentPage: _currentPage,
+                            totalPages: _totalPages,
+                            viewingStockKey: _viewingStockKey,
+                            editingStockKey: _editingStockKey,
+                            deactivatingStockKey: _deactivatingStockKey,
+                            isCompact: isCompact,
+                            onView: _showStockDetails,
+                            onEdit: (stock) => _openStockDialog(stock: stock),
+                            onDelete: _deactivateStock,
+                            onPreviousPage: _currentPage > 1
+                                ? () =>
+                                      _loadStocks(targetPage: _currentPage - 1)
+                                : null,
+                            onNextPage: _currentPage < _totalPages
+                                ? () =>
+                                      _loadStocks(targetPage: _currentPage + 1)
+                                : null,
+                          ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: SizedBox(
+                    height: math.max(
+                      minTableHeight,
+                      constraints.maxHeight - 300.0,
+                    ),
+                    child: _isLoading
+                        ? _StockTableSkeleton(isCompact: isCompact)
+                        : _StockTableCard(
+                            stocks: _stocks,
+                            footerText: _footerText,
+                            currentPage: _currentPage,
+                            totalPages: _totalPages,
+                            viewingStockKey: _viewingStockKey,
+                            editingStockKey: _editingStockKey,
+                            deactivatingStockKey: _deactivatingStockKey,
+                            isCompact: isCompact,
+                            onView: _showStockDetails,
+                            onEdit: (stock) => _openStockDialog(stock: stock),
+                            onDelete: _deactivateStock,
+                            onPreviousPage: _currentPage > 1
+                                ? () =>
+                                      _loadStocks(targetPage: _currentPage - 1)
+                                : null,
+                            onNextPage: _currentPage < _totalPages
+                                ? () =>
+                                      _loadStocks(targetPage: _currentPage + 1)
+                                : null,
+                          ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 18),
-          _StockSummaryCards(summary: _summary),
-          const SizedBox(height: 18),
-          _StockFilterCard(
-            barcodeController: _barcodeSearchController,
-            productController: _productSearchController,
-            grnController: _grnSearchController,
-            qtyLessController: _qtyLessController,
-            qtyGreaterController: _qtyGreaterController,
-            selectedStatus: _selectedStatusFilter,
-            isExpanded: _isFilterExpanded,
-            onToggleExpanded: () {
-              setState(() => _isFilterExpanded = !_isFilterExpanded);
-            },
-            onStatusChanged: (value) {
-              setState(() => _selectedStatusFilter = value ?? 'All');
-              _applyFiltersDebounced();
-            },
-            onApply: () => _loadStocks(targetPage: 1),
-            onChanged: _applyFiltersDebounced,
-          ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: _isLoading
-                ? const _StockTableSkeleton()
-                : _StockTableCard(
-                    stocks: _stocks,
-                    footerText: _footerText,
-                    currentPage: _currentPage,
-                    totalPages: _totalPages,
-                    viewingStockKey: _viewingStockKey,
-                    editingStockKey: _editingStockKey,
-                    deactivatingStockKey: _deactivatingStockKey,
-                    onView: _showStockDetails,
-                    onEdit: (stock) => _openStockDialog(stock: stock),
-                    onDelete: _deactivateStock,
-                    onPreviousPage: _currentPage > 1
-                        ? () => _loadStocks(targetPage: _currentPage - 1)
-                        : null,
-                    onNextPage: _currentPage < _totalPages
-                        ? () => _loadStocks(targetPage: _currentPage + 1)
-                        : null,
-                  ),
-          ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+}
+
+class _ResponsiveFields extends StatelessWidget {
+  const _ResponsiveFields({
+    required this.children,
+    this.spacing = 12,
+    this.runSpacing = 12,
+  });
+
+  final List<Widget> children;
+  final double spacing;
+  final double runSpacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 900
+            ? 3
+            : constraints.maxWidth >= 620
+            ? 2
+            : 1;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: runSpacing,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ResponsiveDialogFields extends StatelessWidget {
+  const _ResponsiveDialogFields({required this.children, this.maxColumns = 3});
+
+  final List<Widget> children;
+  final int maxColumns;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 620
+            ? maxColumns
+            : constraints.maxWidth >= 430
+            ? math.min(2, maxColumns)
+            : 1;
+        const spacing = 16.0;
+        final itemWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: 14,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
     );
   }
 }
@@ -676,348 +808,365 @@ class _StockFormDialogState extends State<StockFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final dialogWidth = math.min(screenSize.width - 32, 700.0);
+    final dialogMaxHeight = screenSize.height - 48;
+
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      child: Container(
-        width: 700,
-        decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x40000000),
-              blurRadius: 40,
-              offset: Offset(0, 18),
-            ),
-          ],
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: dialogWidth,
+          maxHeight: dialogMaxHeight,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
-              child: Row(
-                children: [
-                  Text(
-                    _isEditing ? 'Edit Stock' : 'Add New Stock',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF334156),
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Color(0xFF8090A4),
-                    ),
-                  ),
-                ],
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x40000000),
+                blurRadius: 40,
+                offset: Offset(0, 18),
               ),
-            ),
-            const Divider(height: 1, color: Color(0xFFE8EDF4)),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+                child: Row(
                   children: [
-                    const _FormLabel('Stock Barcode *'),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _DialogTextField(
-                            controller: _barcodeController,
-                            hintText: 'Enter stock barcode',
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Stock barcode is required';
-                              }
-                              return null;
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          height: 42,
-                          child: ElevatedButton.icon(
-                            onPressed: _generateBarcode,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primaryTeal,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            icon: const Icon(
-                              Icons.view_stream_rounded,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              'Generate',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Initial Quantity *',
-                            child: _DialogTextField(
-                              controller: _initialQtyController,
-                              hintText: '0',
-                              keyboardType: TextInputType.number,
-                              validator: _requiredNumberValidator,
-                            ),
-                          ),
-                        ),
-                        if (_isEditing) ...[
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _LabeledField(
-                              label: 'Available Quantity *',
-                              child: _DialogTextField(
-                                controller: _availableQtyController,
-                                hintText: '0',
-                                keyboardType: TextInputType.number,
-                                validator: _requiredNumberValidator,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Buying Price *',
-                            child: _DialogTextField(
-                              controller: _buyingPriceController,
-                              hintText: '0.00',
-                              keyboardType: TextInputType.number,
-                              validator: _requiredNumberValidator,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Selling Price *',
-                            child: _DialogTextField(
-                              controller: _sellingPriceController,
-                              hintText: '0.00',
-                              keyboardType: TextInputType.number,
-                              validator: _requiredNumberValidator,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Max Discount *',
-                            child: _DialogTextField(
-                              controller: _maxDiscountController,
-                              hintText: '0.00',
-                              keyboardType: TextInputType.number,
-                              validator: _requiredNumberValidator,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Product *',
-                            child: _SuggestionField(
-                              controller: _productController,
-                              hintText: 'Search product...',
-                              suggestions: _productMatches,
-                              showSuggestions: _showProductSuggestions,
-                              onChanged: (_) {
-                                setState(() => _showProductSuggestions = true);
-                              },
-                              onTap: () {
-                                setState(() => _showProductSuggestions = true);
-                              },
-                              onSelect: (value) {
-                                setState(() {
-                                  _productController.text = value;
-                                  _showProductSuggestions = false;
-                                });
-                              },
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Product is required';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'GRN (Optional)',
-                            child: _SuggestionField(
-                              controller: _grnController,
-                              hintText: 'Select GRN',
-                              suggestions: _grnMatches,
-                              showSuggestions: _showGrnSuggestions,
-                              onChanged: (_) {
-                                setState(() => _showGrnSuggestions = true);
-                              },
-                              onTap: () {
-                                setState(() => _showGrnSuggestions = true);
-                              },
-                              onSelect: (value) {
-                                setState(() {
-                                  _grnController.text = value;
-                                  _showGrnSuggestions = false;
-                                });
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    const _FormLabel('Expiry Date (Optional)'),
-                    const SizedBox(height: 8),
-                    AppDateField(
-                      controller: _expiryDateController,
-                      hintText: 'yyyy-mm-dd',
-                      decoration: InputDecoration(
-                        hintStyle: const TextStyle(
-                          color: Color(0xFFA2AEBD),
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE3EAF2),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFE3EAF2),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: AppColors.primaryTeal,
-                            width: 2,
-                          ),
-                        ),
+                    Text(
+                      _isEditing ? 'Edit Stock' : 'Add New Stock',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF334156),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    InkWell(
-                      onTap: () => setState(() => _isActive = !_isActive),
-                      child: Row(
-                        children: [
-                          Checkbox(
-                            value: _isActive,
-                            onChanged: (value) {
-                              setState(() => _isActive = value ?? false);
-                            },
-                            activeColor: const Color(0xFF4A86D9),
-                          ),
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Mark as Active',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF445166),
-                            ),
-                          ),
-                        ],
+                    const Spacer(),
+                    IconButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Color(0xFF8090A4),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF9FBFD),
-                border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
-                borderRadius: BorderRadius.vertical(
-                  bottom: Radius.circular(18),
+              const Divider(height: 1, color: Color(0xFFE8EDF4)),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _FormLabel('Stock Barcode *'),
+                        const SizedBox(height: 8),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final stackBarcode = constraints.maxWidth < 430;
+                            final field = _DialogTextField(
+                              controller: _barcodeController,
+                              hintText: 'Enter stock barcode',
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Stock barcode is required';
+                                }
+                                return null;
+                              },
+                            );
+                            final button = SizedBox(
+                              width: stackBarcode ? double.infinity : null,
+                              height: 42,
+                              child: ElevatedButton.icon(
+                                onPressed: _generateBarcode,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primaryTeal,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.view_stream_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  'Generate',
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            );
+
+                            if (stackBarcode) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  field,
+                                  const SizedBox(height: 10),
+                                  button,
+                                ],
+                              );
+                            }
+
+                            return Row(
+                              children: [
+                                Expanded(child: field),
+                                const SizedBox(width: 8),
+                                button,
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        _ResponsiveDialogFields(
+                          maxColumns: _isEditing ? 2 : 1,
+                          children: [
+                            _LabeledField(
+                              label: 'Initial Quantity *',
+                              child: _DialogTextField(
+                                controller: _initialQtyController,
+                                hintText: '0',
+                                keyboardType: TextInputType.number,
+                                validator: _requiredNumberValidator,
+                              ),
+                            ),
+                            if (_isEditing)
+                              _LabeledField(
+                                label: 'Available Quantity *',
+                                child: _DialogTextField(
+                                  controller: _availableQtyController,
+                                  hintText: '0',
+                                  keyboardType: TextInputType.number,
+                                  validator: _requiredNumberValidator,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        _ResponsiveDialogFields(
+                          children: [
+                            _LabeledField(
+                              label: 'Buying Price *',
+                              child: _DialogTextField(
+                                controller: _buyingPriceController,
+                                hintText: '0.00',
+                                keyboardType: TextInputType.number,
+                                validator: _requiredNumberValidator,
+                              ),
+                            ),
+                            _LabeledField(
+                              label: 'Selling Price *',
+                              child: _DialogTextField(
+                                controller: _sellingPriceController,
+                                hintText: '0.00',
+                                keyboardType: TextInputType.number,
+                                validator: _requiredNumberValidator,
+                              ),
+                            ),
+                            _LabeledField(
+                              label: 'Max Discount *',
+                              child: _DialogTextField(
+                                controller: _maxDiscountController,
+                                hintText: '0.00',
+                                keyboardType: TextInputType.number,
+                                validator: _requiredNumberValidator,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        _ResponsiveDialogFields(
+                          maxColumns: 2,
+                          children: [
+                            _LabeledField(
+                              label: 'Product *',
+                              child: _SuggestionField(
+                                controller: _productController,
+                                hintText: 'Search product...',
+                                suggestions: _productMatches,
+                                showSuggestions: _showProductSuggestions,
+                                onChanged: (_) {
+                                  setState(
+                                    () => _showProductSuggestions = true,
+                                  );
+                                },
+                                onTap: () {
+                                  setState(
+                                    () => _showProductSuggestions = true,
+                                  );
+                                },
+                                onSelect: (value) {
+                                  setState(() {
+                                    _productController.text = value;
+                                    _showProductSuggestions = false;
+                                  });
+                                },
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Product is required';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            _LabeledField(
+                              label: 'GRN (Optional)',
+                              child: _SuggestionField(
+                                controller: _grnController,
+                                hintText: 'Select GRN',
+                                suggestions: _grnMatches,
+                                showSuggestions: _showGrnSuggestions,
+                                onChanged: (_) {
+                                  setState(() => _showGrnSuggestions = true);
+                                },
+                                onTap: () {
+                                  setState(() => _showGrnSuggestions = true);
+                                },
+                                onSelect: (value) {
+                                  setState(() {
+                                    _grnController.text = value;
+                                    _showGrnSuggestions = false;
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        const _FormLabel('Expiry Date (Optional)'),
+                        const SizedBox(height: 8),
+                        AppDateField(
+                          controller: _expiryDateController,
+                          hintText: 'yyyy-mm-dd',
+                          decoration: InputDecoration(
+                            hintStyle: const TextStyle(
+                              color: Color(0xFFA2AEBD),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE3EAF2),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFE3EAF2),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        InkWell(
+                          onTap: () => setState(() => _isActive = !_isActive),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: _isActive,
+                                onChanged: (value) {
+                                  setState(() => _isActive = value ?? false);
+                                },
+                                activeColor: const Color(0xFF4A86D9),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Mark as Active',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF445166),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton(
-                    onPressed: _isSubmitting
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(100, 40),
-                      side: const BorderSide(color: Color(0xFFE0E7F0)),
-                      foregroundColor: const Color(0xFF344256),
-                    ),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF9FBFD),
+                  border: Border(top: BorderSide(color: Color(0xFFE8EDF4))),
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(18),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: _isSubmitting ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(130, 40),
-                      backgroundColor: AppColors.primaryTeal,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: _isSubmitting
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(100, 40),
+                        side: const BorderSide(color: Color(0xFFE0E7F0)),
+                        foregroundColor: const Color(0xFF344256),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
                     ),
-                    child: _isSubmitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: _isSubmitting ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(130, 40),
+                        backgroundColor: AppColors.primaryTeal,
+                      ),
+                      child: _isSubmitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _isEditing ? 'Update Stock' : 'Add Stock',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          )
-                        : Text(
-                            _isEditing ? 'Update Stock' : 'Add Stock',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1035,7 +1184,9 @@ class _StockFormDialogState extends State<StockFormDialog> {
 }
 
 class _StockTableSkeleton extends StatelessWidget {
-  const _StockTableSkeleton();
+  const _StockTableSkeleton({required this.isCompact});
+
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1052,9 +1203,9 @@ class _StockTableSkeleton extends StatelessWidget {
         },
         child: Column(
           children: [
-            for (var i = 0; i < 8; i++) ...[
+            for (var i = 0; i < (isCompact ? 5 : 8); i++) ...[
               Container(
-                height: 48,
+                height: isCompact ? 126 : 48,
                 decoration: BoxDecoration(
                   color: const Color(0xFFF3F7FB),
                   borderRadius: BorderRadius.circular(12),
@@ -1086,11 +1237,13 @@ class StockDetailsDialog extends StatelessWidget {
     final utilization = stock.initialQty == 0
         ? 0.0
         : (stock.availableQty / stock.initialQty).clamp(0.0, 1.0);
+    final screenSize = MediaQuery.sizeOf(context);
 
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
-        width: 410,
+        width: math.min(screenSize.width - 32, 410.0),
+        constraints: BoxConstraints(maxHeight: screenSize.height - 48),
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.circular(16),
@@ -1132,159 +1285,142 @@ class StockDetailsDialog extends StatelessWidget {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailMetric(
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                child: Column(
+                  children: [
+                    _ResponsiveDialogFields(
+                      maxColumns: 2,
+                      children: [
+                        _DetailMetric(
                           label: 'Stock Barcode',
                           value: stock.barcode,
                         ),
-                      ),
-                      Expanded(
-                        child: _DetailMetric(
+                        _DetailMetric(
                           label: 'Status',
                           value: stock.status.label,
                           pill: true,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailMetric(
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _ResponsiveDialogFields(
+                      maxColumns: 2,
+                      children: [
+                        _DetailMetric(
                           label: 'Initial Quantity',
                           value: '${stock.initialQty}',
                         ),
-                      ),
-                      Expanded(
-                        child: _DetailMetric(
+                        _DetailMetric(
                           label: 'Available Quantity',
                           value: '${stock.availableQty}',
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailMetric(
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _ResponsiveDialogFields(
+                      children: [
+                        _DetailMetric(
                           label: 'Buying Price',
                           value: '\$${stock.buyingPrice.toStringAsFixed(2)}',
                         ),
-                      ),
-                      Expanded(
-                        child: _DetailMetric(
+                        _DetailMetric(
                           label: 'Selling Price',
                           value: '\$${stock.sellingPrice.toStringAsFixed(2)}',
                           highlight: true,
                         ),
-                      ),
-                      Expanded(
-                        child: _DetailMetric(
+                        _DetailMetric(
                           label: 'Max Discount',
                           value: '\$${stock.maxDiscount.toStringAsFixed(2)}',
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  const Divider(color: Color(0xFFE8EDF4)),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DetailMetric(
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Divider(color: Color(0xFFE8EDF4)),
+                    const SizedBox(height: 14),
+                    _ResponsiveDialogFields(
+                      maxColumns: 2,
+                      children: [
+                        _DetailMetric(
                           label: 'Product',
                           value: stock.product,
                           onTap: onViewProduct,
                         ),
-                      ),
-                      Expanded(
-                        child: _DetailMetric(
+                        _DetailMetric(
                           label: 'GRN ID',
                           value: stock.grnId,
                           onTap: onViewGrn,
                         ),
-                      ),
-                    ],
-                  ),
-                  if (stock.expiryDate != null) ...[
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _DetailMetric(
-                            label: 'Expiry Date',
-                            value: stock.expiryDate!,
-                          ),
-                        ),
-                        const Expanded(child: SizedBox.shrink()),
                       ],
                     ),
-                  ],
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _stockAccentSurface(0.20),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Stock Utilization',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.primaryTeal,
-                          ),
+                    if (stock.expiryDate != null) ...[
+                      const SizedBox(height: 14),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _DetailMetric(
+                          label: 'Expiry Date',
+                          value: stock.expiryDate!,
                         ),
-                        const SizedBox(height: 10),
-                        Stack(
-                          children: [
-                            Container(
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: _stockAccentSurface(0.30),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                            FractionallySizedBox(
-                              widthFactor: utilization,
-                              child: Container(
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryTeal,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            '${(utilization * 100).toStringAsFixed(1)}%',
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _stockAccentSurface(0.20),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Stock Utilization',
                             style: TextStyle(
                               fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                               color: AppColors.primaryTeal,
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 10),
+                          Stack(
+                            children: [
+                              Container(
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: _stockAccentSurface(0.30),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                              FractionallySizedBox(
+                                widthFactor: utilization,
+                                child: Container(
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primaryTeal,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              '${(utilization * 100).toStringAsFixed(1)}%',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             Align(
@@ -1477,48 +1613,55 @@ class _StockSummaryCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _SummaryCard(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 980
+            ? 4
+            : constraints.maxWidth >= 560
+            ? 2
+            : 1;
+        const spacing = 16.0;
+        final cardWidth =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+        final cards = [
+          _SummaryCard(
             title: 'Total Stock Items',
             value: '${summary.totalStockItems}',
             icon: Icons.inventory_2_outlined,
             accent: AppColors.primaryTeal,
             tint: _stockAccentSurface(0.16),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _SummaryCard(
+          _SummaryCard(
             title: 'Active Stocks',
             value: '${summary.activeStocks}',
             icon: Icons.check_circle_outline_rounded,
             accent: AppColors.primaryTeal,
             tint: _stockAccentSurface(0.16),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _SummaryCard(
+          _SummaryCard(
             title: 'Low Stock Items',
             value: '${summary.lowStockItems}',
             icon: Icons.warning_amber_rounded,
             accent: const Color(0xFFF0AE42),
             tint: const Color(0xFFFFF3DE),
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _SummaryCard(
+          _SummaryCard(
             title: 'Inactive Stocks',
             value: '${summary.inactiveStocks}',
             icon: Icons.cancel_outlined,
             accent: const Color(0xFFA4AEC0),
             tint: const Color(0xFFFFF1F1),
           ),
-        ),
-      ],
+        ];
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final card in cards) SizedBox(width: cardWidth, child: card),
+          ],
+        );
+      },
     );
   }
 }
@@ -1599,83 +1742,67 @@ class _StockFilterCard extends StatelessWidget {
             firstChild: Column(
               children: [
                 const SizedBox(height: 16),
-                Row(
+                _ResponsiveFields(
                   children: [
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'Stock Barcode',
-                        child: _FilterTextField(
-                          controller: barcodeController,
-                          hintText: 'Search by barcode...',
-                          onChanged: (_) => onChanged(),
-                        ),
+                    _LabeledField(
+                      label: 'Stock Barcode',
+                      child: _FilterTextField(
+                        controller: barcodeController,
+                        hintText: 'Search by barcode...',
+                        onChanged: (_) => onChanged(),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'Product Name',
-                        child: _FilterTextField(
-                          controller: productController,
-                          hintText: 'Search by product...',
-                          onChanged: (_) => onChanged(),
-                        ),
+                    _LabeledField(
+                      label: 'Product Name',
+                      child: _FilterTextField(
+                        controller: productController,
+                        hintText: 'Search by product...',
+                        onChanged: (_) => onChanged(),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'GRN ID',
-                        child: _FilterTextField(
-                          controller: grnController,
-                          hintText: 'Search by GRN...',
-                          onChanged: (_) => onChanged(),
-                        ),
+                    _LabeledField(
+                      label: 'GRN ID',
+                      child: _FilterTextField(
+                        controller: grnController,
+                        hintText: 'Search by GRN...',
+                        onChanged: (_) => onChanged(),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Row(
+                _ResponsiveFields(
                   children: [
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'Status',
-                        child: DropdownButtonFormField<String>(
-                          value: selectedStatus,
-                          onChanged: onStatusChanged,
-                          decoration: _filterDecoration(),
-                          items: const ['All', 'Active', 'Inactive']
-                              .map(
-                                (status) => DropdownMenuItem<String>(
-                                  value: status,
-                                  child: Text(status),
-                                ),
-                              )
-                              .toList(),
-                        ),
+                    _LabeledField(
+                      label: 'Status',
+                      child: DropdownButtonFormField<String>(
+                        value: selectedStatus,
+                        onChanged: onStatusChanged,
+                        decoration: _filterDecoration(),
+                        items: const ['All', 'Active', 'Inactive']
+                            .map(
+                              (status) => DropdownMenuItem<String>(
+                                value: status,
+                                child: Text(status),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'Qty Less Than',
-                        child: _FilterTextField(
-                          controller: qtyLessController,
-                          hintText: 'e.g. 50',
-                          onChanged: (_) => onChanged(),
-                        ),
+                    _LabeledField(
+                      label: 'Qty Less Than',
+                      child: _FilterTextField(
+                        controller: qtyLessController,
+                        hintText: 'e.g. 50',
+                        onChanged: (_) => onChanged(),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LabeledField(
-                        label: 'Qty Greater Than',
-                        child: _FilterTextField(
-                          controller: qtyGreaterController,
-                          hintText: 'e.g. 100',
-                          onChanged: (_) => onChanged(),
-                        ),
+                    _LabeledField(
+                      label: 'Qty Greater Than',
+                      child: _FilterTextField(
+                        controller: qtyGreaterController,
+                        hintText: 'e.g. 100',
+                        onChanged: (_) => onChanged(),
                       ),
                     ),
                   ],
@@ -1722,6 +1849,7 @@ class _StockTableCard extends StatelessWidget {
     required this.onDelete,
     required this.onPreviousPage,
     required this.onNextPage,
+    required this.isCompact,
   });
 
   final List<StockRecord> stocks;
@@ -1736,6 +1864,7 @@ class _StockTableCard extends StatelessWidget {
   final Future<void> Function(StockRecord) onDelete;
   final VoidCallback? onPreviousPage;
   final VoidCallback? onNextPage;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -1745,7 +1874,11 @@ class _StockTableCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       child: Column(
         children: [
-          Row(
+          Flex(
+            direction: isCompact ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: isCompact
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
             children: [
               const Text(
                 'Stock Items',
@@ -1755,7 +1888,8 @@ class _StockTableCard extends StatelessWidget {
                   color: Color(0xFF344256),
                 ),
               ),
-              const Spacer(),
+              SizedBox(width: isCompact ? 0 : 12, height: isCompact ? 4 : 0),
+              if (!isCompact) const Spacer(),
               Text(
                 'Page $currentPage · Showing ${stocks.length} items',
                 style: const TextStyle(
@@ -1767,28 +1901,34 @@ class _StockTableCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const _StockTableHeader(),
-          const SizedBox(height: 4),
-          Expanded(
-            child: stocks.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No stocks found',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF8492A6),
+          if (!isCompact) ...[
+            const _StockTableHeader(),
+            const SizedBox(height: 4),
+          ],
+          if (isCompact)
+            stocks.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 72),
+                    child: Center(
+                      child: Text(
+                        'No stocks found',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8492A6),
+                        ),
                       ),
                     ),
                   )
                 : ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
                     itemCount: stocks.length,
-                    separatorBuilder: (_, _) =>
-                        const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final stock = stocks[index];
                       final stockKey =
                           stock.cloudId ?? '${stock.id ?? stock.barcode}';
-                      return _StockTableRow(
+                      return _StockCompactCard(
                         stock: stock,
                         isViewing: viewingStockKey == stockKey,
                         isEditing: editingStockKey == stockKey,
@@ -1798,41 +1938,267 @@ class _StockTableCard extends StatelessWidget {
                         onDelete: () => onDelete(stock),
                       );
                     },
-                  ),
+                  )
+          else
+            Expanded(
+              child: stocks.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No stocks found',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF8492A6),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: stocks.length,
+                      separatorBuilder: (_, _) =>
+                          const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                      itemBuilder: (context, index) {
+                        final stock = stocks[index];
+                        final stockKey =
+                            stock.cloudId ?? '${stock.id ?? stock.barcode}';
+                        return _StockTableRow(
+                          stock: stock,
+                          isViewing: viewingStockKey == stockKey,
+                          isEditing: editingStockKey == stockKey,
+                          isDeleting: deactivatingStockKey == stockKey,
+                          onView: () => onView(stock),
+                          onEdit: () => onEdit(stock),
+                          onDelete: () => onDelete(stock),
+                        );
+                      },
+                    ),
+            ),
+          const SizedBox(height: 12),
+          _StockPaginationFooter(
+            footerText: footerText,
+            currentPage: currentPage,
+            totalPages: totalPages,
+            isCompact: isCompact,
+            onPreviousPage: onPreviousPage,
+            onNextPage: onNextPage,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StockPaginationFooter extends StatelessWidget {
+  const _StockPaginationFooter({
+    required this.footerText,
+    required this.currentPage,
+    required this.totalPages,
+    required this.isCompact,
+    required this.onPreviousPage,
+    required this.onNextPage,
+  });
+
+  final String footerText;
+  final int currentPage;
+  final int totalPages;
+  final bool isCompact;
+  final VoidCallback? onPreviousPage;
+  final VoidCallback? onNextPage;
+
+  @override
+  Widget build(BuildContext context) {
+    final footerLabel = Text(
+      footerText,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF8492A6),
+      ),
+    );
+    final pageLabel = Text(
+      'Page $currentPage of $totalPages',
+      style: const TextStyle(
+        fontSize: 13.5,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF6D7C92),
+      ),
+    );
+    final buttons = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _PagerButton(
+          label: 'Previous',
+          icon: Icons.chevron_left_rounded,
+          enabled: onPreviousPage != null,
+          onTap: onPreviousPage,
+        ),
+        const SizedBox(width: 10),
+        pageLabel,
+        const SizedBox(width: 10),
+        _PagerButton(
+          label: 'Next',
+          icon: Icons.chevron_right_rounded,
+          enabled: onNextPage != null,
+          onTap: onNextPage,
+        ),
+      ],
+    );
+
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          footerLabel,
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: buttons,
+          ),
+        ],
+      );
+    }
+
+    return Row(children: [footerLabel, const Spacer(), buttons]);
+  }
+}
+
+class _StockCompactCard extends StatelessWidget {
+  const _StockCompactCard({
+    required this.stock,
+    required this.isViewing,
+    required this.isEditing,
+    required this.isDeleting,
+    required this.onView,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final StockRecord stock;
+  final bool isViewing;
+  final bool isEditing;
+  final bool isDeleting;
+  final VoidCallback onView;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = stock.status == StockStatus.active
+        ? AppColors.primaryTeal
+        : const Color(0xFF98A4B7);
+    final lowQtyColor = stock.availableQty <= 5
+        ? const Color(0xFFF0AE42)
+        : const Color(0xFF6F7D92);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBFDFF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE8EEF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: _stockAccentSurface(0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.inventory_2_outlined,
+                  size: 18,
+                  color: AppColors.primaryTeal,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      stock.product,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF344256),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      stock.barcode,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8492A6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CompactStatusPill(label: stock.status.label, color: statusColor),
+            ],
           ),
           const SizedBox(height: 12),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              Text(
-                footerText,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF8492A6),
-                ),
+              _CompactInfoBadge(label: 'Initial', value: '${stock.initialQty}'),
+              _CompactInfoBadge(
+                label: 'Available',
+                value: '${stock.availableQty}',
+                valueColor: lowQtyColor,
               ),
-              const Spacer(),
-              _PagerButton(
-                label: 'Previous',
-                icon: Icons.chevron_left_rounded,
-                enabled: onPreviousPage != null,
-                onTap: onPreviousPage,
+              _CompactInfoBadge(
+                label: 'Buying',
+                value: '\$${stock.buyingPrice.toStringAsFixed(2)}',
               ),
-              const Spacer(),
-              Text(
-                'Page $currentPage of $totalPages',
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF6D7C92),
-                ),
+              _CompactInfoBadge(
+                label: 'Selling',
+                value: '\$${stock.sellingPrice.toStringAsFixed(2)}',
+                valueColor: const Color(0xFF344256),
               ),
-              const Spacer(),
-              _PagerButton(
-                label: 'Next',
-                icon: Icons.chevron_right_rounded,
-                enabled: onNextPage != null,
-                onTap: onNextPage,
+              _CompactInfoBadge(
+                label: 'Max Discount',
+                value: '\$${stock.maxDiscount.toStringAsFixed(2)}',
+                valueColor: AppColors.primaryTeal,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _CompactActionButton(
+                label: 'View',
+                icon: Icons.remove_red_eye_outlined,
+                color: AppColors.primaryTeal,
+                isLoading: isViewing,
+                onTap: onView,
+              ),
+              _CompactActionButton(
+                label: 'Edit',
+                icon: Icons.edit_outlined,
+                color: const Color(0xFF5E88FF),
+                isLoading: isEditing,
+                onTap: onEdit,
+              ),
+              _CompactActionButton(
+                label: 'Deactivate',
+                icon: Icons.delete_outline_rounded,
+                color: const Color(0xFFFA6A6A),
+                isLoading: isDeleting,
+                onTap: onDelete,
               ),
             ],
           ),
@@ -2038,6 +2404,119 @@ class _StockTableRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CompactStatusPill extends StatelessWidget {
+  const _CompactStatusPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactInfoBadge extends StatelessWidget {
+  const _CompactInfoBadge({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F8FC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF93A0B2),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: valueColor ?? const Color(0xFF6F7D92),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactActionButton extends StatelessWidget {
+  const _CompactActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: isLoading ? null : onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withOpacity(0.28)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        visualDensity: VisualDensity.compact,
+      ),
+      icon: isLoading
+          ? SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: color),
+            )
+          : Icon(icon, size: 15),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -2337,16 +2816,19 @@ class _ActionButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.isLoading = false,
+    this.expand = false,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
   final bool isLoading;
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
+      width: expand ? double.infinity : null,
       height: 36,
       child: ElevatedButton.icon(
         onPressed: onPressed,

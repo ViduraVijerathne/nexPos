@@ -256,6 +256,7 @@ class PosRemoteRepository implements PosRepository {
     required String paymentMethod,
     required double amountPaid,
     required String cashierName,
+    required double discountAmount,
     required double taxAmount,
   }) async {
     if (items.isEmpty) {
@@ -263,7 +264,8 @@ class PosRemoteRepository implements PosRepository {
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
-    final total = subtotal + taxAmount;
+    final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
+    final total = (subtotal - sanitizedDiscount) + taxAmount;
     if (amountPaid < total) {
       throw PosRemoteRepositoryException(
         'Paid amount must be equal to or greater than total',
@@ -335,6 +337,7 @@ class PosRemoteRepository implements PosRepository {
         'issuedAt': DateTime.now(),
         'totalAmount': total,
         'subTotal': subtotal,
+        'discountAmount': sanitizedDiscount,
         'taxAmount': taxAmount,
         'status': 'paid',
         'paymentMethod': paymentMethod,
@@ -367,6 +370,7 @@ class PosRemoteRepository implements PosRepository {
         'customerName': customer.name,
         'paymentMethod': paymentMethod,
         'amountPaid': amountPaid,
+        'discountAmount': sanitizedDiscount,
       },
     );
 

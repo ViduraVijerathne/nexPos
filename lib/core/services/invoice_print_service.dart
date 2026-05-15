@@ -210,6 +210,12 @@ class InvoicePrintService {
           'Rs ${preview.subtotal.toStringAsFixed(2)}',
           style,
         ),
+        if (preview.discount > 0)
+          _summaryRow(
+            t('Discount', 'වට්ටම'),
+            '-Rs ${preview.discount.toStringAsFixed(2)}',
+            style,
+          ),
         if (preview.tax > 0)
           _summaryRow(
             t('Tax', 'බදු'),

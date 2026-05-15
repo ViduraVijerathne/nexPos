@@ -195,6 +195,7 @@ class PosLocalRepository implements PosRepository {
     required String paymentMethod,
     required double amountPaid,
     required String cashierName,
+    required double discountAmount,
     required double taxAmount,
   }) async {
     if (items.isEmpty) {
@@ -202,7 +203,8 @@ class PosLocalRepository implements PosRepository {
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
-    final total = subtotal + taxAmount;
+    final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
+    final total = (subtotal - sanitizedDiscount) + taxAmount;
     if (amountPaid < total) {
       throw PosLocalRepositoryException(
         'Paid amount must be equal to or greater than total',
@@ -240,6 +242,7 @@ class PosLocalRepository implements PosRepository {
       ..customerCode = customer.isWalkIn ? 'walk-in' : customer.phone
       ..customerDbId = customer.id
       ..issuedAt = DateTime.now()
+      ..discountAmount = sanitizedDiscount
       ..totalAmount = total
       ..status = InvoiceEntityStatus.paid
       ..paymentMethod = paymentMethod

@@ -34,6 +34,7 @@ class InvoiceEntity {
   int? customerDbId;
 
   late DateTime issuedAt;
+  double discountAmount = 0;
   late double totalAmount;
   @enumerated
   late InvoiceEntityStatus status;
@@ -45,5 +46,5 @@ class InvoiceEntity {
 
   double get subtotal =>
       items.fold<double>(0, (sum, item) => sum + item.subtotal);
-  double get tax => totalAmount - subtotal;
+  double get tax => totalAmount - (subtotal - discountAmount);
 }

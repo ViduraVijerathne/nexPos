@@ -36,6 +36,7 @@ class _PosPageState extends State<PosPage> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _discountController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final FocusNode _customerFocusNode = FocusNode();
   final FocusNode _amountFocusNode = FocusNode();
@@ -92,6 +93,7 @@ class _PosPageState extends State<PosPage> {
     _searchController.dispose();
     _customerController.dispose();
     _amountController.dispose();
+    _discountController.dispose();
     _searchFocusNode.dispose();
     _customerFocusNode.dispose();
     _amountFocusNode.dispose();
@@ -100,9 +102,16 @@ class _PosPageState extends State<PosPage> {
 
   double get _subtotal =>
       _cartItems.fold<double>(0, (sum, item) => sum + item.subtotal);
-  double get _tax =>
-      _taxSettings.isTaxEnabled ? _subtotal * _taxSettings.taxRate : 0;
-  double get _total => _subtotal + _tax;
+  double get _discount =>
+      (double.tryParse(_discountController.text.trim()) ?? 0)
+          .clamp(0, _subtotal)
+          .toDouble();
+  double get _discountedSubtotal =>
+      (_subtotal - _discount).clamp(0, double.infinity).toDouble();
+  double get _tax => _taxSettings.isTaxEnabled
+      ? _discountedSubtotal * _taxSettings.taxRate
+      : 0;
+  double get _total => _discountedSubtotal + _tax;
   double get _enteredAmountPaid =>
       double.tryParse(_amountController.text.trim()) ?? 0;
   double get _amountPaid => _selectedPaymentMethod == PosPaymentMethod.card
@@ -487,6 +496,9 @@ class _PosPageState extends State<PosPage> {
       setState(() {
         _cartItems.removeAt(index);
         _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+        if (_discount > _subtotal) {
+          _discountController.text = _subtotal.toStringAsFixed(2);
+        }
       });
       return;
     }
@@ -499,6 +511,9 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems[index] = item.copyWith(quantity: updatedQuantity);
       _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+      if (_discount > _subtotal) {
+        _discountController.text = _subtotal.toStringAsFixed(2);
+      }
     });
   }
 
@@ -506,6 +521,9 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems.removeWhere((cartItem) => cartItem.stockKey == item.stockKey);
       _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+      if (_discount > _subtotal) {
+        _discountController.text = _subtotal.toStringAsFixed(2);
+      }
     });
     _searchFocusNode.requestFocus();
   }
@@ -514,6 +532,7 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems.clear();
       _amountController.clear();
+      _discountController.clear();
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
@@ -546,6 +565,7 @@ class _PosPageState extends State<PosPage> {
         paymentMethod: _selectedPaymentMethod.label,
         amountPaid: _amountPaid,
         cashierName: 'Admin User',
+        discountAmount: _discount,
         taxAmount: _tax,
       );
 
@@ -571,6 +591,7 @@ class _PosPageState extends State<PosPage> {
             )
             .toList(),
         subtotal: _subtotal,
+        discount: _discount,
         tax: _tax,
         total: _total,
         paymentMethod: _selectedPaymentMethod.label,
@@ -585,6 +606,7 @@ class _PosPageState extends State<PosPage> {
       setState(() {
         _cartItems.clear();
         _amountController.clear();
+        _discountController.clear();
         _searchController.clear();
         _selectedCategory = 'All';
         _selectedPaymentMethod = PosPaymentMethod.cash;
@@ -967,9 +989,11 @@ class _PosPageState extends State<PosPage> {
           isCustomerLoading: _isCustomerLoading,
           selectedCustomer: _selectedCustomer,
           amountController: _amountController,
+          discountController: _discountController,
           amountFocusNode: _amountFocusNode,
           selectedPaymentMethod: _selectedPaymentMethod,
           subtotal: _subtotal,
+          discount: _discount,
           tax: _tax,
           total: _total,
           taxLabel: _taxSettings.isTaxEnabled
@@ -1739,9 +1763,11 @@ class _CheckoutPanel extends StatelessWidget {
     required this.isCustomerLoading,
     required this.selectedCustomer,
     required this.amountController,
+    required this.discountController,
     required this.amountFocusNode,
     required this.selectedPaymentMethod,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.total,
     required this.taxLabel,
@@ -1765,9 +1791,11 @@ class _CheckoutPanel extends StatelessWidget {
   final bool isCustomerLoading;
   final PosCustomerOption selectedCustomer;
   final TextEditingController amountController;
+  final TextEditingController discountController;
   final FocusNode amountFocusNode;
   final PosPaymentMethod selectedPaymentMethod;
   final double subtotal;
+  final double discount;
   final double tax;
   final double total;
   final String? taxLabel;
@@ -1850,6 +1878,70 @@ class _CheckoutPanel extends StatelessWidget {
                         label: 'Subtotal',
                         value: 'Rs ${subtotal.toStringAsFixed(2)}',
                       ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Discount (සම්පුර්ණ බිලට වට්ටම්)',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4A586B),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 38,
+                        child: TextField(
+                          controller: discountController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: onAmountChanged,
+                          decoration: InputDecoration(
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 32,
+                            ),
+                            prefixIcon: const Padding(
+                              padding: EdgeInsets.only(left: 8, right: 2),
+                              child: Icon(
+                                Icons.local_offer_outlined,
+                                size: 16,
+                                color: Color(0xFF78889E),
+                              ),
+                            ),
+                            hintText: '0.00',
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (discount > 0) ...[
+                        const SizedBox(height: 10),
+                        _SummaryRow(
+                          label: 'Discount',
+                          value: '-Rs ${discount.toStringAsFixed(2)}',
+                          valueColor: const Color(0xFFE35D5D),
+                        ),
+                      ],
                       if (taxLabel != null) ...[
                         const SizedBox(height: 10),
                         _SummaryRow(

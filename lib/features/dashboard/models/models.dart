@@ -794,6 +794,7 @@ class InvoiceRecord {
     required this.date,
     required this.amount,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.status,
     required this.items,
@@ -807,6 +808,7 @@ class InvoiceRecord {
   final String date;
   final double amount;
   final double subtotal;
+  final double discount;
   final double tax;
   final InvoiceStatus status;
   final List<InvoiceLineItem> items;

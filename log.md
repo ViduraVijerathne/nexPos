@@ -281,3 +281,4 @@
 - 2026-05-15: Extended POS Settings with a default stock view mode selector so the POS product area can load in detailed row mode or a compact square-tile mode, and updated the POS product panel to render compact tiles with only product name and price when that mode is selected.
 - 2026-05-15: Fixed POS settings not applying live by adding a POS settings change notifier, updating all POS-related setting saves to publish refresh events, and making the POS page reload tax/customer/catalog/view/shortcut settings plus catalog data immediately after a settings change.
 - 2026-05-15: Improved the POS Settings UX by making default load mode and default stock view mode auto-save immediately on selection, so the chosen POS behavior persists and applies without requiring the user to find a separate save button.
+- Added POS full-bill discount support with checkout input, saved invoice discount persistence for Isar/Firebase, and invoice preview/print/details discount rows.

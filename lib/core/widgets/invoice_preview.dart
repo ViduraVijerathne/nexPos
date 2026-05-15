@@ -14,6 +14,7 @@ class InvoicePreviewData {
     required this.dateTimeText,
     required this.items,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.total,
     required this.paymentMethod,
@@ -27,6 +28,7 @@ class InvoicePreviewData {
   final String dateTimeText;
   final List<InvoicePreviewLine> items;
   final double subtotal;
+  final double discount;
   final double tax;
   final double total;
   final String paymentMethod;
@@ -229,6 +231,11 @@ class InvoicePreviewCard extends StatelessWidget {
               _t('Subtotal', 'උප එකතුව'),
               'Rs ${preview.subtotal.toStringAsFixed(2)}',
             ),
+            if (preview.discount > 0)
+              _summaryRow(
+                _t('Discount', 'වට්ටම'),
+                '-Rs ${preview.discount.toStringAsFixed(2)}',
+              ),
             if (preview.tax > 0)
               _summaryRow(
                 _t('Tax', 'බදු'),

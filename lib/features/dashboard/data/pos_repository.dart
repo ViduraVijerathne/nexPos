@@ -20,6 +20,7 @@ abstract class PosRepository {
     required String paymentMethod,
     required double amountPaid,
     required String cashierName,
+    required double discountAmount,
     required double taxAmount,
   });
 }

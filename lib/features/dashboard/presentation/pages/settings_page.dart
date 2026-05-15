@@ -722,6 +722,7 @@ class _SettingsPageState extends State<SettingsPage> {
       InvoicePreviewLine(name: 'curry powder', quantity: 1, unitPrice: 1250),
     ],
     subtotal: 2500,
+    discount: 0,
     tax: 0,
     total: 2500,
     paymentMethod: 'Cash',

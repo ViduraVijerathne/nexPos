@@ -120,6 +120,7 @@ class InvoiceLocalRepository implements InvoiceRepository {
       date: entity.issuedAt.toIso8601String(),
       amount: entity.totalAmount,
       subtotal: entity.subtotal,
+      discount: entity.discountAmount,
       tax: entity.tax,
       status: _mapStatus(entity.status),
       items: entity.items

@@ -211,6 +211,7 @@ class _InvoicePageState extends State<InvoicePage> {
             )
             .toList(),
         subtotal: invoice.subtotal,
+        discount: invoice.discount,
         tax: invoice.tax,
         total: invoice.amount,
         paymentMethod: invoice.paymentMethod,
@@ -1165,6 +1166,14 @@ class InvoiceDetailsDialog extends StatelessWidget {
                               value:
                                   'Rs ${invoice.subtotal.toStringAsFixed(2)}',
                             ),
+                            if (invoice.discount > 0) ...[
+                              const SizedBox(height: 8),
+                              _AmountRow(
+                                label: 'Discount',
+                                value:
+                                    '-Rs ${invoice.discount.toStringAsFixed(2)}',
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             _AmountRow(
                               label: 'Tax',

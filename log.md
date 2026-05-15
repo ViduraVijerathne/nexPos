@@ -276,3 +276,8 @@
 - 2026-05-09: Updated POS checkout so the Amount Paid field is hidden for Card payments and card transactions auto-treat the paid amount as the invoice total.
 
 - 2026-05-09: Replaced login page reset/setup debug links with a gear button that opens password-protected developer options before showing reset setup and delete activation actions.
+
+- 2026-05-15: Added a new POS Settings menu in Settings for choosing how the POS product list loads when the search box is empty, added quick-selling support to product create/edit dialogs and product persistence, and updated local/online POS catalog loading to support default, quick-selling, most-selling, and high-stock ordering modes.
+- 2026-05-15: Extended POS Settings with a default stock view mode selector so the POS product area can load in detailed row mode or a compact square-tile mode, and updated the POS product panel to render compact tiles with only product name and price when that mode is selected.
+- 2026-05-15: Fixed POS settings not applying live by adding a POS settings change notifier, updating all POS-related setting saves to publish refresh events, and making the POS page reload tax/customer/catalog/view/shortcut settings plus catalog data immediately after a settings change.
+- 2026-05-15: Improved the POS Settings UX by making default load mode and default stock view mode auto-save immediately on selection, so the chosen POS behavior persists and applies without requiring the user to find a separate save button.

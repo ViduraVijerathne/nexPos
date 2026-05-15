@@ -659,6 +659,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
 
   late String _selectedUnit;
   late ProductStatus _selectedStatus;
+  late bool _isQuickSelling;
 
   List<String> _categorySuggestions = <String>[];
   bool _showCategorySuggestions = false;
@@ -698,6 +699,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
     _openingStockMaxDiscountController = TextEditingController();
     _selectedUnit = initial?.unit ?? 'ITEMS';
     _selectedStatus = initial?.status ?? ProductStatus.active;
+    _isQuickSelling = initial?.isQuickSelling ?? false;
 
     _categoryFocusNode.addListener(() {
       if (!_categoryFocusNode.hasFocus) {
@@ -836,6 +838,7 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
         unit: _selectedUnit,
         lowStock: int.parse(_lowStockController.text.trim()),
         status: _selectedStatus,
+        isQuickSelling: _isQuickSelling,
       );
 
       StockRecord? openingStock;
@@ -1091,6 +1094,54 @@ class _ProductFormDialogState extends State<ProductFormDialog> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FBFF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2EAF4)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: const [
+                                  Text(
+                                    'Quick Selling Product',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF334156),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Use this product when POS default load mode is set to quick selling products.',
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: Color(0xFF8090A4),
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Switch(
+                              value: _isQuickSelling,
+                              onChanged: (value) {
+                                setState(() => _isQuickSelling = value);
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 14),
                       _FormLabel('Active Status'),

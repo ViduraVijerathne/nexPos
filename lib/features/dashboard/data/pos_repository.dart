@@ -1,4 +1,5 @@
 import '../models/models.dart';
+import '../../settings/services/app_settings_service.dart';
 
 abstract class PosRepository {
   Future<void> initialize();
@@ -6,6 +7,7 @@ abstract class PosRepository {
   Future<PosCatalogResult> fetchCatalog({
     String? searchQuery,
     String? category,
+    PosCatalogLoadMode loadMode = PosCatalogLoadMode.defaultOrder,
   });
 
   Future<PosCatalogItem?> findExactCatalogMatch(String value);

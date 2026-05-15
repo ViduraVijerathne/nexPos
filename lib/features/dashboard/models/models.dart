@@ -29,6 +29,7 @@ class ProductRecord {
     required this.unit,
     required this.lowStock,
     required this.status,
+    this.isQuickSelling = false,
   });
 
   final int? id;
@@ -39,6 +40,7 @@ class ProductRecord {
   final String unit;
   final int lowStock;
   final ProductStatus status;
+  final bool isQuickSelling;
 
   ProductRecord copyWith({
     int? id,
@@ -49,6 +51,7 @@ class ProductRecord {
     String? unit,
     int? lowStock,
     ProductStatus? status,
+    bool? isQuickSelling,
   }) {
     return ProductRecord(
       id: id ?? this.id,
@@ -59,6 +62,7 @@ class ProductRecord {
       unit: unit ?? this.unit,
       lowStock: lowStock ?? this.lowStock,
       status: status ?? this.status,
+      isQuickSelling: isQuickSelling ?? this.isQuickSelling,
     );
   }
 }

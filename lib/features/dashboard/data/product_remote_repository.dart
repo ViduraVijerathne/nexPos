@@ -278,6 +278,7 @@ class ProductRemoteRepository implements ProductRepository {
       'categoryLower': normalizedCategory.toLowerCase(),
       'unit': product.unit,
       'lowStockQuantity': product.lowStock,
+      'isQuickSelling': product.isQuickSelling,
       'status': product.status.name,
       'createdAt': existingData?['createdAt'] ?? now,
       'updatedAt': now,
@@ -291,6 +292,7 @@ class ProductRemoteRepository implements ProductRepository {
         'category': normalizedCategory,
         'unit': product.unit,
         'lowStockQuantity': product.lowStock,
+        'isQuickSelling': product.isQuickSelling,
         'status': product.status.name,
       },
     );
@@ -324,12 +326,14 @@ class ProductRemoteRepository implements ProductRepository {
         'barcode': savedRecord.barcode,
         'category': savedRecord.category,
         'unit': savedRecord.unit,
+        'isQuickSelling': savedRecord.isQuickSelling,
         'status': savedRecord.status.name,
         if (existingData != null) ...{
           'previousName': previousName,
           'previousBarcode': previousBarcode,
           'previousCategory': existingData['category']?.toString() ?? '',
           'previousUnit': existingData['unit']?.toString() ?? '',
+          'previousIsQuickSelling': existingData['isQuickSelling'] == true,
           'previousStatus': existingData['status']?.toString() ?? 'active',
         },
       },
@@ -481,6 +485,7 @@ class ProductRemoteRepository implements ProductRepository {
       category: data['category']?.toString() ?? '',
       unit: data['unit']?.toString() ?? 'ITEMS',
       lowStock: (data['lowStockQuantity'] as num?)?.toInt() ?? 0,
+      isQuickSelling: data['isQuickSelling'] == true,
       status: _mapStatus(data['status']?.toString()),
     );
   }

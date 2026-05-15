@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
+import '../../settings/services/app_settings_service.dart';
 import 'pos_repository.dart';
 
 class PosRemoteRepositoryException implements Exception {
@@ -64,26 +65,47 @@ class PosRemoteRepository implements PosRepository {
   Future<PosCatalogResult> fetchCatalog({
     String? searchQuery,
     String? category,
+    PosCatalogLoadMode loadMode = PosCatalogLoadMode.defaultOrder,
   }) async {
     final stockSnapshot = await _stocksRef.get();
     final productSnapshot = await _productsRef.get();
+    final invoiceSnapshot = await _invoicesRef.get();
     await SubscriptionUsageService.instance.recordRead(
       shopId: shopId,
       module: 'pos',
-      documentCount: stockSnapshot.docs.length + productSnapshot.docs.length,
+      documentCount:
+          stockSnapshot.docs.length +
+          productSnapshot.docs.length +
+          invoiceSnapshot.docs.length,
       payload: <Object?>[
         stockSnapshot.docs.map((doc) => doc.data()).toList(),
         productSnapshot.docs.map((doc) => doc.data()).toList(),
+        invoiceSnapshot.docs.map((doc) => doc.data()).toList(),
       ],
     );
 
-    final productsByName = <String, Map<String, dynamic>>{
-      for (final doc in productSnapshot.docs)
-        (doc.data()['name']?.toString().trim().toLowerCase() ?? ''): doc.data(),
-    };
+    final productsByName = <String, List<Map<String, dynamic>>>{};
+    final productsByBarcode = <String, Map<String, dynamic>>{};
+    for (final doc in productSnapshot.docs) {
+      final data = doc.data();
+      final nameKey = data['name']?.toString().trim().toLowerCase() ?? '';
+      if (nameKey.isNotEmpty) {
+        productsByName
+            .putIfAbsent(nameKey, () => <Map<String, dynamic>>[])
+            .add(data);
+      }
+      final barcodeKey = data['barcode']?.toString().trim().toLowerCase() ?? '';
+      if (barcodeKey.isNotEmpty) {
+        productsByBarcode[barcodeKey] = data;
+      }
+    }
 
     final normalizedQuery = searchQuery?.trim().toLowerCase() ?? '';
     final normalizedCategory = category?.trim() ?? 'All';
+    final appliedLoadMode = normalizedQuery.isEmpty
+        ? loadMode
+        : PosCatalogLoadMode.defaultOrder;
+    final salesByProductKey = _buildRemoteSalesMap(invoiceSnapshot.docs);
 
     final items =
         stockSnapshot.docs
@@ -98,13 +120,18 @@ class PosRemoteRepository implements PosRepository {
               }
 
               final productName = data['productName']?.toString() ?? '';
-              final product = productsByName[productName.toLowerCase()];
+              final product = _resolveProduct(
+                stockData: data,
+                productsByName: productsByName,
+                productsByBarcode: productsByBarcode,
+              );
               final productBarcode =
                   product?['barcode']?.toString() ??
                   data['productBarcode']?.toString() ??
                   '';
               final productCategory =
                   product?['category']?.toString() ?? 'Uncategorized';
+              final isQuickSelling = product?['isQuickSelling'] == true;
 
               final matchesQuery =
                   normalizedQuery.isEmpty ||
@@ -116,13 +143,20 @@ class PosRemoteRepository implements PosRepository {
               final matchesCategory =
                   normalizedCategory == 'All' ||
                   productCategory == normalizedCategory;
+              final matchesLoadMode =
+                  appliedLoadMode != PosCatalogLoadMode.quickSelling ||
+                  isQuickSelling;
 
-              return matchesQuery && matchesCategory;
+              return matchesQuery && matchesCategory && matchesLoadMode;
             })
             .map((doc) {
               final data = doc.data();
               final productName = data['productName']?.toString() ?? '';
-              final product = productsByName[productName.toLowerCase()];
+              final product = _resolveProduct(
+                stockData: data,
+                productsByName: productsByName,
+                productsByBarcode: productsByBarcode,
+              );
               return PosCatalogItem(
                 stockId: null,
                 stockCloudId: doc.id,
@@ -138,17 +172,14 @@ class PosRemoteRepository implements PosRepository {
               );
             })
             .toList()
-          ..sort((left, right) {
-            final productCompare = left.productName.toLowerCase().compareTo(
-              right.productName.toLowerCase(),
-            );
-            if (productCompare != 0) {
-              return productCompare;
-            }
-            return left.stockBarcode.toLowerCase().compareTo(
-              right.stockBarcode.toLowerCase(),
-            );
-          });
+          ..sort(
+            (left, right) => _compareCatalogItems(
+              left,
+              right,
+              loadMode: appliedLoadMode,
+              salesByProductKey: salesByProductKey,
+            ),
+          );
 
     final categories = <String>{
       'All',
@@ -376,5 +407,103 @@ class PosRemoteRepository implements PosRepository {
       return createdAt.toDate();
     }
     return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  Map<String, dynamic>? _resolveProduct({
+    required Map<String, dynamic> stockData,
+    required Map<String, List<Map<String, dynamic>>> productsByName,
+    required Map<String, Map<String, dynamic>> productsByBarcode,
+  }) {
+    final barcodeKey =
+        stockData['productBarcode']?.toString().trim().toLowerCase() ?? '';
+    if (barcodeKey.isNotEmpty) {
+      final matchedByBarcode = productsByBarcode[barcodeKey];
+      if (matchedByBarcode != null) {
+        return matchedByBarcode;
+      }
+    }
+
+    final productName =
+        stockData['productName']?.toString().trim().toLowerCase() ?? '';
+    final namedProducts = productsByName[productName];
+    if (namedProducts == null || namedProducts.isEmpty) {
+      return null;
+    }
+    return namedProducts.first;
+  }
+
+  Map<String, int> _buildRemoteSalesMap(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> invoiceDocs,
+  ) {
+    final sales = <String, int>{};
+    for (final doc in invoiceDocs) {
+      final items = doc.data()['items'] as List<dynamic>? ?? const <dynamic>[];
+      for (final rawItem in items) {
+        if (rawItem is! Map) {
+          continue;
+        }
+        final item = Map<String, dynamic>.from(rawItem);
+        final barcodeKey =
+            item['productBarcode']?.toString().trim().toLowerCase() ?? '';
+        final nameKey = item['name']?.toString().trim().toLowerCase() ?? '';
+        final quantity = (item['quantity'] as num?)?.toInt() ?? 0;
+        if (quantity <= 0) {
+          continue;
+        }
+        if (barcodeKey.isNotEmpty) {
+          sales.update(
+            barcodeKey,
+            (value) => value + quantity,
+            ifAbsent: () => quantity,
+          );
+        } else if (nameKey.isNotEmpty) {
+          sales.update(
+            nameKey,
+            (value) => value + quantity,
+            ifAbsent: () => quantity,
+          );
+        }
+      }
+    }
+    return sales;
+  }
+
+  int _compareCatalogItems(
+    PosCatalogItem left,
+    PosCatalogItem right, {
+    required PosCatalogLoadMode loadMode,
+    required Map<String, int> salesByProductKey,
+  }) {
+    if (loadMode == PosCatalogLoadMode.highStock) {
+      final qtyCompare = right.availableQty.compareTo(left.availableQty);
+      if (qtyCompare != 0) {
+        return qtyCompare;
+      }
+    }
+
+    if (loadMode == PosCatalogLoadMode.mostSelling) {
+      final rightSales =
+          salesByProductKey[right.productBarcode.toLowerCase()] ??
+          salesByProductKey[right.productName.toLowerCase()] ??
+          0;
+      final leftSales =
+          salesByProductKey[left.productBarcode.toLowerCase()] ??
+          salesByProductKey[left.productName.toLowerCase()] ??
+          0;
+      final salesCompare = rightSales.compareTo(leftSales);
+      if (salesCompare != 0) {
+        return salesCompare;
+      }
+    }
+
+    final productCompare = left.productName.toLowerCase().compareTo(
+      right.productName.toLowerCase(),
+    );
+    if (productCompare != 0) {
+      return productCompare;
+    }
+    return left.stockBarcode.toLowerCase().compareTo(
+      right.stockBarcode.toLowerCase(),
+    );
   }
 }

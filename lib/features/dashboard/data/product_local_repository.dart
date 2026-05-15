@@ -198,6 +198,7 @@ class ProductLocalRepository implements ProductRepository {
       ..category = normalizedCategory
       ..unit = product.unit
       ..lowStockQuantity = product.lowStock
+      ..isQuickSelling = product.isQuickSelling
       ..status = _mapStatusToEntity(product.status)
       ..createdAt = existingProduct?.createdAt ?? now
       ..updatedAt = product.id == null ? null : now;
@@ -226,12 +227,14 @@ class ProductLocalRepository implements ProductRepository {
         'barcode': savedRecord.barcode,
         'category': savedRecord.category,
         'unit': savedRecord.unit,
+        'isQuickSelling': savedRecord.isQuickSelling,
         'status': savedRecord.status.name,
         if (existingProduct != null) ...{
           'previousName': existingProduct.name,
           'previousBarcode': existingProduct.barcode,
           'previousCategory': existingProduct.category,
           'previousUnit': existingProduct.unit,
+          'previousIsQuickSelling': existingProduct.isQuickSelling,
           'previousStatus': existingProduct.status.name,
         },
       },
@@ -406,6 +409,7 @@ class ProductLocalRepository implements ProductRepository {
           ..category = product.category
           ..unit = product.unit
           ..lowStockQuantity = product.lowStock
+          ..isQuickSelling = product.isQuickSelling
           ..status = _mapStatusToEntity(product.status)
           ..createdAt = now;
         await isar.productEntitys.put(entity);
@@ -437,6 +441,7 @@ class ProductLocalRepository implements ProductRepository {
       category: entity.category,
       unit: entity.unit,
       lowStock: entity.lowStockQuantity,
+      isQuickSelling: entity.isQuickSelling,
       status: _mapStatusFromEntity(entity.status),
     );
   }

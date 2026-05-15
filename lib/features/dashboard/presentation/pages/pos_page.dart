@@ -65,6 +65,10 @@ class _PosPageState extends State<PosPage> {
   PosCustomerSettings _customerSettings = const PosCustomerSettings(
     createCustomerOnlyContact: false,
   );
+  PosCatalogSettings _catalogSettings = const PosCatalogSettings(
+    defaultLoadMode: PosCatalogLoadMode.defaultOrder,
+    defaultViewMode: PosCatalogViewMode.row,
+  );
   PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
 
@@ -72,6 +76,9 @@ class _PosPageState extends State<PosPage> {
   void initState() {
     super.initState();
     _customerController.text = _selectedCustomer.searchLabel;
+    AppSettingsService.instance.posSettingsVersionNotifier.addListener(
+      _handlePosSettingsChanged,
+    );
     _initializePage();
   }
 
@@ -79,6 +86,9 @@ class _PosPageState extends State<PosPage> {
   void dispose() {
     _searchDebounce?.cancel();
     _customerDebounce?.cancel();
+    AppSettingsService.instance.posSettingsVersionNotifier.removeListener(
+      _handlePosSettingsChanged,
+    );
     _searchController.dispose();
     _customerController.dispose();
     _amountController.dispose();
@@ -181,6 +191,32 @@ class _PosPageState extends State<PosPage> {
     });
   }
 
+  Future<void> _handlePosSettingsChanged() async {
+    final taxSettings = await AppSettingsService.instance.loadPosTaxSettings();
+    final customerSettings = await AppSettingsService.instance
+        .loadPosCustomerSettings();
+    final catalogSettings = await AppSettingsService.instance
+        .loadPosCatalogSettings();
+    final printSettings = await AppSettingsService.instance
+        .loadPosPrintSettings();
+    final shortcutSettings = await AppSettingsService.instance
+        .loadPosShortcutSettings();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _taxSettings = taxSettings;
+      _customerSettings = customerSettings;
+      _catalogSettings = catalogSettings;
+      _printSettings = printSettings;
+      _shortcutSettings = shortcutSettings;
+    });
+
+    await _loadCatalog();
+  }
+
   Future<void> _initializePage() async {
     try {
       final repository = await PosRepositoryFactory.create();
@@ -193,20 +229,23 @@ class _PosPageState extends State<PosPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final catalogSettings = await AppSettingsService.instance
+          .loadPosCatalogSettings();
       final printSettings = await AppSettingsService.instance
           .loadPosPrintSettings();
       final shortcutSettings = await AppSettingsService.instance
           .loadPosShortcutSettings();
-      await _loadCatalog();
-      await _loadCustomers();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
           _customerSettings = customerSettings;
+          _catalogSettings = catalogSettings;
           _printSettings = printSettings;
           _shortcutSettings = shortcutSettings;
         });
       }
+      await _loadCatalog();
+      await _loadCustomers();
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _searchFocusNode.requestFocus();
@@ -233,6 +272,7 @@ class _PosPageState extends State<PosPage> {
       final result = await repository.fetchCatalog(
         searchQuery: _searchController.text.trim(),
         category: _selectedCategory,
+        loadMode: _catalogSettings.defaultLoadMode,
       );
 
       if (!mounted) {
@@ -898,6 +938,7 @@ class _PosPageState extends State<PosPage> {
           selectedCategory: _selectedCategory,
           products: _visibleCatalogItems,
           selectedStockKey: _selectedStockKey,
+          viewMode: _catalogSettings.defaultViewMode,
           isCatalogLoading: _isCatalogLoading,
           onSearchChanged: _handleSearchChanged,
           onSearchSubmitted: _handleSearchSubmitted,
@@ -1324,6 +1365,7 @@ class _ProductsPanel extends StatelessWidget {
     required this.selectedCategory,
     required this.products,
     required this.selectedStockKey,
+    required this.viewMode,
     required this.isCatalogLoading,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
@@ -1339,6 +1381,7 @@ class _ProductsPanel extends StatelessWidget {
   final String selectedCategory;
   final List<PosCatalogItem> products;
   final String? selectedStockKey;
+  final PosCatalogViewMode viewMode;
   final bool isCatalogLoading;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
@@ -1445,6 +1488,25 @@ class _ProductsPanel extends StatelessWidget {
                       ),
                     ),
                   )
+                : viewMode == PosCatalogViewMode.compact
+                ? GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 150,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 1,
+                        ),
+                    itemCount: products.length,
+                    itemBuilder: (context, index) {
+                      final product = products[index];
+                      return _ProductCompactTile(
+                        product: product,
+                        isSelected: product.stockKey == selectedStockKey,
+                        onTap: () => onProductSelected(product),
+                      );
+                    },
+                  )
                 : ListView.separated(
                     itemCount: products.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -1460,6 +1522,96 @@ class _ProductsPanel extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ProductCompactTile extends StatelessWidget {
+  const _ProductCompactTile({
+    required this.product,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final PosCatalogItem product;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isSelected ? _posAccentSurface(0.12) : AppColors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primaryTeal
+                  : const Color(0xFFE5EBF2),
+              width: isSelected ? 1.6 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppColors.primaryTeal.withValues(alpha: 0.12),
+                      blurRadius: 14,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  height: 42,
+                  width: 42,
+                  decoration: BoxDecoration(
+                    color: _posAccentSurface(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.inventory_2_outlined,
+                    color: AppColors.primaryTeal,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  product.productName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF344256),
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primaryTeal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

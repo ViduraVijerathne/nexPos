@@ -285,3 +285,4 @@
 - Updated POS payments to use Cash, Card, and Multiple methods with split cash/card amount support and invoice breakdown display.
 - Fixed POS catalog view/load selections to save more reliably with awaited auto-save, made touchscreen mode publish live POS refresh events, and added a touchscreen-only checkout number pad that can feed barcode search, discount, cash amount, and card amount with paid amount focused by default.
 - Added a `Recent Invoice` action beside `New Transaction` in POS, with a recent invoices dialog that lets cashiers quickly view full invoice details or re-open print preview for the latest transactions.
+- Added Day Start / Day End cashier flow to POS with opening drawer cash entry, live day-end summary from invoices since session start, cash/card/total sales and expected drawer amount calculations, plus a printable thermal-style day-end chit.

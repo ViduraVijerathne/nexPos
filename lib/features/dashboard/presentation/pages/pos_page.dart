@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/services/day_session_print_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/services/invoice_print_service.dart';
@@ -21,6 +22,7 @@ import '../../data/pos_remote_repository.dart';
 import '../../data/pos_repository.dart';
 import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
+import '../../services/day_session_service.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
 import 'invoice_page.dart';
@@ -69,6 +71,7 @@ class _PosPageState extends State<PosPage> {
   bool _isProcessing = false;
   bool _isOpeningCustomerDialog = false;
   bool _isRecentInvoicesLoading = false;
+  bool _isDaySessionLoading = false;
   String? _viewingInvoiceId;
   String? _printingInvoiceId;
   PosTaxSettings _taxSettings = const PosTaxSettings(
@@ -85,6 +88,7 @@ class _PosPageState extends State<PosPage> {
   PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
   bool _touchModeEnabled = false;
+  DrawerSessionState _drawerSession = const DrawerSessionState.inactive();
 
   @override
   void initState() {
@@ -95,6 +99,9 @@ class _PosPageState extends State<PosPage> {
     );
     AppSettingsService.instance.touchModeNotifier.addListener(
       _handleTouchModeChanged,
+    );
+    DaySessionService.instance.sessionVersionNotifier.addListener(
+      _handleDaySessionChanged,
     );
     _searchFocusNode.addListener(_handleActiveInputFocusChange);
     _amountFocusNode.addListener(_handleActiveInputFocusChange);
@@ -112,6 +119,9 @@ class _PosPageState extends State<PosPage> {
     );
     AppSettingsService.instance.touchModeNotifier.removeListener(
       _handleTouchModeChanged,
+    );
+    DaySessionService.instance.sessionVersionNotifier.removeListener(
+      _handleDaySessionChanged,
     );
     _searchFocusNode.removeListener(_handleActiveInputFocusChange);
     _amountFocusNode.removeListener(_handleActiveInputFocusChange);
@@ -252,6 +262,7 @@ class _PosPageState extends State<PosPage> {
         .loadPosShortcutSettings();
     final touchSettings = await AppSettingsService.instance
         .loadTouchUiSettings();
+    final drawerSession = await DaySessionService.instance.loadState();
 
     if (!mounted) {
       return;
@@ -264,6 +275,7 @@ class _PosPageState extends State<PosPage> {
       _printSettings = printSettings;
       _shortcutSettings = shortcutSettings;
       _touchModeEnabled = touchSettings.isEnabled;
+      _drawerSession = drawerSession;
     });
 
     _focusDefaultTouchFieldIfNeeded();
@@ -277,6 +289,14 @@ class _PosPageState extends State<PosPage> {
     final enabled = AppSettingsService.instance.touchModeNotifier.value;
     setState(() => _touchModeEnabled = enabled);
     _focusDefaultTouchFieldIfNeeded();
+  }
+
+  Future<void> _handleDaySessionChanged() async {
+    final state = await DaySessionService.instance.loadState();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _drawerSession = state);
   }
 
   void _handleActiveInputFocusChange() {
@@ -309,6 +329,7 @@ class _PosPageState extends State<PosPage> {
           .loadPosShortcutSettings();
       final touchSettings = await AppSettingsService.instance
           .loadTouchUiSettings();
+      final drawerSession = await DaySessionService.instance.loadState();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
@@ -317,6 +338,7 @@ class _PosPageState extends State<PosPage> {
           _printSettings = printSettings;
           _shortcutSettings = shortcutSettings;
           _touchModeEnabled = touchSettings.isEnabled;
+          _drawerSession = drawerSession;
         });
       }
       await _loadCatalog();
@@ -1105,6 +1127,137 @@ class _PosPageState extends State<PosPage> {
     }
   }
 
+  Future<void> _openDaySessionAction() async {
+    if (_drawerSession.isActive) {
+      await _openDayEndDialog();
+    } else {
+      await _openDayStartDialog();
+    }
+  }
+
+  Future<void> _openDayStartDialog() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Day Start'),
+        content: Form(
+          key: formKey,
+          child: SizedBox(
+            width: 360,
+            child: TextFormField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Opening Cash In Drawer',
+                hintText: '0.00',
+                prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+              ),
+              validator: (value) {
+                final parsed = double.tryParse(value?.trim() ?? '');
+                if (parsed == null || parsed < 0) {
+                  return 'Enter a valid opening cash amount';
+                }
+                return null;
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (!(formKey.currentState?.validate() ?? false)) {
+                return;
+              }
+              Navigator.of(context).pop(true);
+            },
+            child: const Text('Start Day'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    final openingCash = double.tryParse(controller.text.trim()) ?? 0;
+    await DaySessionService.instance.startSession(
+      openingCash: openingCash,
+      cashierName: 'Admin User',
+    );
+    if (!mounted) {
+      return;
+    }
+    AppToast.success('Day started successfully');
+  }
+
+  Future<void> _openDayEndDialog() async {
+    final repository = _invoiceRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isDaySessionLoading = true);
+    try {
+      final summary = await DaySessionService.instance.buildSummary(
+        repository: repository,
+        session: _drawerSession,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isDaySessionLoading = false);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _DayEndSummaryDialog(
+          summary: summary,
+          onPrint: (actualCashInHand) async {
+            final setupState = await SetupService.instance.loadState();
+            await DaySessionPrintService.printSummary(
+              shopInfo: setupState.shopInfo,
+              summary: summary,
+              actualCashInHand: actualCashInHand,
+            );
+            if (!mounted) {
+              return;
+            }
+            AppToast.success('Day end summary sent to printer');
+          },
+          onEndDay: (actualCashInHand) async {
+            await DaySessionService.instance.endSession();
+            if (!mounted) {
+              return;
+            }
+            AppToast.success(
+              'Day ended. Drawer cash: Rs ${actualCashInHand.toStringAsFixed(2)}',
+            );
+          },
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isDaySessionLoading = false);
+      AppToast.error(
+        'Failed to load day end summary: ${_readableError(error)}',
+      );
+    }
+  }
+
   Future<void> _showRecentInvoiceDetails(InvoiceRecord invoice) async {
     final repository = _invoiceRepository;
     if (repository == null) {
@@ -1343,6 +1496,21 @@ class _PosPageState extends State<PosPage> {
                     children: [
                       Expanded(
                         child: _SecondaryActionButton(
+                          label: _drawerSession.isActive
+                              ? 'Day End'
+                              : 'Day Start',
+                          icon: _drawerSession.isActive
+                              ? Icons.event_available_rounded
+                              : Icons.play_circle_outline_rounded,
+                          onPressed: _isDaySessionLoading
+                              ? null
+                              : _openDaySessionAction,
+                          isLoading: _isDaySessionLoading,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _SecondaryActionButton(
                           label: 'Recent Invoice',
                           icon: Icons.history_rounded,
                           onPressed: _isRecentInvoicesLoading
@@ -1370,6 +1538,19 @@ class _PosPageState extends State<PosPage> {
                     children: [
                       const Expanded(child: _PosHeader()),
                       const SizedBox(width: 16),
+                      _SecondaryActionButton(
+                        label: _drawerSession.isActive
+                            ? 'Day End'
+                            : 'Day Start',
+                        icon: _drawerSession.isActive
+                            ? Icons.event_available_rounded
+                            : Icons.play_circle_outline_rounded,
+                        onPressed: _isDaySessionLoading
+                            ? null
+                            : _openDaySessionAction,
+                        isLoading: _isDaySessionLoading,
+                      ),
+                      const SizedBox(width: 10),
                       _SecondaryActionButton(
                         label: 'Recent Invoice',
                         icon: Icons.history_rounded,
@@ -3761,6 +3942,291 @@ class _RecentInvoicesDialog extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DayEndSummaryDialog extends StatefulWidget {
+  const _DayEndSummaryDialog({
+    required this.summary,
+    required this.onPrint,
+    required this.onEndDay,
+  });
+
+  final DrawerSessionSummary summary;
+  final Future<void> Function(double actualCashInHand) onPrint;
+  final Future<void> Function(double actualCashInHand) onEndDay;
+
+  @override
+  State<_DayEndSummaryDialog> createState() => _DayEndSummaryDialogState();
+}
+
+class _DayEndSummaryDialogState extends State<_DayEndSummaryDialog> {
+  late final TextEditingController _cashInHandController;
+  bool _isPrinting = false;
+  bool _isEnding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cashInHandController = TextEditingController(
+      text: widget.summary.expectedDrawerAmount.toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _cashInHandController.dispose();
+    super.dispose();
+  }
+
+  double get _actualCashInHand =>
+      double.tryParse(_cashInHandController.text.trim()) ?? 0;
+
+  double get _variance =>
+      _actualCashInHand - widget.summary.expectedDrawerAmount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 18, 16, 18),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Day End Summary',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Review cashier totals before closing the day.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xD9FFFFFF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Opening Cash',
+                          value:
+                              'Rs ${widget.summary.session.openingCash.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Cash Sales',
+                          value:
+                              'Rs ${widget.summary.cashSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Card Sales',
+                          value:
+                              'Rs ${widget.summary.cardSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Total Sales',
+                          value:
+                              'Rs ${widget.summary.totalSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _DaySummaryCard(
+                    label: 'Expected Drawer Amount',
+                    value:
+                        'Rs ${widget.summary.expectedDrawerAmount.toStringAsFixed(2)}',
+                    highlight: true,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _cashInHandController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Cash In Hand',
+                      hintText: '0.00',
+                      prefixIcon: Icon(Icons.payments_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _DaySummaryCard(
+                    label: _variance >= 0 ? 'Over Amount' : 'Short Amount',
+                    value: 'Rs ${_variance.abs().toStringAsFixed(2)}',
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        child: const Text('Close'),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () async {
+                                setState(() => _isPrinting = true);
+                                try {
+                                  await widget.onPrint(_actualCashInHand);
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _isPrinting = false);
+                                  }
+                                }
+                              },
+                        icon: _isPrinting
+                            ? SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primaryTeal,
+                                ),
+                              )
+                            : const Icon(Icons.print_outlined, size: 16),
+                        label: const Text('Print Chit'),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () async {
+                                setState(() => _isEnding = true);
+                                try {
+                                  await widget.onEndDay(_actualCashInHand);
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  Navigator.of(context).pop();
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _isEnding = false);
+                                  }
+                                }
+                              },
+                        child: _isEnding
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('End Day'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DaySummaryCard extends StatelessWidget {
+  const _DaySummaryCard({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: highlight ? _posAccentSurface(0.16) : const Color(0xFFF7FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: highlight ? _posAccentBorder(0.4) : const Color(0xFFE6ECF3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7A889B),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: highlight ? AppColors.primaryTeal : AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }

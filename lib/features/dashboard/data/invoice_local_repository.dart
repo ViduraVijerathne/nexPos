@@ -113,6 +113,17 @@ class InvoiceLocalRepository implements InvoiceRepository {
   }
 
   InvoiceRecord _mapEntityToRecord(InvoiceEntity entity) {
+    final paymentMethod = entity.paymentMethod;
+    final double cashPaidAmount = entity.cashPaidAmount > 0
+        ? entity.cashPaidAmount
+        : paymentMethod.trim().toLowerCase() == 'cash'
+        ? entity.totalAmount
+        : 0;
+    final double cardPaidAmount = entity.cardPaidAmount > 0
+        ? entity.cardPaidAmount
+        : paymentMethod.trim().toLowerCase() == 'card'
+        ? entity.totalAmount
+        : 0;
     return InvoiceRecord(
       invoiceId: entity.invoiceNumber,
       customerName: entity.customerName,
@@ -132,7 +143,9 @@ class InvoiceLocalRepository implements InvoiceRepository {
             ),
           )
           .toList(),
-      paymentMethod: entity.paymentMethod,
+      paymentMethod: paymentMethod,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
       cashierName: entity.cashierName,
     );
   }

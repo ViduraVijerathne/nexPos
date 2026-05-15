@@ -799,6 +799,8 @@ class InvoiceRecord {
     required this.status,
     required this.items,
     required this.paymentMethod,
+    required this.cashPaidAmount,
+    required this.cardPaidAmount,
     required this.cashierName,
   });
 
@@ -813,7 +815,11 @@ class InvoiceRecord {
   final InvoiceStatus status;
   final List<InvoiceLineItem> items;
   final String paymentMethod;
+  final double cashPaidAmount;
+  final double cardPaidAmount;
   final String cashierName;
+
+  double get paidAmount => cashPaidAmount + cardPaidAmount;
 }
 
 class InvoiceLineItem {

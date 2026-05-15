@@ -215,7 +215,9 @@ class _InvoicePageState extends State<InvoicePage> {
         tax: invoice.tax,
         total: invoice.amount,
         paymentMethod: invoice.paymentMethod,
-        paidAmount: invoice.amount,
+        paidAmount: invoice.paidAmount,
+        cashPaidAmount: invoice.cashPaidAmount,
+        cardPaidAmount: invoice.cardPaidAmount,
         balance: 0,
       );
 
@@ -1053,6 +1055,28 @@ class InvoiceDetailsDialog extends StatelessWidget {
                             icon: Icons.person_outline_rounded,
                             label: 'Cashier',
                             value: invoice.cashierName,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.payments_outlined,
+                            label: 'Cash Paid',
+                            value:
+                                'Rs ${invoice.cashPaidAmount.toStringAsFixed(2)}',
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.credit_card_outlined,
+                            label: 'Card Paid',
+                            value:
+                                'Rs ${invoice.cardPaidAmount.toStringAsFixed(2)}',
                           ),
                         ),
                       ],

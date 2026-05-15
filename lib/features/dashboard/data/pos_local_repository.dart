@@ -194,6 +194,8 @@ class PosLocalRepository implements PosRepository {
     required PosCustomerOption customer,
     required String paymentMethod,
     required double amountPaid,
+    required double cashPaidAmount,
+    required double cardPaidAmount,
     required String cashierName,
     required double discountAmount,
     required double taxAmount,
@@ -243,6 +245,8 @@ class PosLocalRepository implements PosRepository {
       ..customerDbId = customer.id
       ..issuedAt = DateTime.now()
       ..discountAmount = sanitizedDiscount
+      ..cashPaidAmount = cashPaidAmount
+      ..cardPaidAmount = cardPaidAmount
       ..totalAmount = total
       ..status = InvoiceEntityStatus.paid
       ..paymentMethod = paymentMethod

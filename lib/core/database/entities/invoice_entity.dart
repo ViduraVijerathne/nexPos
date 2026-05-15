@@ -35,6 +35,8 @@ class InvoiceEntity {
 
   late DateTime issuedAt;
   double discountAmount = 0;
+  double cashPaidAmount = 0;
+  double cardPaidAmount = 0;
   late double totalAmount;
   @enumerated
   late InvoiceEntityStatus status;

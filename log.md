@@ -282,3 +282,6 @@
 - 2026-05-15: Fixed POS settings not applying live by adding a POS settings change notifier, updating all POS-related setting saves to publish refresh events, and making the POS page reload tax/customer/catalog/view/shortcut settings plus catalog data immediately after a settings change.
 - 2026-05-15: Improved the POS Settings UX by making default load mode and default stock view mode auto-save immediately on selection, so the chosen POS behavior persists and applies without requiring the user to find a separate save button.
 - Added POS full-bill discount support with checkout input, saved invoice discount persistence for Isar/Firebase, and invoice preview/print/details discount rows.
+- Updated POS payments to use Cash, Card, and Multiple methods with split cash/card amount support and invoice breakdown display.
+- Fixed POS catalog view/load selections to save more reliably with awaited auto-save, made touchscreen mode publish live POS refresh events, and added a touchscreen-only checkout number pad that can feed barcode search, discount, cash amount, and card amount with paid amount focused by default.
+- Added a `Recent Invoice` action beside `New Transaction` in POS, with a recent invoices dialog that lets cashiers quickly view full invoice details or re-open print preview for the latest transactions.

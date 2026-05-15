@@ -183,6 +183,14 @@ class InvoiceRemoteRepository implements InvoiceRepository {
     final tax =
         (data['taxAmount'] as num?)?.toDouble() ??
         (amount - (subtotal - discount)).clamp(0, double.infinity);
+    final paymentMethod = data['paymentMethod']?.toString() ?? 'Cash';
+    final normalizedMethod = paymentMethod.trim().toLowerCase();
+    final cashPaidAmount =
+        (data['cashPaidAmount'] as num?)?.toDouble() ??
+        (normalizedMethod == 'cash' ? amount : 0);
+    final cardPaidAmount =
+        (data['cardPaidAmount'] as num?)?.toDouble() ??
+        (normalizedMethod == 'card' ? amount : 0);
 
     return InvoiceRecord(
       invoiceId: data['invoiceNumber']?.toString() ?? docId,
@@ -195,7 +203,9 @@ class InvoiceRemoteRepository implements InvoiceRepository {
       tax: tax,
       status: _mapStatus(data['status']?.toString()),
       items: items,
-      paymentMethod: data['paymentMethod']?.toString() ?? 'Cash',
+      paymentMethod: paymentMethod,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
       cashierName: data['cashierName']?.toString() ?? 'Cashier',
     );
   }

@@ -396,6 +396,7 @@ class AppSettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_touchUiEnabledKey, isEnabled);
     touchModeNotifier.value = isEnabled;
+    _notifyPosSettingsChanged();
   }
 
   Future<PosPrintSettings> loadPosPrintSettings() async {

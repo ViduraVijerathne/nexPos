@@ -19,6 +19,8 @@ abstract class PosRepository {
     required PosCustomerOption customer,
     required String paymentMethod,
     required double amountPaid,
+    required double cashPaidAmount,
+    required double cardPaidAmount,
     required String cashierName,
     required double discountAmount,
     required double taxAmount,

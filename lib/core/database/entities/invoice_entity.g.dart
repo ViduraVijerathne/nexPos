@@ -17,80 +17,90 @@ const InvoiceEntitySchema = CollectionSchema(
   name: r'InvoiceEntity',
   id: 7758162599778414987,
   properties: {
-    r'cashierName': PropertySchema(
+    r'cardPaidAmount': PropertySchema(
       id: 0,
+      name: r'cardPaidAmount',
+      type: IsarType.double,
+    ),
+    r'cashPaidAmount': PropertySchema(
+      id: 1,
+      name: r'cashPaidAmount',
+      type: IsarType.double,
+    ),
+    r'cashierName': PropertySchema(
+      id: 2,
       name: r'cashierName',
       type: IsarType.string,
     ),
     r'createdAt': PropertySchema(
-      id: 1,
+      id: 3,
       name: r'createdAt',
       type: IsarType.dateTime,
     ),
     r'customerCode': PropertySchema(
-      id: 2,
+      id: 4,
       name: r'customerCode',
       type: IsarType.string,
     ),
     r'customerDbId': PropertySchema(
-      id: 3,
+      id: 5,
       name: r'customerDbId',
       type: IsarType.long,
     ),
     r'customerName': PropertySchema(
-      id: 4,
+      id: 6,
       name: r'customerName',
       type: IsarType.string,
     ),
     r'discountAmount': PropertySchema(
-      id: 5,
+      id: 7,
       name: r'discountAmount',
       type: IsarType.double,
     ),
     r'invoiceNumber': PropertySchema(
-      id: 6,
+      id: 8,
       name: r'invoiceNumber',
       type: IsarType.string,
     ),
     r'issuedAt': PropertySchema(
-      id: 7,
+      id: 9,
       name: r'issuedAt',
       type: IsarType.dateTime,
     ),
     r'items': PropertySchema(
-      id: 8,
+      id: 10,
       name: r'items',
       type: IsarType.objectList,
       target: r'InvoiceLineItemEmbedded',
     ),
     r'paymentMethod': PropertySchema(
-      id: 9,
+      id: 11,
       name: r'paymentMethod',
       type: IsarType.string,
     ),
     r'status': PropertySchema(
-      id: 10,
+      id: 12,
       name: r'status',
       type: IsarType.byte,
       enumMap: _InvoiceEntitystatusEnumValueMap,
     ),
     r'subtotal': PropertySchema(
-      id: 11,
+      id: 13,
       name: r'subtotal',
       type: IsarType.double,
     ),
     r'tax': PropertySchema(
-      id: 12,
+      id: 14,
       name: r'tax',
       type: IsarType.double,
     ),
     r'totalAmount': PropertySchema(
-      id: 13,
+      id: 15,
       name: r'totalAmount',
       type: IsarType.double,
     ),
     r'updatedAt': PropertySchema(
-      id: 14,
+      id: 16,
       name: r'updatedAt',
       type: IsarType.dateTime,
     )
@@ -196,26 +206,28 @@ void _invoiceEntitySerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.cashierName);
-  writer.writeDateTime(offsets[1], object.createdAt);
-  writer.writeString(offsets[2], object.customerCode);
-  writer.writeLong(offsets[3], object.customerDbId);
-  writer.writeString(offsets[4], object.customerName);
-  writer.writeDouble(offsets[5], object.discountAmount);
-  writer.writeString(offsets[6], object.invoiceNumber);
-  writer.writeDateTime(offsets[7], object.issuedAt);
+  writer.writeDouble(offsets[0], object.cardPaidAmount);
+  writer.writeDouble(offsets[1], object.cashPaidAmount);
+  writer.writeString(offsets[2], object.cashierName);
+  writer.writeDateTime(offsets[3], object.createdAt);
+  writer.writeString(offsets[4], object.customerCode);
+  writer.writeLong(offsets[5], object.customerDbId);
+  writer.writeString(offsets[6], object.customerName);
+  writer.writeDouble(offsets[7], object.discountAmount);
+  writer.writeString(offsets[8], object.invoiceNumber);
+  writer.writeDateTime(offsets[9], object.issuedAt);
   writer.writeObjectList<InvoiceLineItemEmbedded>(
-    offsets[8],
+    offsets[10],
     allOffsets,
     InvoiceLineItemEmbeddedSchema.serialize,
     object.items,
   );
-  writer.writeString(offsets[9], object.paymentMethod);
-  writer.writeByte(offsets[10], object.status.index);
-  writer.writeDouble(offsets[11], object.subtotal);
-  writer.writeDouble(offsets[12], object.tax);
-  writer.writeDouble(offsets[13], object.totalAmount);
-  writer.writeDateTime(offsets[14], object.updatedAt);
+  writer.writeString(offsets[11], object.paymentMethod);
+  writer.writeByte(offsets[12], object.status.index);
+  writer.writeDouble(offsets[13], object.subtotal);
+  writer.writeDouble(offsets[14], object.tax);
+  writer.writeDouble(offsets[15], object.totalAmount);
+  writer.writeDateTime(offsets[16], object.updatedAt);
 }
 
 InvoiceEntity _invoiceEntityDeserialize(
@@ -225,28 +237,30 @@ InvoiceEntity _invoiceEntityDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = InvoiceEntity();
-  object.cashierName = reader.readString(offsets[0]);
-  object.createdAt = reader.readDateTime(offsets[1]);
-  object.customerCode = reader.readStringOrNull(offsets[2]);
-  object.customerDbId = reader.readLongOrNull(offsets[3]);
-  object.customerName = reader.readString(offsets[4]);
-  object.discountAmount = reader.readDouble(offsets[5]);
+  object.cardPaidAmount = reader.readDouble(offsets[0]);
+  object.cashPaidAmount = reader.readDouble(offsets[1]);
+  object.cashierName = reader.readString(offsets[2]);
+  object.createdAt = reader.readDateTime(offsets[3]);
+  object.customerCode = reader.readStringOrNull(offsets[4]);
+  object.customerDbId = reader.readLongOrNull(offsets[5]);
+  object.customerName = reader.readString(offsets[6]);
+  object.discountAmount = reader.readDouble(offsets[7]);
   object.id = id;
-  object.invoiceNumber = reader.readString(offsets[6]);
-  object.issuedAt = reader.readDateTime(offsets[7]);
+  object.invoiceNumber = reader.readString(offsets[8]);
+  object.issuedAt = reader.readDateTime(offsets[9]);
   object.items = reader.readObjectList<InvoiceLineItemEmbedded>(
-        offsets[8],
+        offsets[10],
         InvoiceLineItemEmbeddedSchema.deserialize,
         allOffsets,
         InvoiceLineItemEmbedded(),
       ) ??
       [];
-  object.paymentMethod = reader.readString(offsets[9]);
+  object.paymentMethod = reader.readString(offsets[11]);
   object.status =
-      _InvoiceEntitystatusValueEnumMap[reader.readByteOrNull(offsets[10])] ??
+      _InvoiceEntitystatusValueEnumMap[reader.readByteOrNull(offsets[12])] ??
           InvoiceEntityStatus.paid;
-  object.totalAmount = reader.readDouble(offsets[13]);
-  object.updatedAt = reader.readDateTimeOrNull(offsets[14]);
+  object.totalAmount = reader.readDouble(offsets[15]);
+  object.updatedAt = reader.readDateTimeOrNull(offsets[16]);
   return object;
 }
 
@@ -258,22 +272,26 @@ P _invoiceEntityDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readString(offset)) as P;
-    case 1:
-      return (reader.readDateTime(offset)) as P;
-    case 2:
-      return (reader.readStringOrNull(offset)) as P;
-    case 3:
-      return (reader.readLongOrNull(offset)) as P;
-    case 4:
-      return (reader.readString(offset)) as P;
-    case 5:
       return (reader.readDouble(offset)) as P;
+    case 1:
+      return (reader.readDouble(offset)) as P;
+    case 2:
+      return (reader.readString(offset)) as P;
+    case 3:
+      return (reader.readDateTime(offset)) as P;
+    case 4:
+      return (reader.readStringOrNull(offset)) as P;
+    case 5:
+      return (reader.readLongOrNull(offset)) as P;
     case 6:
       return (reader.readString(offset)) as P;
     case 7:
-      return (reader.readDateTime(offset)) as P;
+      return (reader.readDouble(offset)) as P;
     case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
+      return (reader.readDateTime(offset)) as P;
+    case 10:
       return (reader.readObjectList<InvoiceLineItemEmbedded>(
             offset,
             InvoiceLineItemEmbeddedSchema.deserialize,
@@ -281,18 +299,18 @@ P _invoiceEntityDeserializeProp<P>(
             InvoiceLineItemEmbedded(),
           ) ??
           []) as P;
-    case 9:
+    case 11:
       return (reader.readString(offset)) as P;
-    case 10:
+    case 12:
       return (_InvoiceEntitystatusValueEnumMap[reader.readByteOrNull(offset)] ??
           InvoiceEntityStatus.paid) as P;
-    case 11:
-      return (reader.readDouble(offset)) as P;
-    case 12:
-      return (reader.readDouble(offset)) as P;
     case 13:
       return (reader.readDouble(offset)) as P;
     case 14:
+      return (reader.readDouble(offset)) as P;
+    case 15:
+      return (reader.readDouble(offset)) as P;
+    case 16:
       return (reader.readDateTimeOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -743,6 +761,138 @@ extension InvoiceEntityQueryWhere
 
 extension InvoiceEntityQueryFilter
     on QueryBuilder<InvoiceEntity, InvoiceEntity, QFilterCondition> {
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cardPaidAmountEqualTo(
+    double value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'cardPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cardPaidAmountGreaterThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'cardPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cardPaidAmountLessThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'cardPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cardPaidAmountBetween(
+    double lower,
+    double upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'cardPaidAmount',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cashPaidAmountEqualTo(
+    double value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'cashPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cashPaidAmountGreaterThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'cashPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cashPaidAmountLessThan(
+    double value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'cashPaidAmount',
+        value: value,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
+      cashPaidAmountBetween(
+    double lower,
+    double upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'cashPaidAmount',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        epsilon: epsilon,
+      ));
+    });
+  }
+
   QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterFilterCondition>
       cashierNameEqualTo(
     String value, {
@@ -2177,6 +2327,34 @@ extension InvoiceEntityQueryLinks
 
 extension InvoiceEntityQuerySortBy
     on QueryBuilder<InvoiceEntity, InvoiceEntity, QSortBy> {
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      sortByCardPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardPaidAmount', Sort.asc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      sortByCardPaidAmountDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardPaidAmount', Sort.desc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      sortByCashPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cashPaidAmount', Sort.asc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      sortByCashPaidAmountDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cashPaidAmount', Sort.desc);
+    });
+  }
+
   QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy> sortByCashierName() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'cashierName', Sort.asc);
@@ -2366,6 +2544,34 @@ extension InvoiceEntityQuerySortBy
 
 extension InvoiceEntityQuerySortThenBy
     on QueryBuilder<InvoiceEntity, InvoiceEntity, QSortThenBy> {
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      thenByCardPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardPaidAmount', Sort.asc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      thenByCardPaidAmountDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardPaidAmount', Sort.desc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      thenByCashPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cashPaidAmount', Sort.asc);
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy>
+      thenByCashPaidAmountDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cashPaidAmount', Sort.desc);
+    });
+  }
+
   QueryBuilder<InvoiceEntity, InvoiceEntity, QAfterSortBy> thenByCashierName() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'cashierName', Sort.asc);
@@ -2567,6 +2773,20 @@ extension InvoiceEntityQuerySortThenBy
 
 extension InvoiceEntityQueryWhereDistinct
     on QueryBuilder<InvoiceEntity, InvoiceEntity, QDistinct> {
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QDistinct>
+      distinctByCardPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'cardPaidAmount');
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, InvoiceEntity, QDistinct>
+      distinctByCashPaidAmount() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'cashPaidAmount');
+    });
+  }
+
   QueryBuilder<InvoiceEntity, InvoiceEntity, QDistinct> distinctByCashierName(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -2667,6 +2887,20 @@ extension InvoiceEntityQueryProperty
   QueryBuilder<InvoiceEntity, int, QQueryOperations> idProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, double, QQueryOperations>
+      cardPaidAmountProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'cardPaidAmount');
+    });
+  }
+
+  QueryBuilder<InvoiceEntity, double, QQueryOperations>
+      cashPaidAmountProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'cashPaidAmount');
     });
   }
 

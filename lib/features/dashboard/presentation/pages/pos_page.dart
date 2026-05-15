@@ -12,6 +12,10 @@ import '../../data/customer_local_repository.dart';
 import '../../data/customer_remote_repository.dart';
 import '../../data/customer_repository.dart';
 import '../../data/customer_repository_factory.dart';
+import '../../data/invoice_local_repository.dart';
+import '../../data/invoice_remote_repository.dart';
+import '../../data/invoice_repository.dart';
+import '../../data/invoice_repository_factory.dart';
 import '../../data/pos_local_repository.dart';
 import '../../data/pos_remote_repository.dart';
 import '../../data/pos_repository.dart';
@@ -19,9 +23,10 @@ import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
+import 'invoice_page.dart';
 import 'package:printing/printing.dart';
 
-enum PosPaymentMethod { cash, card, upi }
+enum PosPaymentMethod { cash, card, multiple }
 
 class PosPage extends StatefulWidget {
   const PosPage({super.key});
@@ -33,13 +38,17 @@ class PosPage extends StatefulWidget {
 class _PosPageState extends State<PosPage> {
   PosRepository? _repository;
   CustomerRepository? _customerRepository;
+  InvoiceRepository? _invoiceRepository;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _discountController = TextEditingController();
+  final TextEditingController _cardAmountController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final FocusNode _customerFocusNode = FocusNode();
   final FocusNode _amountFocusNode = FocusNode();
+  final FocusNode _cardAmountFocusNode = FocusNode();
+  final FocusNode _discountFocusNode = FocusNode();
 
   Timer? _searchDebounce;
   Timer? _customerDebounce;
@@ -59,6 +68,9 @@ class _PosPageState extends State<PosPage> {
   bool _isCustomerLoading = false;
   bool _isProcessing = false;
   bool _isOpeningCustomerDialog = false;
+  bool _isRecentInvoicesLoading = false;
+  String? _viewingInvoiceId;
+  String? _printingInvoiceId;
   PosTaxSettings _taxSettings = const PosTaxSettings(
     isTaxEnabled: false,
     taxPercent: 10,
@@ -72,6 +84,7 @@ class _PosPageState extends State<PosPage> {
   );
   PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
+  bool _touchModeEnabled = false;
 
   @override
   void initState() {
@@ -80,6 +93,13 @@ class _PosPageState extends State<PosPage> {
     AppSettingsService.instance.posSettingsVersionNotifier.addListener(
       _handlePosSettingsChanged,
     );
+    AppSettingsService.instance.touchModeNotifier.addListener(
+      _handleTouchModeChanged,
+    );
+    _searchFocusNode.addListener(_handleActiveInputFocusChange);
+    _amountFocusNode.addListener(_handleActiveInputFocusChange);
+    _cardAmountFocusNode.addListener(_handleActiveInputFocusChange);
+    _discountFocusNode.addListener(_handleActiveInputFocusChange);
     _initializePage();
   }
 
@@ -90,13 +110,23 @@ class _PosPageState extends State<PosPage> {
     AppSettingsService.instance.posSettingsVersionNotifier.removeListener(
       _handlePosSettingsChanged,
     );
+    AppSettingsService.instance.touchModeNotifier.removeListener(
+      _handleTouchModeChanged,
+    );
+    _searchFocusNode.removeListener(_handleActiveInputFocusChange);
+    _amountFocusNode.removeListener(_handleActiveInputFocusChange);
+    _cardAmountFocusNode.removeListener(_handleActiveInputFocusChange);
+    _discountFocusNode.removeListener(_handleActiveInputFocusChange);
     _searchController.dispose();
     _customerController.dispose();
     _amountController.dispose();
     _discountController.dispose();
+    _cardAmountController.dispose();
     _searchFocusNode.dispose();
     _customerFocusNode.dispose();
     _amountFocusNode.dispose();
+    _cardAmountFocusNode.dispose();
+    _discountFocusNode.dispose();
     super.dispose();
   }
 
@@ -112,11 +142,21 @@ class _PosPageState extends State<PosPage> {
       ? _discountedSubtotal * _taxSettings.taxRate
       : 0;
   double get _total => _discountedSubtotal + _tax;
-  double get _enteredAmountPaid =>
+  double get _enteredCashAmount =>
       double.tryParse(_amountController.text.trim()) ?? 0;
-  double get _amountPaid => _selectedPaymentMethod == PosPaymentMethod.card
-      ? _total
-      : _enteredAmountPaid;
+  double get _enteredCardAmount =>
+      double.tryParse(_cardAmountController.text.trim()) ?? 0;
+  double get _cashPaidAmount => switch (_selectedPaymentMethod) {
+    PosPaymentMethod.cash => _enteredCashAmount,
+    PosPaymentMethod.card => 0,
+    PosPaymentMethod.multiple => _enteredCashAmount,
+  };
+  double get _cardPaidAmount => switch (_selectedPaymentMethod) {
+    PosPaymentMethod.cash => 0,
+    PosPaymentMethod.card => _total,
+    PosPaymentMethod.multiple => _enteredCardAmount,
+  };
+  double get _amountPaid => _cashPaidAmount + _cardPaidAmount;
   double get _balance => _amountPaid - _total;
   List<PosCatalogItem> get _visibleCatalogItems {
     return _catalogItems
@@ -210,6 +250,8 @@ class _PosPageState extends State<PosPage> {
         .loadPosPrintSettings();
     final shortcutSettings = await AppSettingsService.instance
         .loadPosShortcutSettings();
+    final touchSettings = await AppSettingsService.instance
+        .loadTouchUiSettings();
 
     if (!mounted) {
       return;
@@ -221,19 +263,40 @@ class _PosPageState extends State<PosPage> {
       _catalogSettings = catalogSettings;
       _printSettings = printSettings;
       _shortcutSettings = shortcutSettings;
+      _touchModeEnabled = touchSettings.isEnabled;
     });
 
+    _focusDefaultTouchFieldIfNeeded();
     await _loadCatalog();
+  }
+
+  void _handleTouchModeChanged() {
+    if (!mounted) {
+      return;
+    }
+    final enabled = AppSettingsService.instance.touchModeNotifier.value;
+    setState(() => _touchModeEnabled = enabled);
+    _focusDefaultTouchFieldIfNeeded();
+  }
+
+  void _handleActiveInputFocusChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _initializePage() async {
     try {
       final repository = await PosRepositoryFactory.create();
       final customerRepository = await CustomerRepositoryFactory.create();
+      final invoiceRepository = await InvoiceRepositoryFactory.create();
       await repository.initialize();
       await customerRepository.initialize();
+      await invoiceRepository.initialize();
       _repository = repository;
       _customerRepository = customerRepository;
+      _invoiceRepository = invoiceRepository;
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
@@ -244,6 +307,8 @@ class _PosPageState extends State<PosPage> {
           .loadPosPrintSettings();
       final shortcutSettings = await AppSettingsService.instance
           .loadPosShortcutSettings();
+      final touchSettings = await AppSettingsService.instance
+          .loadTouchUiSettings();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
@@ -251,13 +316,18 @@ class _PosPageState extends State<PosPage> {
           _catalogSettings = catalogSettings;
           _printSettings = printSettings;
           _shortcutSettings = shortcutSettings;
+          _touchModeEnabled = touchSettings.isEnabled;
         });
       }
       await _loadCatalog();
       await _loadCustomers();
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _searchFocusNode.requestFocus();
+          if (_touchModeEnabled) {
+            _focusDefaultTouchFieldIfNeeded();
+          } else {
+            _searchFocusNode.requestFocus();
+          }
         });
       }
     } catch (error) {
@@ -266,6 +336,80 @@ class _PosPageState extends State<PosPage> {
       }
       setState(() => _isLoading = false);
       AppToast.error('Failed to load POS data: ${_readableError(error)}');
+    }
+  }
+
+  void _focusDefaultTouchFieldIfNeeded() {
+    if (!_touchModeEnabled || !mounted) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (!FocusScope.of(context).hasPrimaryFocus ||
+          (!_searchFocusNode.hasFocus &&
+              !_amountFocusNode.hasFocus &&
+              !_cardAmountFocusNode.hasFocus &&
+              !_discountFocusNode.hasFocus)) {
+        _amountFocusNode.requestFocus();
+      }
+    });
+  }
+
+  TextEditingController get _activeTouchInputController {
+    if (_searchFocusNode.hasFocus) {
+      return _searchController;
+    }
+    if (_discountFocusNode.hasFocus) {
+      return _discountController;
+    }
+    if (_cardAmountFocusNode.hasFocus) {
+      return _cardAmountController;
+    }
+    return _amountController;
+  }
+
+  void _appendTouchDigit(String value) {
+    final controller = _activeTouchInputController;
+    if (value == '.') {
+      if (_searchFocusNode.hasFocus) {
+        return;
+      }
+      if (controller.text.contains('.')) {
+        return;
+      }
+      if (controller.text.isEmpty) {
+        controller.text = '0.';
+      } else {
+        controller.text = '${controller.text}.';
+      }
+    } else {
+      controller.text = '${controller.text}$value';
+    }
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
+    if (identical(controller, _searchController)) {
+      _handleSearchChanged(controller.text);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _removeTouchDigit() {
+    final controller = _activeTouchInputController;
+    if (controller.text.isEmpty) {
+      return;
+    }
+    controller.text = controller.text.substring(0, controller.text.length - 1);
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
+    if (identical(controller, _searchController)) {
+      _handleSearchChanged(controller.text);
+    } else {
+      setState(() {});
     }
   }
 
@@ -533,6 +677,7 @@ class _PosPageState extends State<PosPage> {
       _cartItems.clear();
       _amountController.clear();
       _discountController.clear();
+      _cardAmountController.clear();
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
@@ -564,6 +709,8 @@ class _PosPageState extends State<PosPage> {
         customer: checkoutCustomer,
         paymentMethod: _selectedPaymentMethod.label,
         amountPaid: _amountPaid,
+        cashPaidAmount: _cashPaidAmount,
+        cardPaidAmount: _cardPaidAmount,
         cashierName: 'Admin User',
         discountAmount: _discount,
         taxAmount: _tax,
@@ -596,6 +743,8 @@ class _PosPageState extends State<PosPage> {
         total: _total,
         paymentMethod: _selectedPaymentMethod.label,
         paidAmount: _amountPaid,
+        cashPaidAmount: _cashPaidAmount,
+        cardPaidAmount: _cardPaidAmount,
         balance: result.changeAmount,
       );
 
@@ -607,6 +756,7 @@ class _PosPageState extends State<PosPage> {
         _cartItems.clear();
         _amountController.clear();
         _discountController.clear();
+        _cardAmountController.clear();
         _searchController.clear();
         _selectedCategory = 'All';
         _selectedPaymentMethod = PosPaymentMethod.cash;
@@ -909,7 +1059,164 @@ class _PosPageState extends State<PosPage> {
     if (error is CustomerRemoteRepositoryException) {
       return error.message;
     }
+    if (error is InvoiceLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is InvoiceRemoteRepositoryException) {
+      return error.message;
+    }
     return error.toString();
+  }
+
+  Future<void> _openRecentInvoicesDialog() async {
+    final repository = _invoiceRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isRecentInvoicesLoading = true);
+    try {
+      final result = await repository.fetchInvoices(page: 1);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isRecentInvoicesLoading = false);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _RecentInvoicesDialog(
+          invoices: result.invoices.take(10).toList(),
+          viewingInvoiceId: _viewingInvoiceId,
+          printingInvoiceId: _printingInvoiceId,
+          onView: _showRecentInvoiceDetails,
+          onPrint: _printRecentInvoice,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isRecentInvoicesLoading = false);
+      AppToast.error(
+        'Failed to load recent invoices: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _showRecentInvoiceDetails(InvoiceRecord invoice) async {
+    final repository = _invoiceRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _viewingInvoiceId = invoice.invoiceId);
+    try {
+      final record = await repository.fetchInvoiceById(invoice.invoiceId);
+      if (!mounted || record == null) {
+        if (mounted) {
+          setState(() => _viewingInvoiceId = null);
+        }
+        AppToast.error('Invoice details not found');
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _viewingInvoiceId = null);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoiceDetailsDialog(
+          invoice: record,
+          onPrint: () {
+            Navigator.of(context).pop();
+            _printRecentInvoice(record);
+          },
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingInvoiceId = null);
+      AppToast.error(
+        'Failed to load invoice details: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _printRecentInvoice(InvoiceRecord invoice) async {
+    setState(() => _printingInvoiceId = invoice.invoiceId);
+    try {
+      final setupState = await SetupService.instance.loadState();
+      final layoutSettings = await AppSettingsService.instance
+          .loadInvoiceLayoutSettings();
+      if (!mounted) {
+        return;
+      }
+
+      final preview = InvoicePreviewData(
+        invoiceNumber: invoice.invoiceId,
+        customerName: invoice.customerName,
+        customerMobile: invoice.customerCode == 'walk-in'
+            ? ''
+            : invoice.customerCode,
+        dateTimeText: invoice.date,
+        items: invoice.items
+            .map(
+              (item) => InvoicePreviewLine(
+                name: item.name,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+              ),
+            )
+            .toList(),
+        subtotal: invoice.subtotal,
+        discount: invoice.discount,
+        tax: invoice.tax,
+        total: invoice.amount,
+        paymentMethod: invoice.paymentMethod,
+        paidAmount: invoice.paidAmount,
+        cashPaidAmount: invoice.cashPaidAmount,
+        cardPaidAmount: invoice.cardPaidAmount,
+        balance: 0,
+      );
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoicePrintPreviewDialog(
+          shopInfo: setupState.shopInfo,
+          settings: layoutSettings,
+          preview: preview,
+          onPrint: () async {
+            await InvoicePrintService.printInvoice(
+              shopInfo: setupState.shopInfo,
+              settings: layoutSettings,
+              preview: preview,
+            );
+            if (!context.mounted) {
+              return;
+            }
+            Navigator.of(context).pop();
+            AppToast.success('Invoice sent to printer');
+          },
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        AppToast.error('Failed to prepare invoice print: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _printingInvoiceId = null);
+      }
+    }
   }
 
   Map<ShortcutActivator, VoidCallback> _buildShortcutBindings() {
@@ -989,8 +1296,11 @@ class _PosPageState extends State<PosPage> {
           isCustomerLoading: _isCustomerLoading,
           selectedCustomer: _selectedCustomer,
           amountController: _amountController,
+          cardAmountController: _cardAmountController,
           discountController: _discountController,
           amountFocusNode: _amountFocusNode,
+          cardAmountFocusNode: _cardAmountFocusNode,
+          discountFocusNode: _discountFocusNode,
           selectedPaymentMethod: _selectedPaymentMethod,
           subtotal: _subtotal,
           discount: _discount,
@@ -1014,6 +1324,9 @@ class _PosPageState extends State<PosPage> {
           onResetCustomer: _resetToWalkInCustomer,
           onProcessPayment: _processPayment,
           isOpeningCustomerDialog: _isOpeningCustomerDialog,
+          touchModeEnabled: _touchModeEnabled,
+          onTouchDigitPressed: _appendTouchDigit,
+          onTouchBackspace: _removeTouchDigit,
         );
 
         return Padding(
@@ -1026,14 +1339,30 @@ class _PosPageState extends State<PosPage> {
                 if (constraints.maxWidth < 760) ...[
                   const _PosHeader(),
                   SizedBox(height: sectionGap),
-                  SizedBox(
-                    width: double.infinity,
-                    child: _PrimaryActionButton(
-                      label: 'New Transaction',
-                      icon: Icons.add,
-                      onPressed: _isProcessing ? null : _startNewTransaction,
-                      isLoading: false,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SecondaryActionButton(
+                          label: 'Recent Invoice',
+                          icon: Icons.history_rounded,
+                          onPressed: _isRecentInvoicesLoading
+                              ? null
+                              : _openRecentInvoicesDialog,
+                          isLoading: _isRecentInvoicesLoading,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _PrimaryActionButton(
+                          label: 'New Transaction',
+                          icon: Icons.add,
+                          onPressed: _isProcessing
+                              ? null
+                              : _startNewTransaction,
+                          isLoading: false,
+                        ),
+                      ),
+                    ],
                   ),
                 ] else
                   Row(
@@ -1041,6 +1370,15 @@ class _PosPageState extends State<PosPage> {
                     children: [
                       const Expanded(child: _PosHeader()),
                       const SizedBox(width: 16),
+                      _SecondaryActionButton(
+                        label: 'Recent Invoice',
+                        icon: Icons.history_rounded,
+                        onPressed: _isRecentInvoicesLoading
+                            ? null
+                            : _openRecentInvoicesDialog,
+                        isLoading: _isRecentInvoicesLoading,
+                      ),
+                      const SizedBox(width: 10),
                       _PrimaryActionButton(
                         label: 'New Transaction',
                         icon: Icons.add,
@@ -1118,8 +1456,8 @@ extension on PosPaymentMethod {
         return 'Cash';
       case PosPaymentMethod.card:
         return 'Card';
-      case PosPaymentMethod.upi:
-        return 'UPI';
+      case PosPaymentMethod.multiple:
+        return 'Multiple';
     }
   }
 }
@@ -1763,8 +2101,11 @@ class _CheckoutPanel extends StatelessWidget {
     required this.isCustomerLoading,
     required this.selectedCustomer,
     required this.amountController,
+    required this.cardAmountController,
     required this.discountController,
     required this.amountFocusNode,
+    required this.cardAmountFocusNode,
+    required this.discountFocusNode,
     required this.selectedPaymentMethod,
     required this.subtotal,
     required this.discount,
@@ -1782,6 +2123,9 @@ class _CheckoutPanel extends StatelessWidget {
     required this.onCustomerSelected,
     required this.onResetCustomer,
     required this.onProcessPayment,
+    required this.touchModeEnabled,
+    required this.onTouchDigitPressed,
+    required this.onTouchBackspace,
   });
 
   final TextEditingController customerController;
@@ -1791,8 +2135,11 @@ class _CheckoutPanel extends StatelessWidget {
   final bool isCustomerLoading;
   final PosCustomerOption selectedCustomer;
   final TextEditingController amountController;
+  final TextEditingController cardAmountController;
   final TextEditingController discountController;
   final FocusNode amountFocusNode;
+  final FocusNode cardAmountFocusNode;
+  final FocusNode discountFocusNode;
   final PosPaymentMethod selectedPaymentMethod;
   final double subtotal;
   final double discount;
@@ -1810,11 +2157,16 @@ class _CheckoutPanel extends StatelessWidget {
   final ValueChanged<PosCustomerOption> onCustomerSelected;
   final VoidCallback onResetCustomer;
   final VoidCallback onProcessPayment;
+  final bool touchModeEnabled;
+  final ValueChanged<String> onTouchDigitPressed;
+  final VoidCallback onTouchBackspace;
 
   @override
   Widget build(BuildContext context) {
     final hasShortPayment = subtotal > 0 && balance < 0;
-    final showAmountPaidField = selectedPaymentMethod != PosPaymentMethod.card;
+    final showCashAmountField = selectedPaymentMethod != PosPaymentMethod.card;
+    final showCardAmountField =
+        selectedPaymentMethod == PosPaymentMethod.multiple;
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 360;
@@ -1880,7 +2232,7 @@ class _CheckoutPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Discount (සම්පුර්ණ බිලට වට්ටම්)',
+                        'Discount',
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w700,
@@ -1892,6 +2244,7 @@ class _CheckoutPanel extends StatelessWidget {
                         height: 38,
                         child: TextField(
                           controller: discountController,
+                          focusNode: discountFocusNode,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
@@ -2017,13 +2370,13 @@ class _CheckoutPanel extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: _PaymentMethodButton(
-                                    label: 'UPI',
-                                    icon: Icons.account_balance_wallet_outlined,
+                                    label: 'Multiple',
+                                    icon: Icons.payments_outlined,
                                     isSelected:
                                         selectedPaymentMethod ==
-                                        PosPaymentMethod.upi,
+                                        PosPaymentMethod.multiple,
                                     onTap: () => onPaymentMethodChanged(
-                                      PosPaymentMethod.upi,
+                                      PosPaymentMethod.multiple,
                                     ),
                                   ),
                                 ),
@@ -2062,22 +2415,22 @@ class _CheckoutPanel extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: _PaymentMethodButton(
-                                label: 'UPI',
-                                icon: Icons.account_balance_wallet_outlined,
+                                label: 'Multiple',
+                                icon: Icons.payments_outlined,
                                 isSelected:
                                     selectedPaymentMethod ==
-                                    PosPaymentMethod.upi,
+                                    PosPaymentMethod.multiple,
                                 onTap: () => onPaymentMethodChanged(
-                                  PosPaymentMethod.upi,
+                                  PosPaymentMethod.multiple,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      if (showAmountPaidField) ...[
+                      if (showCashAmountField) ...[
                         const SizedBox(height: 14),
-                        const Text(
-                          'Amount Paid',
+                        Text(
+                          showCardAmountField ? 'Cash Amount' : 'Amount Paid',
                           style: TextStyle(
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700,
@@ -2102,6 +2455,64 @@ class _CheckoutPanel extends StatelessWidget {
                                 padding: EdgeInsets.only(left: 8, right: 2),
                                 child: Icon(
                                   Icons.attach_money_rounded,
+                                  size: 16,
+                                  color: Color(0xFF78889E),
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showCardAmountField) ...[
+                        const Text(
+                          'Card Amount',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF4A586B),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: cardAmountController,
+                            focusNode: cardAmountFocusNode,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            onChanged: onAmountChanged,
+                            decoration: InputDecoration(
+                              prefixIconConstraints: const BoxConstraints(
+                                minWidth: 32,
+                              ),
+                              prefixIcon: const Padding(
+                                padding: EdgeInsets.only(left: 8, right: 2),
+                                child: Icon(
+                                  Icons.credit_card_rounded,
                                   size: 16,
                                   color: Color(0xFF78889E),
                                 ),
@@ -2178,6 +2589,13 @@ class _CheckoutPanel extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (touchModeEnabled) ...[
+                        const SizedBox(height: 14),
+                        _TouchCheckoutNumberPad(
+                          onDigitPressed: onTouchDigitPressed,
+                          onBackspace: onTouchBackspace,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -2222,6 +2640,78 @@ class _CheckoutPanel extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _TouchCheckoutNumberPad extends StatelessWidget {
+  const _TouchCheckoutNumberPad({
+    required this.onDigitPressed,
+    required this.onBackspace,
+  });
+
+  final ValueChanged<String> onDigitPressed;
+  final VoidCallback onBackspace;
+
+  @override
+  Widget build(BuildContext context) {
+    const rows = <List<String>>[
+      <String>['1', '2', '3'],
+      <String>['4', '5', '6'],
+      <String>['7', '8', '9'],
+      <String>['.', '0', 'back'],
+    ];
+
+    return Column(
+      children: rows.map((row) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: row.map((value) {
+              final isBack = value == 'back';
+
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: InkWell(
+                    onTap: () {
+                      if (isBack) {
+                        onBackspace();
+                      } else {
+                        onDigitPressed(value);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Ink(
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE4EAF2)),
+                      ),
+                      child: Center(
+                        child: isBack
+                            ? const Icon(
+                                Icons.backspace_outlined,
+                                color: Color(0xFF64748B),
+                              )
+                            : Text(
+                                value,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF334155),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
     );
   }
 }
@@ -3021,6 +3511,255 @@ class _PrimaryActionButton extends StatelessWidget {
         label: Text(
           label,
           style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class _SecondaryActionButton extends StatelessWidget {
+  const _SecondaryActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.isLoading = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primaryTeal,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          side: BorderSide(color: _posAccentBorder(0.52)),
+          backgroundColor: _posAccentSurface(0.08),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        ),
+        icon: isLoading
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primaryTeal,
+                ),
+              )
+            : Icon(icon, size: 16),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentInvoicesDialog extends StatelessWidget {
+  const _RecentInvoicesDialog({
+    required this.invoices,
+    required this.viewingInvoiceId,
+    required this.printingInvoiceId,
+    required this.onView,
+    required this.onPrint,
+  });
+
+  final List<InvoiceRecord> invoices;
+  final String? viewingInvoiceId;
+  final String? printingInvoiceId;
+  final ValueChanged<InvoiceRecord> onView;
+  final ValueChanged<InvoiceRecord> onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 920, maxHeight: 680),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 18, 16, 18),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Recent Invoices',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'View or print the latest completed transactions.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xD9FFFFFF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: invoices.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No recent invoices found',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF90A0B4),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(18),
+                      itemCount: invoices.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final invoice = invoices[index];
+                        final isViewing = viewingInvoiceId == invoice.invoiceId;
+                        final isPrinting =
+                            printingInvoiceId == invoice.invoiceId;
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE6ECF3)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      invoice.invoiceId,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF39475A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      invoice.customerName,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF55657A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${invoice.date} • ${invoice.paymentMethod}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF95A3B5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'Rs ${invoice.amount.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryTeal,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: isViewing
+                                            ? null
+                                            : () => onView(invoice),
+                                        icon: isViewing
+                                            ? SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color:
+                                                          AppColors.primaryTeal,
+                                                    ),
+                                              )
+                                            : const Icon(
+                                                Icons.visibility_outlined,
+                                                size: 16,
+                                              ),
+                                        label: const Text('View'),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ElevatedButton.icon(
+                                        onPressed: isPrinting
+                                            ? null
+                                            : () => onPrint(invoice),
+                                        icon: isPrinting
+                                            ? const SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                              )
+                                            : const Icon(
+                                                Icons.print_outlined,
+                                                size: 16,
+                                              ),
+                                        label: const Text('Print'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );

@@ -727,6 +727,8 @@ class _SettingsPageState extends State<SettingsPage> {
     total: 2500,
     paymentMethod: 'Cash',
     paidAmount: 3000,
+    cashPaidAmount: 3000,
+    cardPaidAmount: 0,
     balance: 500,
   );
 
@@ -1623,9 +1625,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             Icons.inventory_2_outlined,
                         },
                         label: mode.label,
-                        onTap: () {
+                        onTap: () async {
                           setState(() => _posCatalogLoadMode = mode);
-                          _savePosCatalogPreferences();
+                          await _savePosCatalogPreferences();
                         },
                       ),
                     );
@@ -1682,9 +1684,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             ? Icons.view_agenda_outlined
                             : Icons.grid_view_rounded,
                         label: mode.label,
-                        onTap: () {
+                        onTap: () async {
                           setState(() => _posCatalogViewMode = mode);
-                          _savePosCatalogPreferences();
+                          await _savePosCatalogPreferences();
                         },
                       ),
                     );

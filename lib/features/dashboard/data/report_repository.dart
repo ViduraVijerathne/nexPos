@@ -6,5 +6,6 @@ abstract class ReportRepository {
   Future<ReportDashboardData> fetchDashboardData({
     required DateTime fromDate,
     required DateTime toDate,
+    required ReportSalesPeriod salesPeriod,
   });
 }

@@ -3,25 +3,39 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/toast/app_toast.dart';
+import '../../../../core/services/day_session_print_service.dart';
 import '../../../../core/services/invoice_print_service.dart';
 import '../../../../core/services/kot_print_service.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/toast/app_toast.dart';
+import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
 import '../../data/customer_remote_repository.dart';
 import '../../data/customer_repository.dart';
 import '../../data/customer_repository_factory.dart';
+import '../../data/expense_local_repository.dart';
+import '../../data/expense_remote_repository.dart';
+import '../../data/expense_repository.dart';
+import '../../data/expense_repository_factory.dart';
+import '../../data/invoice_local_repository.dart';
+import '../../data/invoice_remote_repository.dart';
+import '../../data/invoice_repository.dart';
+import '../../data/invoice_repository_factory.dart';
 import '../../data/pos_local_repository.dart';
 import '../../data/pos_remote_repository.dart';
 import '../../data/pos_repository.dart';
 import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
+import '../../services/day_session_service.dart';
 import '../../../settings/services/app_settings_service.dart';
 import '../../../setup/services/setup_service.dart';
+import 'invoice_page.dart';
 import 'package:printing/printing.dart';
 
-enum PosPaymentMethod { cash, card, upi }
+enum PosPaymentMethod { cash, card, multiple }
+
+enum PosPricingGroup { retail, wholesale }
 
 class PosPage extends StatefulWidget {
   const PosPage({super.key});
@@ -33,12 +47,18 @@ class PosPage extends StatefulWidget {
 class _PosPageState extends State<PosPage> {
   PosRepository? _repository;
   CustomerRepository? _customerRepository;
+  InvoiceRepository? _invoiceRepository;
+  ExpenseRepository? _expenseRepository;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _discountController = TextEditingController();
+  final TextEditingController _cardAmountController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final FocusNode _customerFocusNode = FocusNode();
   final FocusNode _amountFocusNode = FocusNode();
+  final FocusNode _cardAmountFocusNode = FocusNode();
+  final FocusNode _discountFocusNode = FocusNode();
 
   Timer? _searchDebounce;
   Timer? _customerDebounce;
@@ -50,6 +70,7 @@ class _PosPageState extends State<PosPage> {
 
   String _selectedCategory = 'All';
   PosPaymentMethod _selectedPaymentMethod = PosPaymentMethod.cash;
+  PosPricingGroup _selectedPricingGroup = PosPricingGroup.retail;
   PosCustomerOption _selectedCustomer = PosLocalRepository.walkInCustomer;
   String? _selectedStockKey;
   bool _showCustomerSuggestions = false;
@@ -58,6 +79,11 @@ class _PosPageState extends State<PosPage> {
   bool _isCustomerLoading = false;
   bool _isProcessing = false;
   bool _isOpeningCustomerDialog = false;
+  bool _isRecentInvoicesLoading = false;
+  bool _isDaySessionLoading = false;
+  bool _isSavingQuickExpense = false;
+  String? _viewingInvoiceId;
+  String? _printingInvoiceId;
   PosTaxSettings _taxSettings = const PosTaxSettings(
     isTaxEnabled: false,
     taxPercent: 10,
@@ -65,13 +91,32 @@ class _PosPageState extends State<PosPage> {
   PosCustomerSettings _customerSettings = const PosCustomerSettings(
     createCustomerOnlyContact: false,
   );
+  PosCatalogSettings _catalogSettings = const PosCatalogSettings(
+    defaultLoadMode: PosCatalogLoadMode.defaultOrder,
+    defaultViewMode: PosCatalogViewMode.row,
+  );
   PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
+  bool _touchModeEnabled = false;
+  DrawerSessionState _drawerSession = const DrawerSessionState.inactive();
 
   @override
   void initState() {
     super.initState();
     _customerController.text = _selectedCustomer.searchLabel;
+    AppSettingsService.instance.posSettingsVersionNotifier.addListener(
+      _handlePosSettingsChanged,
+    );
+    AppSettingsService.instance.touchModeNotifier.addListener(
+      _handleTouchModeChanged,
+    );
+    DaySessionService.instance.sessionVersionNotifier.addListener(
+      _handleDaySessionChanged,
+    );
+    _searchFocusNode.addListener(_handleActiveInputFocusChange);
+    _amountFocusNode.addListener(_handleActiveInputFocusChange);
+    _cardAmountFocusNode.addListener(_handleActiveInputFocusChange);
+    _discountFocusNode.addListener(_handleActiveInputFocusChange);
     _initializePage();
   }
 
@@ -79,25 +124,59 @@ class _PosPageState extends State<PosPage> {
   void dispose() {
     _searchDebounce?.cancel();
     _customerDebounce?.cancel();
+    AppSettingsService.instance.posSettingsVersionNotifier.removeListener(
+      _handlePosSettingsChanged,
+    );
+    AppSettingsService.instance.touchModeNotifier.removeListener(
+      _handleTouchModeChanged,
+    );
+    DaySessionService.instance.sessionVersionNotifier.removeListener(
+      _handleDaySessionChanged,
+    );
+    _searchFocusNode.removeListener(_handleActiveInputFocusChange);
+    _amountFocusNode.removeListener(_handleActiveInputFocusChange);
+    _cardAmountFocusNode.removeListener(_handleActiveInputFocusChange);
+    _discountFocusNode.removeListener(_handleActiveInputFocusChange);
     _searchController.dispose();
     _customerController.dispose();
     _amountController.dispose();
+    _discountController.dispose();
+    _cardAmountController.dispose();
     _searchFocusNode.dispose();
     _customerFocusNode.dispose();
     _amountFocusNode.dispose();
+    _cardAmountFocusNode.dispose();
+    _discountFocusNode.dispose();
     super.dispose();
   }
 
   double get _subtotal =>
       _cartItems.fold<double>(0, (sum, item) => sum + item.subtotal);
-  double get _tax =>
-      _taxSettings.isTaxEnabled ? _subtotal * _taxSettings.taxRate : 0;
-  double get _total => _subtotal + _tax;
-  double get _enteredAmountPaid =>
+  double get _discount =>
+      (double.tryParse(_discountController.text.trim()) ?? 0)
+          .clamp(0, _subtotal)
+          .toDouble();
+  double get _discountedSubtotal =>
+      (_subtotal - _discount).clamp(0, double.infinity).toDouble();
+  double get _tax => _taxSettings.isTaxEnabled
+      ? _discountedSubtotal * _taxSettings.taxRate
+      : 0;
+  double get _total => _discountedSubtotal + _tax;
+  double get _enteredCashAmount =>
       double.tryParse(_amountController.text.trim()) ?? 0;
-  double get _amountPaid => _selectedPaymentMethod == PosPaymentMethod.card
-      ? _total
-      : _enteredAmountPaid;
+  double get _enteredCardAmount =>
+      double.tryParse(_cardAmountController.text.trim()) ?? 0;
+  double get _cashPaidAmount => switch (_selectedPaymentMethod) {
+    PosPaymentMethod.cash => _enteredCashAmount,
+    PosPaymentMethod.card => 0,
+    PosPaymentMethod.multiple => _enteredCashAmount,
+  };
+  double get _cardPaidAmount => switch (_selectedPaymentMethod) {
+    PosPaymentMethod.cash => 0,
+    PosPaymentMethod.card => _total,
+    PosPaymentMethod.multiple => _enteredCardAmount,
+  };
+  double get _amountPaid => _cashPaidAmount + _cardPaidAmount;
   double get _balance => _amountPaid - _total;
   List<PosCatalogItem> get _visibleCatalogItems {
     return _catalogItems
@@ -114,7 +193,8 @@ class _PosPageState extends State<PosPage> {
             productBarcode: item.productBarcode,
             category: item.category,
             availableQty: remainingQty,
-            sellingPrice: item.sellingPrice,
+            retailPrice: item.retailPrice,
+            wholesalePrice: item.wholesalePrice,
           );
         })
         .where((item) => item.availableQty > 0)
@@ -159,8 +239,34 @@ class _PosPageState extends State<PosPage> {
       productBarcode: item.productBarcode,
       category: item.category,
       availableQty: remainingQty,
-      sellingPrice: item.sellingPrice,
+      retailPrice: item.retailPrice,
+      wholesalePrice: item.wholesalePrice,
     );
+  }
+
+  double _catalogPriceForGroup(PosCatalogItem item) {
+    return switch (_selectedPricingGroup) {
+      PosPricingGroup.retail => item.retailPrice,
+      PosPricingGroup.wholesale => item.wholesalePrice,
+    };
+  }
+
+  double _cartPriceForGroup(PosCartItem item) {
+    return switch (_selectedPricingGroup) {
+      PosPricingGroup.retail => item.retailPrice,
+      PosPricingGroup.wholesale => item.wholesalePrice,
+    };
+  }
+
+  void _applyPricingGroup(PosPricingGroup group) {
+    setState(() {
+      _selectedPricingGroup = group;
+      for (var index = 0; index < _cartItems.length; index += 1) {
+        final item = _cartItems[index];
+        _cartItems[index] = item.copyWith(unitPrice: _cartPriceForGroup(item));
+      }
+    });
+    _searchFocusNode.requestFocus();
   }
 
   void _moveCatalogSelection(int delta) {
@@ -181,35 +287,109 @@ class _PosPageState extends State<PosPage> {
     });
   }
 
+  Future<void> _handlePosSettingsChanged() async {
+    final taxSettings = await AppSettingsService.instance.loadPosTaxSettings();
+    final customerSettings = await AppSettingsService.instance
+        .loadPosCustomerSettings();
+    final catalogSettings = await AppSettingsService.instance
+        .loadPosCatalogSettings();
+    final printSettings = await AppSettingsService.instance
+        .loadPosPrintSettings();
+    final shortcutSettings = await AppSettingsService.instance
+        .loadPosShortcutSettings();
+    final touchSettings = await AppSettingsService.instance
+        .loadTouchUiSettings();
+    final drawerSession = await DaySessionService.instance.loadState();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _taxSettings = taxSettings;
+      _customerSettings = customerSettings;
+      _catalogSettings = catalogSettings;
+      _printSettings = printSettings;
+      _shortcutSettings = shortcutSettings;
+      _touchModeEnabled = touchSettings.isEnabled;
+      _drawerSession = drawerSession;
+    });
+
+    _focusDefaultTouchFieldIfNeeded();
+    await _loadCatalog();
+  }
+
+  void _handleTouchModeChanged() {
+    if (!mounted) {
+      return;
+    }
+    final enabled = AppSettingsService.instance.touchModeNotifier.value;
+    setState(() => _touchModeEnabled = enabled);
+    _focusDefaultTouchFieldIfNeeded();
+  }
+
+  Future<void> _handleDaySessionChanged() async {
+    final state = await DaySessionService.instance.loadState();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _drawerSession = state);
+  }
+
+  void _handleActiveInputFocusChange() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
   Future<void> _initializePage() async {
     try {
       final repository = await PosRepositoryFactory.create();
       final customerRepository = await CustomerRepositoryFactory.create();
+      final invoiceRepository = await InvoiceRepositoryFactory.create();
+      final expenseRepository = await ExpenseRepositoryFactory.create();
       await repository.initialize();
       await customerRepository.initialize();
+      await invoiceRepository.initialize();
+      await expenseRepository.initialize();
       _repository = repository;
       _customerRepository = customerRepository;
+      _invoiceRepository = invoiceRepository;
+      _expenseRepository = expenseRepository;
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final catalogSettings = await AppSettingsService.instance
+          .loadPosCatalogSettings();
       final printSettings = await AppSettingsService.instance
           .loadPosPrintSettings();
       final shortcutSettings = await AppSettingsService.instance
           .loadPosShortcutSettings();
-      await _loadCatalog();
-      await _loadCustomers();
+      final touchSettings = await AppSettingsService.instance
+          .loadTouchUiSettings();
+      final drawerSession = await DaySessionService.instance.loadState();
       if (mounted) {
         setState(() {
           _taxSettings = taxSettings;
           _customerSettings = customerSettings;
+          _catalogSettings = catalogSettings;
           _printSettings = printSettings;
           _shortcutSettings = shortcutSettings;
+          _touchModeEnabled = touchSettings.isEnabled;
+          _drawerSession = drawerSession;
         });
       }
+      await _loadCatalog();
+      await _loadCustomers();
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _searchFocusNode.requestFocus();
+          if (_touchModeEnabled) {
+            _focusDefaultTouchFieldIfNeeded();
+          } else {
+            _searchFocusNode.requestFocus();
+          }
         });
       }
     } catch (error) {
@@ -218,6 +398,80 @@ class _PosPageState extends State<PosPage> {
       }
       setState(() => _isLoading = false);
       AppToast.error('Failed to load POS data: ${_readableError(error)}');
+    }
+  }
+
+  void _focusDefaultTouchFieldIfNeeded() {
+    if (!_touchModeEnabled || !mounted) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      if (!FocusScope.of(context).hasPrimaryFocus ||
+          (!_searchFocusNode.hasFocus &&
+              !_amountFocusNode.hasFocus &&
+              !_cardAmountFocusNode.hasFocus &&
+              !_discountFocusNode.hasFocus)) {
+        _amountFocusNode.requestFocus();
+      }
+    });
+  }
+
+  TextEditingController get _activeTouchInputController {
+    if (_searchFocusNode.hasFocus) {
+      return _searchController;
+    }
+    if (_discountFocusNode.hasFocus) {
+      return _discountController;
+    }
+    if (_cardAmountFocusNode.hasFocus) {
+      return _cardAmountController;
+    }
+    return _amountController;
+  }
+
+  void _appendTouchDigit(String value) {
+    final controller = _activeTouchInputController;
+    if (value == '.') {
+      if (_searchFocusNode.hasFocus) {
+        return;
+      }
+      if (controller.text.contains('.')) {
+        return;
+      }
+      if (controller.text.isEmpty) {
+        controller.text = '0.';
+      } else {
+        controller.text = '${controller.text}.';
+      }
+    } else {
+      controller.text = '${controller.text}$value';
+    }
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
+    if (identical(controller, _searchController)) {
+      _handleSearchChanged(controller.text);
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _removeTouchDigit() {
+    final controller = _activeTouchInputController;
+    if (controller.text.isEmpty) {
+      return;
+    }
+    controller.text = controller.text.substring(0, controller.text.length - 1);
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
+    if (identical(controller, _searchController)) {
+      _handleSearchChanged(controller.text);
+    } else {
+      setState(() {});
     }
   }
 
@@ -233,6 +487,7 @@ class _PosPageState extends State<PosPage> {
       final result = await repository.fetchCatalog(
         searchQuery: _searchController.text.trim(),
         category: _selectedCategory,
+        loadMode: _catalogSettings.defaultLoadMode,
       );
 
       if (!mounted) {
@@ -418,7 +673,9 @@ class _PosPageState extends State<PosPage> {
             productBarcode: item.productBarcode,
             productName: item.productName,
             category: item.category,
-            unitPrice: item.sellingPrice,
+            retailPrice: item.retailPrice,
+            wholesalePrice: item.wholesalePrice,
+            unitPrice: _catalogPriceForGroup(item),
             availableQty: item.availableQty,
             quantity: 1,
           ),
@@ -447,6 +704,9 @@ class _PosPageState extends State<PosPage> {
       setState(() {
         _cartItems.removeAt(index);
         _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+        if (_discount > _subtotal) {
+          _discountController.text = _subtotal.toStringAsFixed(2);
+        }
       });
       return;
     }
@@ -459,6 +719,9 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems[index] = item.copyWith(quantity: updatedQuantity);
       _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+      if (_discount > _subtotal) {
+        _discountController.text = _subtotal.toStringAsFixed(2);
+      }
     });
   }
 
@@ -466,6 +729,9 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems.removeWhere((cartItem) => cartItem.stockKey == item.stockKey);
       _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
+      if (_discount > _subtotal) {
+        _discountController.text = _subtotal.toStringAsFixed(2);
+      }
     });
     _searchFocusNode.requestFocus();
   }
@@ -474,9 +740,12 @@ class _PosPageState extends State<PosPage> {
     setState(() {
       _cartItems.clear();
       _amountController.clear();
+      _discountController.clear();
+      _cardAmountController.clear();
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
+      _selectedPricingGroup = PosPricingGroup.retail;
       _selectedStockKey = _pickSelectableStockKey();
     });
     _resetToWalkInCustomer();
@@ -505,7 +774,10 @@ class _PosPageState extends State<PosPage> {
         customer: checkoutCustomer,
         paymentMethod: _selectedPaymentMethod.label,
         amountPaid: _amountPaid,
+        cashPaidAmount: _cashPaidAmount,
+        cardPaidAmount: _cardPaidAmount,
         cashierName: 'Admin User',
+        discountAmount: _discount,
         taxAmount: _tax,
       );
 
@@ -531,10 +803,13 @@ class _PosPageState extends State<PosPage> {
             )
             .toList(),
         subtotal: _subtotal,
+        discount: _discount,
         tax: _tax,
         total: _total,
         paymentMethod: _selectedPaymentMethod.label,
         paidAmount: _amountPaid,
+        cashPaidAmount: _cashPaidAmount,
+        cardPaidAmount: _cardPaidAmount,
         balance: result.changeAmount,
       );
 
@@ -545,6 +820,8 @@ class _PosPageState extends State<PosPage> {
       setState(() {
         _cartItems.clear();
         _amountController.clear();
+        _discountController.clear();
+        _cardAmountController.clear();
         _searchController.clear();
         _selectedCategory = 'All';
         _selectedPaymentMethod = PosPaymentMethod.cash;
@@ -847,7 +1124,337 @@ class _PosPageState extends State<PosPage> {
     if (error is CustomerRemoteRepositoryException) {
       return error.message;
     }
+    if (error is InvoiceLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is InvoiceRemoteRepositoryException) {
+      return error.message;
+    }
+    if (error is ExpenseLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is ExpenseRemoteRepositoryException) {
+      return error.message;
+    }
     return error.toString();
+  }
+
+  Future<void> _openRecentInvoicesDialog() async {
+    final repository = _invoiceRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isRecentInvoicesLoading = true);
+    try {
+      final result = await repository.fetchInvoices(page: 1);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _isRecentInvoicesLoading = false);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _RecentInvoicesDialog(
+          invoices: result.invoices.take(10).toList(),
+          viewingInvoiceId: _viewingInvoiceId,
+          printingInvoiceId: _printingInvoiceId,
+          onView: _showRecentInvoiceDetails,
+          onPrint: _printRecentInvoice,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isRecentInvoicesLoading = false);
+      AppToast.error(
+        'Failed to load recent invoices: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _openDaySessionAction() async {
+    if (_drawerSession.isActive) {
+      await _openDayEndDialog();
+    } else {
+      await _openDayStartDialog();
+    }
+  }
+
+  Future<void> _openDayStartDialog() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Day Start'),
+        content: Form(
+          key: formKey,
+          child: SizedBox(
+            width: 360,
+            child: TextFormField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Opening Cash In Drawer',
+                hintText: '0.00',
+                prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+              ),
+              validator: (value) {
+                final parsed = double.tryParse(value?.trim() ?? '');
+                if (parsed == null || parsed < 0) {
+                  return 'Enter a valid opening cash amount';
+                }
+                return null;
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (!(formKey.currentState?.validate() ?? false)) {
+                return;
+              }
+              Navigator.of(context).pop(true);
+            },
+            child: const Text('Start Day'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    final openingCash = double.tryParse(controller.text.trim()) ?? 0;
+    await DaySessionService.instance.startSession(
+      openingCash: openingCash,
+      cashierName: 'Admin User',
+    );
+    if (!mounted) {
+      return;
+    }
+    AppToast.success('Day started successfully');
+  }
+
+  Future<void> _openDayEndDialog() async {
+    final repository = _invoiceRepository;
+    final expenseRepository = _expenseRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+    if (expenseRepository == null) {
+      AppToast.error('Expense service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isDaySessionLoading = true);
+    try {
+      final summary = await DaySessionService.instance.buildSummary(
+        repository: repository,
+        expenseRepository: expenseRepository,
+        session: _drawerSession,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isDaySessionLoading = false);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _DayEndSummaryDialog(
+          summary: summary,
+          onPrint: (actualCashInHand) async {
+            final setupState = await SetupService.instance.loadState();
+            await DaySessionPrintService.printSummary(
+              shopInfo: setupState.shopInfo,
+              summary: summary,
+              actualCashInHand: actualCashInHand,
+            );
+            if (!mounted) {
+              return;
+            }
+            AppToast.success('Day end summary sent to printer');
+          },
+          onEndDay: (actualCashInHand) async {
+            await DaySessionService.instance.endSession();
+            if (!mounted) {
+              return;
+            }
+            AppToast.success(
+              'Day ended. Drawer cash: Rs ${actualCashInHand.toStringAsFixed(2)}',
+            );
+          },
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isDaySessionLoading = false);
+      AppToast.error(
+        'Failed to load day end summary: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _showRecentInvoiceDetails(InvoiceRecord invoice) async {
+    final repository = _invoiceRepository;
+    if (repository == null) {
+      AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _viewingInvoiceId = invoice.invoiceId);
+    try {
+      final record = await repository.fetchInvoiceById(invoice.invoiceId);
+      if (!mounted || record == null) {
+        if (mounted) {
+          setState(() => _viewingInvoiceId = null);
+        }
+        AppToast.error('Invoice details not found');
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _viewingInvoiceId = null);
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoiceDetailsDialog(
+          invoice: record,
+          onPrint: () {
+            Navigator.of(context).pop();
+            _printRecentInvoice(record);
+          },
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _viewingInvoiceId = null);
+      AppToast.error(
+        'Failed to load invoice details: ${_readableError(error)}',
+      );
+    }
+  }
+
+  Future<void> _openQuickExpenseDialog() async {
+    final repository = _expenseRepository;
+    if (repository == null) {
+      AppToast.error('Expense service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isSavingQuickExpense = true);
+    try {
+      final created = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _PosExpenseDialog(
+          repository: repository,
+          paidFromDrawerByDefault: true,
+        ),
+      );
+
+      if (created != true || !mounted) {
+        return;
+      }
+
+      AppToast.success('Expense recorded successfully');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingQuickExpense = false);
+      }
+    }
+  }
+
+  Future<void> _printRecentInvoice(InvoiceRecord invoice) async {
+    setState(() => _printingInvoiceId = invoice.invoiceId);
+    try {
+      final setupState = await SetupService.instance.loadState();
+      final layoutSettings = await AppSettingsService.instance
+          .loadInvoiceLayoutSettings();
+      if (!mounted) {
+        return;
+      }
+
+      final preview = InvoicePreviewData(
+        invoiceNumber: invoice.invoiceId,
+        customerName: invoice.customerName,
+        customerMobile: invoice.customerCode == 'walk-in'
+            ? ''
+            : invoice.customerCode,
+        dateTimeText: invoice.date,
+        items: invoice.items
+            .map(
+              (item) => InvoicePreviewLine(
+                name: item.name,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+              ),
+            )
+            .toList(),
+        subtotal: invoice.subtotal,
+        discount: invoice.discount,
+        tax: invoice.tax,
+        total: invoice.amount,
+        paymentMethod: invoice.paymentMethod,
+        paidAmount: invoice.paidAmount,
+        cashPaidAmount: invoice.cashPaidAmount,
+        cardPaidAmount: invoice.cardPaidAmount,
+        balance: 0,
+      );
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => InvoicePrintPreviewDialog(
+          shopInfo: setupState.shopInfo,
+          settings: layoutSettings,
+          preview: preview,
+          onPrint: () async {
+            await InvoicePrintService.printInvoice(
+              shopInfo: setupState.shopInfo,
+              settings: layoutSettings,
+              preview: preview,
+            );
+            if (!context.mounted) {
+              return;
+            }
+            Navigator.of(context).pop();
+            AppToast.success('Invoice sent to printer');
+          },
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        AppToast.error('Failed to prepare invoice print: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _printingInvoiceId = null);
+      }
+    }
   }
 
   Map<ShortcutActivator, VoidCallback> _buildShortcutBindings() {
@@ -898,6 +1505,8 @@ class _PosPageState extends State<PosPage> {
           selectedCategory: _selectedCategory,
           products: _visibleCatalogItems,
           selectedStockKey: _selectedStockKey,
+          viewMode: _catalogSettings.defaultViewMode,
+          selectedPricingGroup: _selectedPricingGroup,
           isCatalogLoading: _isCatalogLoading,
           onSearchChanged: _handleSearchChanged,
           onSearchSubmitted: _handleSearchSubmitted,
@@ -926,9 +1535,15 @@ class _PosPageState extends State<PosPage> {
           isCustomerLoading: _isCustomerLoading,
           selectedCustomer: _selectedCustomer,
           amountController: _amountController,
+          cardAmountController: _cardAmountController,
+          discountController: _discountController,
           amountFocusNode: _amountFocusNode,
+          cardAmountFocusNode: _cardAmountFocusNode,
+          discountFocusNode: _discountFocusNode,
           selectedPaymentMethod: _selectedPaymentMethod,
+          selectedPricingGroup: _selectedPricingGroup,
           subtotal: _subtotal,
+          discount: _discount,
           tax: _tax,
           total: _total,
           taxLabel: _taxSettings.isTaxEnabled
@@ -940,6 +1555,7 @@ class _PosPageState extends State<PosPage> {
           onPaymentMethodChanged: (method) {
             setState(() => _selectedPaymentMethod = method);
           },
+          onPricingGroupChanged: _applyPricingGroup,
           onAmountChanged: (_) => setState(() {}),
           onCustomerChanged: _handleCustomerChanged,
           onCustomerTapped: () {
@@ -949,6 +1565,9 @@ class _PosPageState extends State<PosPage> {
           onResetCustomer: _resetToWalkInCustomer,
           onProcessPayment: _processPayment,
           isOpeningCustomerDialog: _isOpeningCustomerDialog,
+          touchModeEnabled: _touchModeEnabled,
+          onTouchDigitPressed: _appendTouchDigit,
+          onTouchBackspace: _removeTouchDigit,
         );
 
         return Padding(
@@ -961,14 +1580,56 @@ class _PosPageState extends State<PosPage> {
                 if (constraints.maxWidth < 760) ...[
                   const _PosHeader(),
                   SizedBox(height: sectionGap),
-                  SizedBox(
-                    width: double.infinity,
-                    child: _PrimaryActionButton(
-                      label: 'New Transaction',
-                      icon: Icons.add,
-                      onPressed: _isProcessing ? null : _startNewTransaction,
-                      isLoading: false,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SecondaryActionButton(
+                          label: 'Expenses',
+                          icon: Icons.receipt_long_rounded,
+                          onPressed: _isSavingQuickExpense
+                              ? null
+                              : _openQuickExpenseDialog,
+                          isLoading: _isSavingQuickExpense,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _SecondaryActionButton(
+                          label: _drawerSession.isActive
+                              ? 'Day End'
+                              : 'Day Start',
+                          icon: _drawerSession.isActive
+                              ? Icons.event_available_rounded
+                              : Icons.play_circle_outline_rounded,
+                          onPressed: _isDaySessionLoading
+                              ? null
+                              : _openDaySessionAction,
+                          isLoading: _isDaySessionLoading,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _SecondaryActionButton(
+                          label: 'Recent Invoice',
+                          icon: Icons.history_rounded,
+                          onPressed: _isRecentInvoicesLoading
+                              ? null
+                              : _openRecentInvoicesDialog,
+                          isLoading: _isRecentInvoicesLoading,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _PrimaryActionButton(
+                          label: 'New Transaction',
+                          icon: Icons.add,
+                          onPressed: _isProcessing
+                              ? null
+                              : _startNewTransaction,
+                          isLoading: false,
+                        ),
+                      ),
+                    ],
                   ),
                 ] else
                   Row(
@@ -976,6 +1637,37 @@ class _PosPageState extends State<PosPage> {
                     children: [
                       const Expanded(child: _PosHeader()),
                       const SizedBox(width: 16),
+                      _SecondaryActionButton(
+                        label: 'Expenses',
+                        icon: Icons.receipt_long_rounded,
+                        onPressed: _isSavingQuickExpense
+                            ? null
+                            : _openQuickExpenseDialog,
+                        isLoading: _isSavingQuickExpense,
+                      ),
+                      const SizedBox(width: 10),
+                      _SecondaryActionButton(
+                        label: _drawerSession.isActive
+                            ? 'Day End'
+                            : 'Day Start',
+                        icon: _drawerSession.isActive
+                            ? Icons.event_available_rounded
+                            : Icons.play_circle_outline_rounded,
+                        onPressed: _isDaySessionLoading
+                            ? null
+                            : _openDaySessionAction,
+                        isLoading: _isDaySessionLoading,
+                      ),
+                      const SizedBox(width: 10),
+                      _SecondaryActionButton(
+                        label: 'Recent Invoice',
+                        icon: Icons.history_rounded,
+                        onPressed: _isRecentInvoicesLoading
+                            ? null
+                            : _openRecentInvoicesDialog,
+                        isLoading: _isRecentInvoicesLoading,
+                      ),
+                      const SizedBox(width: 10),
                       _PrimaryActionButton(
                         label: 'New Transaction',
                         icon: Icons.add,
@@ -1053,8 +1745,8 @@ extension on PosPaymentMethod {
         return 'Cash';
       case PosPaymentMethod.card:
         return 'Card';
-      case PosPaymentMethod.upi:
-        return 'UPI';
+      case PosPaymentMethod.multiple:
+        return 'Multiple';
     }
   }
 }
@@ -1324,6 +2016,8 @@ class _ProductsPanel extends StatelessWidget {
     required this.selectedCategory,
     required this.products,
     required this.selectedStockKey,
+    required this.viewMode,
+    required this.selectedPricingGroup,
     required this.isCatalogLoading,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
@@ -1339,6 +2033,8 @@ class _ProductsPanel extends StatelessWidget {
   final String selectedCategory;
   final List<PosCatalogItem> products;
   final String? selectedStockKey;
+  final PosCatalogViewMode viewMode;
+  final PosPricingGroup selectedPricingGroup;
   final bool isCatalogLoading;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
@@ -1445,6 +2141,26 @@ class _ProductsPanel extends StatelessWidget {
                       ),
                     ),
                   )
+                : viewMode == PosCatalogViewMode.compact
+                ? GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 150,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 1,
+                        ),
+                    itemCount: products.length,
+                    itemBuilder: (context, index) {
+                      final product = products[index];
+                      return _ProductCompactTile(
+                        product: product,
+                        selectedPricingGroup: selectedPricingGroup,
+                        isSelected: product.stockKey == selectedStockKey,
+                        onTap: () => onProductSelected(product),
+                      );
+                    },
+                  )
                 : ListView.separated(
                     itemCount: products.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -1453,6 +2169,7 @@ class _ProductsPanel extends StatelessWidget {
 
                       return _ProductRow(
                         product: product,
+                        selectedPricingGroup: selectedPricingGroup,
                         isSelected: product.stockKey == selectedStockKey,
                         onTap: () => onProductSelected(product),
                       );
@@ -1460,6 +2177,102 @@ class _ProductsPanel extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ProductCompactTile extends StatelessWidget {
+  const _ProductCompactTile({
+    required this.product,
+    required this.selectedPricingGroup,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final PosCatalogItem product;
+  final PosPricingGroup selectedPricingGroup;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayPrice = selectedPricingGroup == PosPricingGroup.retail
+        ? product.retailPrice
+        : product.wholesalePrice;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isSelected ? _posAccentSurface(0.12) : AppColors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.primaryTeal
+                  : const Color(0xFFE5EBF2),
+              width: isSelected ? 1.6 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppColors.primaryTeal.withValues(alpha: 0.12),
+                      blurRadius: 14,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  height: 42,
+                  width: 42,
+                  decoration: BoxDecoration(
+                    color: _posAccentSurface(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.inventory_2_outlined,
+                    color: AppColors.primaryTeal,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  product.productName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF344256),
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Rs ${displayPrice.toStringAsFixed(2)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primaryTeal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1587,9 +2400,15 @@ class _CheckoutPanel extends StatelessWidget {
     required this.isCustomerLoading,
     required this.selectedCustomer,
     required this.amountController,
+    required this.cardAmountController,
+    required this.discountController,
     required this.amountFocusNode,
+    required this.cardAmountFocusNode,
+    required this.discountFocusNode,
     required this.selectedPaymentMethod,
+    required this.selectedPricingGroup,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.total,
     required this.taxLabel,
@@ -1598,12 +2417,16 @@ class _CheckoutPanel extends StatelessWidget {
     required this.isProcessing,
     required this.isOpeningCustomerDialog,
     required this.onPaymentMethodChanged,
+    required this.onPricingGroupChanged,
     required this.onAmountChanged,
     required this.onCustomerChanged,
     required this.onCustomerTapped,
     required this.onCustomerSelected,
     required this.onResetCustomer,
     required this.onProcessPayment,
+    required this.touchModeEnabled,
+    required this.onTouchDigitPressed,
+    required this.onTouchBackspace,
   });
 
   final TextEditingController customerController;
@@ -1613,9 +2436,15 @@ class _CheckoutPanel extends StatelessWidget {
   final bool isCustomerLoading;
   final PosCustomerOption selectedCustomer;
   final TextEditingController amountController;
+  final TextEditingController cardAmountController;
+  final TextEditingController discountController;
   final FocusNode amountFocusNode;
+  final FocusNode cardAmountFocusNode;
+  final FocusNode discountFocusNode;
   final PosPaymentMethod selectedPaymentMethod;
+  final PosPricingGroup selectedPricingGroup;
   final double subtotal;
+  final double discount;
   final double tax;
   final double total;
   final String? taxLabel;
@@ -1624,17 +2453,23 @@ class _CheckoutPanel extends StatelessWidget {
   final bool isProcessing;
   final bool isOpeningCustomerDialog;
   final ValueChanged<PosPaymentMethod> onPaymentMethodChanged;
+  final ValueChanged<PosPricingGroup> onPricingGroupChanged;
   final ValueChanged<String> onAmountChanged;
   final VoidCallback onCustomerTapped;
   final ValueChanged<String> onCustomerChanged;
   final ValueChanged<PosCustomerOption> onCustomerSelected;
   final VoidCallback onResetCustomer;
   final VoidCallback onProcessPayment;
+  final bool touchModeEnabled;
+  final ValueChanged<String> onTouchDigitPressed;
+  final VoidCallback onTouchBackspace;
 
   @override
   Widget build(BuildContext context) {
     final hasShortPayment = subtotal > 0 && balance < 0;
-    final showAmountPaidField = selectedPaymentMethod != PosPaymentMethod.card;
+    final showCashAmountField = selectedPaymentMethod != PosPaymentMethod.card;
+    final showCardAmountField =
+        selectedPaymentMethod == PosPaymentMethod.multiple;
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 360;
@@ -1698,6 +2533,71 @@ class _CheckoutPanel extends StatelessWidget {
                         label: 'Subtotal',
                         value: 'Rs ${subtotal.toStringAsFixed(2)}',
                       ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Discount',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4A586B),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 38,
+                        child: TextField(
+                          controller: discountController,
+                          focusNode: discountFocusNode,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: onAmountChanged,
+                          decoration: InputDecoration(
+                            prefixIconConstraints: const BoxConstraints(
+                              minWidth: 32,
+                            ),
+                            prefixIcon: const Padding(
+                              padding: EdgeInsets.only(left: 8, right: 2),
+                              child: Icon(
+                                Icons.local_offer_outlined,
+                                size: 16,
+                                color: Color(0xFF78889E),
+                              ),
+                            ),
+                            hintText: '0.00',
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: AppColors.primaryTeal,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (discount > 0) ...[
+                        const SizedBox(height: 10),
+                        _SummaryRow(
+                          label: 'Discount',
+                          value: '-Rs ${discount.toStringAsFixed(2)}',
+                          valueColor: const Color(0xFFE35D5D),
+                        ),
+                      ],
                       if (taxLabel != null) ...[
                         const SizedBox(height: 10),
                         _SummaryRow(
@@ -1729,6 +2629,77 @@ class _CheckoutPanel extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 22),
+                      const Text(
+                        'Pricing Group',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4A586B),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      isCompact
+                          ? Column(
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: _PaymentMethodButton(
+                                    label: 'Retail',
+                                    icon: Icons.storefront_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.retail,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.retail,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: _PaymentMethodButton(
+                                    label: 'Wholesale',
+                                    icon: Icons.local_shipping_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.wholesale,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.wholesale,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: _PaymentMethodButton(
+                                    label: 'Retail',
+                                    icon: Icons.storefront_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.retail,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.retail,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _PaymentMethodButton(
+                                    label: 'Wholesale',
+                                    icon: Icons.local_shipping_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.wholesale,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.wholesale,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                       const SizedBox(height: 22),
                       const Text(
                         'Payment Method',
@@ -1773,13 +2744,13 @@ class _CheckoutPanel extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: _PaymentMethodButton(
-                                    label: 'UPI',
-                                    icon: Icons.account_balance_wallet_outlined,
+                                    label: 'Multiple',
+                                    icon: Icons.payments_outlined,
                                     isSelected:
                                         selectedPaymentMethod ==
-                                        PosPaymentMethod.upi,
+                                        PosPaymentMethod.multiple,
                                     onTap: () => onPaymentMethodChanged(
-                                      PosPaymentMethod.upi,
+                                      PosPaymentMethod.multiple,
                                     ),
                                   ),
                                 ),
@@ -1818,22 +2789,22 @@ class _CheckoutPanel extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: _PaymentMethodButton(
-                                label: 'UPI',
-                                icon: Icons.account_balance_wallet_outlined,
+                                label: 'Multiple',
+                                icon: Icons.payments_outlined,
                                 isSelected:
                                     selectedPaymentMethod ==
-                                    PosPaymentMethod.upi,
+                                    PosPaymentMethod.multiple,
                                 onTap: () => onPaymentMethodChanged(
-                                  PosPaymentMethod.upi,
+                                  PosPaymentMethod.multiple,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      if (showAmountPaidField) ...[
+                      if (showCashAmountField) ...[
                         const SizedBox(height: 14),
-                        const Text(
-                          'Amount Paid',
+                        Text(
+                          showCardAmountField ? 'Cash Amount' : 'Amount Paid',
                           style: TextStyle(
                             fontSize: 13.5,
                             fontWeight: FontWeight.w700,
@@ -1858,6 +2829,64 @@ class _CheckoutPanel extends StatelessWidget {
                                 padding: EdgeInsets.only(left: 8, right: 2),
                                 child: Icon(
                                   Icons.attach_money_rounded,
+                                  size: 16,
+                                  color: Color(0xFF78889E),
+                                ),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                  color: AppColors.primaryTeal,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showCardAmountField) ...[
+                        const Text(
+                          'Card Amount',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF4A586B),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: cardAmountController,
+                            focusNode: cardAmountFocusNode,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            onChanged: onAmountChanged,
+                            decoration: InputDecoration(
+                              prefixIconConstraints: const BoxConstraints(
+                                minWidth: 32,
+                              ),
+                              prefixIcon: const Padding(
+                                padding: EdgeInsets.only(left: 8, right: 2),
+                                child: Icon(
+                                  Icons.credit_card_rounded,
                                   size: 16,
                                   color: Color(0xFF78889E),
                                 ),
@@ -1934,6 +2963,13 @@ class _CheckoutPanel extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (touchModeEnabled) ...[
+                        const SizedBox(height: 14),
+                        _TouchCheckoutNumberPad(
+                          onDigitPressed: onTouchDigitPressed,
+                          onBackspace: onTouchBackspace,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1978,6 +3014,78 @@ class _CheckoutPanel extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _TouchCheckoutNumberPad extends StatelessWidget {
+  const _TouchCheckoutNumberPad({
+    required this.onDigitPressed,
+    required this.onBackspace,
+  });
+
+  final ValueChanged<String> onDigitPressed;
+  final VoidCallback onBackspace;
+
+  @override
+  Widget build(BuildContext context) {
+    const rows = <List<String>>[
+      <String>['1', '2', '3'],
+      <String>['4', '5', '6'],
+      <String>['7', '8', '9'],
+      <String>['.', '0', 'back'],
+    ];
+
+    return Column(
+      children: rows.map((row) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: row.map((value) {
+              final isBack = value == 'back';
+
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: InkWell(
+                    onTap: () {
+                      if (isBack) {
+                        onBackspace();
+                      } else {
+                        onDigitPressed(value);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Ink(
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE4EAF2)),
+                      ),
+                      child: Center(
+                        child: isBack
+                            ? const Icon(
+                                Icons.backspace_outlined,
+                                color: Color(0xFF64748B),
+                              )
+                            : Text(
+                                value,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF334155),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      }).toList(),
     );
   }
 }
@@ -2102,16 +3210,22 @@ class _CategoryChip extends StatelessWidget {
 class _ProductRow extends StatelessWidget {
   const _ProductRow({
     required this.product,
+    required this.selectedPricingGroup,
     required this.isSelected,
     required this.onTap,
   });
 
   final PosCatalogItem product;
+  final PosPricingGroup selectedPricingGroup;
   final bool isSelected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final displayPrice = selectedPricingGroup == PosPricingGroup.retail
+        ? product.retailPrice
+        : product.wholesalePrice;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 480;
@@ -2204,7 +3318,7 @@ class _ProductRow extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                                'Rs ${displayPrice.toStringAsFixed(2)}',
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -2247,7 +3361,7 @@ class _ProductRow extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                        'Rs ${displayPrice.toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
@@ -2778,6 +3892,890 @@ class _PrimaryActionButton extends StatelessWidget {
           label,
           style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
         ),
+      ),
+    );
+  }
+}
+
+class _SecondaryActionButton extends StatelessWidget {
+  const _SecondaryActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.isLoading = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 38,
+      child: OutlinedButton.icon(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primaryTeal,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          side: BorderSide(color: _posAccentBorder(0.52)),
+          backgroundColor: _posAccentSurface(0.08),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+        ),
+        icon: isLoading
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primaryTeal,
+                ),
+              )
+            : Icon(icon, size: 16),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentInvoicesDialog extends StatelessWidget {
+  const _RecentInvoicesDialog({
+    required this.invoices,
+    required this.viewingInvoiceId,
+    required this.printingInvoiceId,
+    required this.onView,
+    required this.onPrint,
+  });
+
+  final List<InvoiceRecord> invoices;
+  final String? viewingInvoiceId;
+  final String? printingInvoiceId;
+  final ValueChanged<InvoiceRecord> onView;
+  final ValueChanged<InvoiceRecord> onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 920, maxHeight: 680),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 18, 16, 18),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Recent Invoices',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'View or print the latest completed transactions.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xD9FFFFFF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: invoices.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No recent invoices found',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF90A0B4),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(18),
+                      itemCount: invoices.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final invoice = invoices[index];
+                        final isViewing = viewingInvoiceId == invoice.invoiceId;
+                        final isPrinting =
+                            printingInvoiceId == invoice.invoiceId;
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE6ECF3)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      invoice.invoiceId,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF39475A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      invoice.customerName,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF55657A),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${invoice.date} • ${invoice.paymentMethod}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF95A3B5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'Rs ${invoice.amount.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryTeal,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: isViewing
+                                            ? null
+                                            : () => onView(invoice),
+                                        icon: isViewing
+                                            ? SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color:
+                                                          AppColors.primaryTeal,
+                                                    ),
+                                              )
+                                            : const Icon(
+                                                Icons.visibility_outlined,
+                                                size: 16,
+                                              ),
+                                        label: const Text('View'),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ElevatedButton.icon(
+                                        onPressed: isPrinting
+                                            ? null
+                                            : () => onPrint(invoice),
+                                        icon: isPrinting
+                                            ? const SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                              )
+                                            : const Icon(
+                                                Icons.print_outlined,
+                                                size: 16,
+                                              ),
+                                        label: const Text('Print'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PosExpenseDialog extends StatefulWidget {
+  const _PosExpenseDialog({
+    required this.repository,
+    required this.paidFromDrawerByDefault,
+  });
+
+  final ExpenseRepository repository;
+  final bool paidFromDrawerByDefault;
+
+  @override
+  State<_PosExpenseDialog> createState() => _PosExpenseDialogState();
+}
+
+class _PosExpenseDialogState extends State<_PosExpenseDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _titleController;
+  late final TextEditingController _categoryController;
+  late final TextEditingController _amountController;
+  late final TextEditingController _dateController;
+  late final TextEditingController _paymentMethodController;
+  late final TextEditingController _notesController;
+  bool _paidFromDrawer = true;
+  bool _isSaving = false;
+  List<String> _categorySuggestions = const <String>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController();
+    _categoryController = TextEditingController();
+    _amountController = TextEditingController();
+    _dateController = TextEditingController(
+      text: formatAppDate(DateTime.now()),
+    );
+    _paymentMethodController = TextEditingController(text: 'Cash');
+    _notesController = TextEditingController();
+    _paidFromDrawer = widget.paidFromDrawerByDefault;
+    _categoryController.addListener(_loadSuggestions);
+    _loadSuggestions();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _categoryController.dispose();
+    _amountController.dispose();
+    _dateController.dispose();
+    _paymentMethodController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSuggestions() async {
+    final suggestions = await widget.repository.fetchCategorySuggestions(
+      _categoryController.text,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _categorySuggestions = suggestions);
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final parsedDate = parseAppDate(_dateController.text);
+    if (parsedDate == null) {
+      AppToast.error('Please select a valid expense date');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await widget.repository.saveExpense(
+        ExpenseRecord(
+          title: _titleController.text.trim(),
+          category: _categoryController.text.trim(),
+          amount: double.tryParse(_amountController.text.trim()) ?? 0,
+          date: parsedDate,
+          paymentMethod: _paymentMethodController.text.trim(),
+          paidFromDrawer: _paidFromDrawer,
+          notes: _notesController.text.trim(),
+          status: ExpenseStatus.active,
+          createdAt: DateTime.now(),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSaving = false);
+      AppToast.error('Failed to save expense: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    InputDecoration decoration(String hint) => InputDecoration(
+      hintText: hint,
+      filled: true,
+      fillColor: const Color(0xFFFBFCFE),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE1E7F0)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE1E7F0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.4),
+      ),
+    );
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760, maxHeight: 760),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 18, 18),
+              child: Row(
+                children: [
+                  const Text(
+                    'Add Expense',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2E3A4D),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        controller: _titleController,
+                        decoration: decoration('Expense title'),
+                        validator: (value) =>
+                            (value == null || value.trim().isEmpty)
+                            ? 'Expense title is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: _categoryController,
+                                  decoration: decoration('Category'),
+                                  validator: (value) =>
+                                      (value == null || value.trim().isEmpty)
+                                      ? 'Category is required'
+                                      : null,
+                                ),
+                                if (_categorySuggestions.isNotEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF8FBFE),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFE1E7F0),
+                                      ),
+                                    ),
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: _categorySuggestions
+                                          .map(
+                                            (category) => ActionChip(
+                                              label: Text(category),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _categoryController.text =
+                                                      category;
+                                                  _categoryController
+                                                          .selection =
+                                                      TextSelection.collapsed(
+                                                        offset: category.length,
+                                                      );
+                                                });
+                                              },
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _amountController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: decoration('Amount'),
+                              validator: (value) {
+                                final parsed = double.tryParse(
+                                  value?.trim() ?? '',
+                                );
+                                if (parsed == null || parsed <= 0) {
+                                  return 'Enter a valid amount';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AppDateField(
+                              controller: _dateController,
+                              hintText: 'Expense date',
+                              decoration: decoration('Expense date'),
+                              validator: (value) => parseAppDate(value) == null
+                                  ? 'Select a valid date'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _paymentMethodController,
+                              decoration: decoration('Payment method'),
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                  ? 'Payment method is required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      CheckboxListTile(
+                        value: _paidFromDrawer,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Paid from cashier drawer',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Day end drawer balance will be reduced by this expense amount.',
+                        ),
+                        onChanged: (value) {
+                          setState(() => _paidFromDrawer = value ?? false);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _notesController,
+                        maxLines: 4,
+                        decoration: decoration('Notes (optional)'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _save,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSaving ? 'Saving...' : 'Add Expense'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryTeal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DayEndSummaryDialog extends StatefulWidget {
+  const _DayEndSummaryDialog({
+    required this.summary,
+    required this.onPrint,
+    required this.onEndDay,
+  });
+
+  final DrawerSessionSummary summary;
+  final Future<void> Function(double actualCashInHand) onPrint;
+  final Future<void> Function(double actualCashInHand) onEndDay;
+
+  @override
+  State<_DayEndSummaryDialog> createState() => _DayEndSummaryDialogState();
+}
+
+class _DayEndSummaryDialogState extends State<_DayEndSummaryDialog> {
+  late final TextEditingController _cashInHandController;
+  bool _isPrinting = false;
+  bool _isEnding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cashInHandController = TextEditingController(
+      text: widget.summary.expectedDrawerAmount.toStringAsFixed(2),
+    );
+  }
+
+  @override
+  void dispose() {
+    _cashInHandController.dispose();
+    super.dispose();
+  }
+
+  double get _actualCashInHand =>
+      double.tryParse(_cashInHandController.text.trim()) ?? 0;
+
+  double get _variance =>
+      _actualCashInHand - widget.summary.expectedDrawerAmount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(22, 18, 16, 18),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTeal,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Day End Summary',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Review cashier totals before closing the day.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xD9FFFFFF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Opening Cash',
+                          value:
+                              'Rs ${widget.summary.session.openingCash.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Cash Sales',
+                          value:
+                              'Rs ${widget.summary.cashSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Card Sales',
+                          value:
+                              'Rs ${widget.summary.cardSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Drawer Expenses',
+                          value:
+                              'Rs ${widget.summary.drawerExpenseTotal.toStringAsFixed(2)}',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Total Sales',
+                          value:
+                              'Rs ${widget.summary.totalSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Expected Drawer Amount',
+                          value:
+                              'Rs ${widget.summary.expectedDrawerAmount.toStringAsFixed(2)}',
+                          highlight: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _cashInHandController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Cash In Hand',
+                      hintText: '0.00',
+                      prefixIcon: Icon(Icons.payments_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _DaySummaryCard(
+                    label: _variance >= 0 ? 'Over Amount' : 'Short Amount',
+                    value: 'Rs ${_variance.abs().toStringAsFixed(2)}',
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () => Navigator.of(context).pop(),
+                        child: const Text('Close'),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () async {
+                                setState(() => _isPrinting = true);
+                                try {
+                                  await widget.onPrint(_actualCashInHand);
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _isPrinting = false);
+                                  }
+                                }
+                              },
+                        icon: _isPrinting
+                            ? SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primaryTeal,
+                                ),
+                              )
+                            : const Icon(Icons.print_outlined, size: 16),
+                        label: const Text('Print Chit'),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: _isPrinting || _isEnding
+                            ? null
+                            : () async {
+                                setState(() => _isEnding = true);
+                                try {
+                                  await widget.onEndDay(_actualCashInHand);
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  Navigator.of(context).pop();
+                                } finally {
+                                  if (mounted) {
+                                    setState(() => _isEnding = false);
+                                  }
+                                }
+                              },
+                        child: _isEnding
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('End Day'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DaySummaryCard extends StatelessWidget {
+  const _DaySummaryCard({
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  final String label;
+  final String value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: highlight ? _posAccentSurface(0.16) : const Color(0xFFF7FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: highlight ? _posAccentBorder(0.4) : const Color(0xFFE6ECF3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7A889B),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: highlight ? AppColors.primaryTeal : AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }

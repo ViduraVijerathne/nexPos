@@ -123,6 +123,7 @@ class ExpenseLocalRepository implements ExpenseRepository {
       ..amount = expense.amount
       ..expenseDate = expense.date
       ..paymentMethod = expense.paymentMethod.trim()
+      ..paidFromDrawer = expense.paidFromDrawer
       ..notes = expense.notes.trim()
       ..status = _mapStatusToEntity(expense.status)
       ..createdAt = existing?.createdAt ?? now
@@ -143,6 +144,7 @@ class ExpenseLocalRepository implements ExpenseRepository {
         'category': entity.category,
         'amount': entity.amount,
         'date': entity.expenseDate.toIso8601String(),
+        'paidFromDrawer': entity.paidFromDrawer,
       },
     );
 
@@ -249,6 +251,13 @@ class ExpenseLocalRepository implements ExpenseRepository {
   }
 
   ExpenseRecord _mapEntityToRecord(ExpenseEntity entity) {
+    bool paidFromDrawer;
+    try {
+      paidFromDrawer = entity.paidFromDrawer;
+    } catch (_) {
+      paidFromDrawer = false;
+    }
+
     return ExpenseRecord(
       id: entity.id,
       title: entity.title,
@@ -256,6 +265,7 @@ class ExpenseLocalRepository implements ExpenseRepository {
       amount: entity.amount,
       date: entity.expenseDate,
       paymentMethod: entity.paymentMethod,
+      paidFromDrawer: paidFromDrawer,
       notes: entity.notes,
       status: entity.status == ExpenseEntityStatus.active
           ? ExpenseStatus.active

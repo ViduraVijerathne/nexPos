@@ -18,6 +18,7 @@ enum _SettingsMenuSection {
   themes,
   notifications,
   security,
+  posSettings,
   languageRegion,
   systemPreferences,
   systemUpdates,
@@ -30,6 +31,7 @@ extension on _SettingsMenuSection {
     _SettingsMenuSection.themes => 'Themes',
     _SettingsMenuSection.notifications => 'Notifications',
     _SettingsMenuSection.security => 'Security',
+    _SettingsMenuSection.posSettings => 'POS Settings',
     _SettingsMenuSection.languageRegion => 'Invoice Layout',
     _SettingsMenuSection.systemPreferences => 'System Preferences',
     _SettingsMenuSection.systemUpdates => 'System Updates',
@@ -41,6 +43,7 @@ extension on _SettingsMenuSection {
     _SettingsMenuSection.themes => Icons.palette_outlined,
     _SettingsMenuSection.notifications => Icons.notifications_none_rounded,
     _SettingsMenuSection.security => Icons.lock_outline_rounded,
+    _SettingsMenuSection.posSettings => Icons.point_of_sale_rounded,
     _SettingsMenuSection.languageRegion => Icons.language_rounded,
     _SettingsMenuSection.systemPreferences => Icons.settings_outlined,
     _SettingsMenuSection.systemUpdates => Icons.system_update_alt_rounded,
@@ -92,6 +95,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _touchUiEnabled = false;
   bool _createCustomerOnlyContact = false;
   bool _grnAddItemOnEnter = true;
+  PosCatalogLoadMode _posCatalogLoadMode = PosCatalogLoadMode.defaultOrder;
+  PosCatalogViewMode _posCatalogViewMode = PosCatalogViewMode.row;
   PosPrintSettings _posPrintSettings = PosPrintSettings.defaults;
   PosShortcutSettings _posShortcutSettings = PosShortcutSettings.defaults;
   List<Printer> _availablePrinters = const <Printer>[];
@@ -185,6 +190,8 @@ class _SettingsPageState extends State<SettingsPage> {
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
           .loadPosCustomerSettings();
+      final posCatalogSettings = await AppSettingsService.instance
+          .loadPosCatalogSettings();
       final touchUiSettings = await AppSettingsService.instance
           .loadTouchUiSettings();
       final grnEntrySettings = await AppSettingsService.instance
@@ -214,6 +221,8 @@ class _SettingsPageState extends State<SettingsPage> {
         _defaultLoginMethod =
             setupState.defaultLoginMethod ?? LoginMethod.emailPassword;
         _createCustomerOnlyContact = customerSettings.createCustomerOnlyContact;
+        _posCatalogLoadMode = posCatalogSettings.defaultLoadMode;
+        _posCatalogViewMode = posCatalogSettings.defaultViewMode;
         _grnAddItemOnEnter = grnEntrySettings.addItemOnEnter;
         _posPrintSettings = posPrintSettings;
         _posShortcutSettings = posShortcutSettings;
@@ -316,6 +325,10 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       await AppSettingsService.instance.savePosCustomerSettings(
         createCustomerOnlyContact: _createCustomerOnlyContact,
+      );
+      await AppSettingsService.instance.savePosCatalogSettings(
+        defaultLoadMode: _posCatalogLoadMode,
+        defaultViewMode: _posCatalogViewMode,
       );
       await AppSettingsService.instance.saveTouchUiSettings(
         isEnabled: _touchUiEnabled,
@@ -532,6 +545,21 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _savePosCatalogPreferences() async {
+    try {
+      await AppSettingsService.instance.savePosCatalogSettings(
+        defaultLoadMode: _posCatalogLoadMode,
+        defaultViewMode: _posCatalogViewMode,
+      );
+      if (!mounted) {
+        return;
+      }
+      AppToast.success('POS settings updated');
+    } catch (error) {
+      AppToast.error('Failed to update POS settings: $error');
+    }
+  }
+
   Future<void> _changePassword() async {
     final currentPassword = _currentPasswordController.text.trim();
     final newPassword = _newPasswordController.text.trim();
@@ -694,10 +722,13 @@ class _SettingsPageState extends State<SettingsPage> {
       InvoicePreviewLine(name: 'curry powder', quantity: 1, unitPrice: 1250),
     ],
     subtotal: 2500,
+    discount: 0,
     tax: 0,
     total: 2500,
     paymentMethod: 'Cash',
     paidAmount: 3000,
+    cashPaidAmount: 3000,
+    cardPaidAmount: 0,
     balance: 500,
   );
 
@@ -856,6 +887,7 @@ class _SettingsPageState extends State<SettingsPage> {
         icon: Icons.notifications_none_rounded,
       ),
       _SettingsMenuSection.security => _buildSecuritySection(),
+      _SettingsMenuSection.posSettings => _buildPosSettingsSection(),
       _SettingsMenuSection.languageRegion => _buildLanguageRegionSection(),
       _SettingsMenuSection.systemPreferences =>
         _buildSystemPreferencesSection(),
@@ -1527,6 +1559,152 @@ class _SettingsPageState extends State<SettingsPage> {
                   isEnabled: value,
                 );
               },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPosSettingsSection() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'POS Settings',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Control how the POS product list loads before the cashier starts searching.',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Default Product Loading',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'When the POS search box is empty, load stock items using one of these strategies.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: PosCatalogLoadMode.values.map((mode) {
+                    final isSelected = _posCatalogLoadMode == mode;
+                    return SizedBox(
+                      width: 260,
+                      child: _SelectableCard(
+                        selected: isSelected,
+                        icon: switch (mode) {
+                          PosCatalogLoadMode.defaultOrder =>
+                            Icons.view_stream_rounded,
+                          PosCatalogLoadMode.quickSelling =>
+                            Icons.local_fire_department_outlined,
+                          PosCatalogLoadMode.mostSelling =>
+                            Icons.trending_up_rounded,
+                          PosCatalogLoadMode.highStock =>
+                            Icons.inventory_2_outlined,
+                        },
+                        label: mode.label,
+                        onTap: () async {
+                          setState(() => _posCatalogLoadMode = mode);
+                          await _savePosCatalogPreferences();
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  switch (_posCatalogLoadMode) {
+                    PosCatalogLoadMode.defaultOrder =>
+                      'Uses the current standard catalog order.',
+                    PosCatalogLoadMode.quickSelling =>
+                      'Shows only products marked as quick selling in the product form.',
+                    PosCatalogLoadMode.mostSelling =>
+                      'Brings forward products based on your invoice sales history.',
+                    PosCatalogLoadMode.highStock =>
+                      'Shows products with the highest available stock first.',
+                  },
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _SettingsBlock(
+            title: 'Default Stock View',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Choose how stock items should appear in the POS product area before searching.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: PosCatalogViewMode.values.map((mode) {
+                    final isSelected = _posCatalogViewMode == mode;
+                    return SizedBox(
+                      width: 260,
+                      child: _SelectableCard(
+                        selected: isSelected,
+                        icon: mode == PosCatalogViewMode.row
+                            ? Icons.view_agenda_outlined
+                            : Icons.grid_view_rounded,
+                        label: mode.label,
+                        onTap: () async {
+                          setState(() => _posCatalogViewMode = mode);
+                          await _savePosCatalogPreferences();
+                        },
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  _posCatalogViewMode == PosCatalogViewMode.row
+                      ? 'Row mode keeps the current cashier-friendly detailed stock rows.'
+                      : 'Compact mode shows square product tiles with only the product name and selling price.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                    height: 1.45,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

@@ -172,13 +172,25 @@ class InvoiceRemoteRepository implements InvoiceRepository {
     final subtotal =
         (data['subTotal'] as num?)?.toDouble() ??
         items.fold<double>(0, (sum, item) => sum + item.subtotal);
+    final discount =
+        (data['discountAmount'] as num?)?.toDouble() ??
+        (data['discount'] as num?)?.toDouble() ??
+        0;
     final amount =
         (data['totalAmount'] as num?)?.toDouble() ??
         (data['amount'] as num?)?.toDouble() ??
-        subtotal;
+        (subtotal - discount).clamp(0, double.infinity).toDouble();
     final tax =
         (data['taxAmount'] as num?)?.toDouble() ??
-        (amount - subtotal).clamp(0, double.infinity);
+        (amount - (subtotal - discount)).clamp(0, double.infinity);
+    final paymentMethod = data['paymentMethod']?.toString() ?? 'Cash';
+    final normalizedMethod = paymentMethod.trim().toLowerCase();
+    final cashPaidAmount =
+        (data['cashPaidAmount'] as num?)?.toDouble() ??
+        (normalizedMethod == 'cash' ? amount : 0);
+    final cardPaidAmount =
+        (data['cardPaidAmount'] as num?)?.toDouble() ??
+        (normalizedMethod == 'card' ? amount : 0);
 
     return InvoiceRecord(
       invoiceId: data['invoiceNumber']?.toString() ?? docId,
@@ -187,10 +199,13 @@ class InvoiceRemoteRepository implements InvoiceRepository {
       date: _readIssuedAt(data).toIso8601String(),
       amount: amount,
       subtotal: subtotal,
+      discount: discount,
       tax: tax,
       status: _mapStatus(data['status']?.toString()),
       items: items,
-      paymentMethod: data['paymentMethod']?.toString() ?? 'Cash',
+      paymentMethod: paymentMethod,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
       cashierName: data['cashierName']?.toString() ?? 'Cashier',
     );
   }

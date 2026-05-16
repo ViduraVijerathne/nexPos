@@ -2,6 +2,7 @@ import 'package:isar/isar.dart';
 
 import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
+import 'expense_local_repository.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
 import 'product_local_repository.dart';
@@ -15,11 +16,13 @@ class ReportLocalRepository implements ReportRepository {
     await const ProductLocalRepository().initialize();
     await const StockLocalRepository().initialize();
     await const CustomerLocalRepository().initialize();
+    await const ExpenseLocalRepository().initialize();
   }
 
   Future<ReportDashboardData> fetchDashboardData({
     required DateTime fromDate,
     required DateTime toDate,
+    required ReportSalesPeriod salesPeriod,
   }) async {
     final isar = await AppDatabase.instance;
     final normalizedFrom = DateTime(
@@ -40,6 +43,7 @@ class ReportLocalRepository implements ReportRepository {
     final invoices = await isar.invoiceEntitys.where().anyId().findAll();
     final products = await isar.productEntitys.where().findAll();
     final stocks = await isar.stockEntitys.where().findAll();
+    final expenses = await isar.expenseEntitys.where().findAll();
 
     final filteredInvoices =
         invoices
@@ -54,6 +58,18 @@ class ReportLocalRepository implements ReportRepository {
     final activeProducts = products
         .where((product) => product.status == ProductEntityStatus.active)
         .length;
+    final filteredExpenses =
+        expenses
+            .where((expense) => expense.status == ExpenseEntityStatus.active)
+            .where(
+              (expense) =>
+                  !expense.expenseDate.isBefore(normalizedFrom) &&
+                  !expense.expenseDate.isAfter(normalizedTo),
+            )
+            .toList()
+          ..sort(
+            (left, right) => right.expenseDate.compareTo(left.expenseDate),
+          );
 
     final summary = ReportSummaryData(
       totalRevenue: filteredInvoices.fold<double>(
@@ -85,21 +101,52 @@ class ReportLocalRepository implements ReportRepository {
 
     return ReportDashboardData(
       summary: summary,
+      salesPeriod: salesPeriod,
       salesPoints: _buildSalesPoints(
         filteredInvoices,
         normalizedFrom,
         normalizedTo,
+        salesPeriod,
       ),
       taxPoints: _buildTaxPoints(
         filteredInvoices,
         normalizedFrom,
         normalizedTo,
+        salesPeriod,
       ),
+      productSales: _buildProductSalesRows(filteredInvoices),
+      categorySales: _buildCategorySalesRows(filteredInvoices, products),
       lowStockRows: _buildLowStockRows(products, stocks),
       stockValuationRows: _buildStockValuationRows(products, stocks),
       topCustomers: _buildTopCustomers(filteredInvoices),
+      expenses: filteredExpenses.map(_mapExpenseEntityToRecord).toList(),
+      totalExpenseAmount: filteredExpenses.fold<double>(
+        0,
+        (sum, expense) => sum + expense.amount,
+      ),
+      fromDate: normalizedFrom,
+      toDate: normalizedTo,
       fromDateLabel: _formatDisplayDate(normalizedFrom),
       toDateLabel: _formatDisplayDate(normalizedTo),
+    );
+  }
+
+  ExpenseRecord _mapExpenseEntityToRecord(ExpenseEntity entity) {
+    return ExpenseRecord(
+      id: entity.id,
+      cloudId: null,
+      title: entity.title,
+      category: entity.category,
+      amount: entity.amount,
+      date: entity.expenseDate,
+      paymentMethod: entity.paymentMethod,
+      paidFromDrawer: entity.paidFromDrawer,
+      notes: entity.notes,
+      status: entity.status == ExpenseEntityStatus.active
+          ? ExpenseStatus.active
+          : ExpenseStatus.inactive,
+      createdAt: entity.createdAt,
+      updatedAt: entity.updatedAt,
     );
   }
 
@@ -107,52 +154,134 @@ class ReportLocalRepository implements ReportRepository {
     List<InvoiceEntity> invoices,
     DateTime fromDate,
     DateTime toDate,
+    ReportSalesPeriod period,
   ) {
-    final points = <ReportSalesPoint>[];
-    for (
-      var date = DateTime(fromDate.year, fromDate.month, fromDate.day);
-      !date.isAfter(toDate);
-      date = date.add(const Duration(days: 1))
-    ) {
-      final total = invoices
-          .where(
-            (invoice) =>
-                invoice.issuedAt.year == date.year &&
-                invoice.issuedAt.month == date.month &&
-                invoice.issuedAt.day == date.day,
-          )
-          .fold<double>(0, (sum, invoice) => sum + invoice.totalAmount);
-
-      points.add(ReportSalesPoint(label: _formatAxisDate(date), value: total));
-    }
-    return points;
+    return _buildPeriodPoints(
+      invoices: invoices,
+      fromDate: fromDate,
+      toDate: toDate,
+      period: period,
+      selector: (invoice) => invoice.totalAmount,
+    );
   }
 
   List<ReportSalesPoint> _buildTaxPoints(
     List<InvoiceEntity> invoices,
     DateTime fromDate,
     DateTime toDate,
+    ReportSalesPeriod period,
   ) {
+    return _buildPeriodPoints(
+      invoices: invoices,
+      fromDate: fromDate,
+      toDate: toDate,
+      period: period,
+      selector: (invoice) => invoice.tax,
+    );
+  }
+
+  List<ReportSalesPoint> _buildPeriodPoints({
+    required List<InvoiceEntity> invoices,
+    required DateTime fromDate,
+    required DateTime toDate,
+    required ReportSalesPeriod period,
+    required double Function(InvoiceEntity invoice) selector,
+  }) {
+    final totals = <String, double>{};
+    final labels = <String, String>{};
+
+    for (final invoice in invoices) {
+      final bucket = _bucketKey(invoice.issuedAt, period);
+      totals.update(
+        bucket,
+        (value) => value + selector(invoice),
+        ifAbsent: () => selector(invoice),
+      );
+      labels[bucket] = _bucketLabel(invoice.issuedAt, period);
+    }
+
     final points = <ReportSalesPoint>[];
     for (
-      var date = DateTime(fromDate.year, fromDate.month, fromDate.day);
-      !date.isAfter(toDate);
-      date = date.add(const Duration(days: 1))
+      var cursor = _bucketStart(fromDate, period);
+      !cursor.isAfter(toDate);
+      cursor = _nextBucket(cursor, period)
     ) {
-      final totalTax = invoices
-          .where(
-            (invoice) =>
-                invoice.issuedAt.year == date.year &&
-                invoice.issuedAt.month == date.month &&
-                invoice.issuedAt.day == date.day,
-          )
-          .fold<double>(0, (sum, invoice) => sum + invoice.tax);
-
+      final key = _bucketKey(cursor, period);
       points.add(
-        ReportSalesPoint(label: _formatAxisDate(date), value: totalTax),
+        ReportSalesPoint(
+          label: labels[key] ?? _bucketLabel(cursor, period),
+          value: totals[key] ?? 0,
+        ),
       );
     }
     return points;
+  }
+
+  List<ReportProductSalesRow> _buildProductSalesRows(
+    List<InvoiceEntity> invoices,
+  ) {
+    final totals = <String, ({int qty, double total})>{};
+    for (final invoice in invoices) {
+      for (final item in invoice.items) {
+        final name = item.name.trim().isEmpty
+            ? 'Unknown Product'
+            : item.name.trim();
+        final current = totals[name] ?? (qty: 0, total: 0.0);
+        totals[name] = (
+          qty: current.qty + item.quantity,
+          total: current.total + item.subtotal,
+        );
+      }
+    }
+
+    final rows =
+        totals.entries
+            .map(
+              (entry) => ReportProductSalesRow(
+                product: entry.key,
+                quantity: entry.value.qty,
+                totalSales: entry.value.total,
+              ),
+            )
+            .toList()
+          ..sort((left, right) => right.totalSales.compareTo(left.totalSales));
+    return rows;
+  }
+
+  List<ReportCategorySalesRow> _buildCategorySalesRows(
+    List<InvoiceEntity> invoices,
+    List<ProductEntity> products,
+  ) {
+    final categoryByProduct = <String, String>{
+      for (final product in products)
+        product.name.toLowerCase(): product.category,
+    };
+    final totals = <String, ({int qty, double total})>{};
+
+    for (final invoice in invoices) {
+      for (final item in invoice.items) {
+        final category =
+            categoryByProduct[item.name.trim().toLowerCase()] ?? 'Other';
+        final current = totals[category] ?? (qty: 0, total: 0.0);
+        totals[category] = (
+          qty: current.qty + item.quantity,
+          total: current.total + item.subtotal,
+        );
+      }
+    }
+
+    final rows =
+        totals.entries
+            .map(
+              (entry) => ReportCategorySalesRow(
+                category: entry.key,
+                quantity: entry.value.qty,
+                totalSales: entry.value.total,
+              ),
+            )
+            .toList()
+          ..sort((left, right) => right.totalSales.compareTo(left.totalSales));
+    return rows;
   }
 
   List<ReportLowStockRow> _buildLowStockRows(
@@ -302,5 +431,65 @@ class ReportLocalRepository implements ReportRepository {
       'Dec',
     ];
     return '${months[date.month - 1]} ${date.day.toString().padLeft(2, '0')}';
+  }
+
+  DateTime _bucketStart(DateTime date, ReportSalesPeriod period) {
+    switch (period) {
+      case ReportSalesPeriod.daily:
+        return DateTime(date.year, date.month, date.day);
+      case ReportSalesPeriod.weekly:
+        final normalized = DateTime(date.year, date.month, date.day);
+        return normalized.subtract(Duration(days: normalized.weekday - 1));
+      case ReportSalesPeriod.monthly:
+        return DateTime(date.year, date.month);
+      case ReportSalesPeriod.yearly:
+        return DateTime(date.year);
+    }
+  }
+
+  DateTime _nextBucket(DateTime date, ReportSalesPeriod period) {
+    switch (period) {
+      case ReportSalesPeriod.daily:
+        return date.add(const Duration(days: 1));
+      case ReportSalesPeriod.weekly:
+        return date.add(const Duration(days: 7));
+      case ReportSalesPeriod.monthly:
+        return DateTime(date.year, date.month + 1);
+      case ReportSalesPeriod.yearly:
+        return DateTime(date.year + 1);
+    }
+  }
+
+  String _bucketKey(DateTime date, ReportSalesPeriod period) {
+    final bucket = _bucketStart(date, period);
+    return '${bucket.year}-${bucket.month}-${bucket.day}';
+  }
+
+  String _bucketLabel(DateTime date, ReportSalesPeriod period) {
+    switch (period) {
+      case ReportSalesPeriod.daily:
+        return _formatAxisDate(date);
+      case ReportSalesPeriod.weekly:
+        final start = _bucketStart(date, period);
+        return 'Wk ${start.month}/${start.day}';
+      case ReportSalesPeriod.monthly:
+        const months = <String>[
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ];
+        return '${months[date.month - 1]} ${date.year}';
+      case ReportSalesPeriod.yearly:
+        return date.year.toString();
+    }
   }
 }

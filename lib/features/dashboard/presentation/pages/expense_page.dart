@@ -894,6 +894,7 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
   late final TextEditingController _paymentMethodController;
   late final TextEditingController _notesController;
   bool _isSaving = false;
+  bool _paidFromDrawer = false;
   List<String> _categorySuggestions = const [];
 
   bool get _isEdit => widget.initialExpense != null;
@@ -914,6 +915,7 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
       text: expense?.paymentMethod ?? 'Cash',
     );
     _notesController = TextEditingController(text: expense?.notes ?? '');
+    _paidFromDrawer = expense?.paidFromDrawer ?? false;
     _categoryController.addListener(_loadSuggestions);
     _loadSuggestions();
   }
@@ -974,6 +976,7 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
           amount: double.tryParse(_amountController.text.trim()) ?? 0,
           date: parsedDate,
           paymentMethod: _paymentMethodController.text.trim(),
+          paidFromDrawer: _paidFromDrawer,
           notes: _notesController.text.trim(),
           status: widget.initialExpense?.status ?? ExpenseStatus.active,
           createdAt: widget.initialExpense?.createdAt ?? DateTime.now(),
@@ -1172,6 +1175,22 @@ class _ExpenseDialogState extends State<_ExpenseDialog> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      CheckboxListTile(
+                        value: _paidFromDrawer,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Paid from cashier drawer',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Enable this if the expense amount should reduce the cashier drawer balance at day end.',
+                        ),
+                        onChanged: (value) {
+                          setState(() => _paidFromDrawer = value ?? false);
+                        },
+                      ),
+                      const SizedBox(height: 8),
                       TextFormField(
                         controller: _notesController,
                         maxLines: 4,
@@ -1308,6 +1327,10 @@ class _ExpenseDetailsDialog extends StatelessWidget {
                   tile('Amount', 'Rs ${expense.amount.toStringAsFixed(2)}'),
                   tile('Date', formatAppDate(expense.date)),
                   tile('Payment Method', expense.paymentMethod),
+                  tile(
+                    'Paid from Drawer',
+                    expense.paidFromDrawer ? 'Yes' : 'No',
+                  ),
                   tile('Status', expense.status.label),
                 ],
               ),

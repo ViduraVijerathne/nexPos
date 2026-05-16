@@ -21,6 +21,7 @@ class ProductEntity {
 
   late String unit;
   late int lowStockQuantity;
+  bool isQuickSelling = false;
   @enumerated
   late ProductEntityStatus status;
   late DateTime createdAt;

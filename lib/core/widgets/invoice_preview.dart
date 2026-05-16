@@ -14,10 +14,13 @@ class InvoicePreviewData {
     required this.dateTimeText,
     required this.items,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.total,
     required this.paymentMethod,
     required this.paidAmount,
+    required this.cashPaidAmount,
+    required this.cardPaidAmount,
     required this.balance,
   });
 
@@ -27,10 +30,13 @@ class InvoicePreviewData {
   final String dateTimeText;
   final List<InvoicePreviewLine> items;
   final double subtotal;
+  final double discount;
   final double tax;
   final double total;
   final String paymentMethod;
   final double paidAmount;
+  final double cashPaidAmount;
+  final double cardPaidAmount;
   final double balance;
 }
 
@@ -229,6 +235,11 @@ class InvoicePreviewCard extends StatelessWidget {
               _t('Subtotal', 'උප එකතුව'),
               'Rs ${preview.subtotal.toStringAsFixed(2)}',
             ),
+            if (preview.discount > 0)
+              _summaryRow(
+                _t('Discount', 'වට්ටම'),
+                '-Rs ${preview.discount.toStringAsFixed(2)}',
+              ),
             if (preview.tax > 0)
               _summaryRow(
                 _t('Tax', 'බදු'),
@@ -242,10 +253,21 @@ class InvoicePreviewCard extends StatelessWidget {
             const SizedBox(height: 8),
             const Divider(height: 1, color: Color(0xFF555555), thickness: 1),
             const SizedBox(height: 8),
-            _summaryRow(
-              '${preview.paymentMethod} (${preview.dateTimeText.split(' ').first})',
-              'Rs ${preview.paidAmount.toStringAsFixed(2)}',
-            ),
+            if (preview.cashPaidAmount > 0)
+              _summaryRow(
+                _t('Cash Paid', 'මුදල් ගෙවීම'),
+                'Rs ${preview.cashPaidAmount.toStringAsFixed(2)}',
+              ),
+            if (preview.cardPaidAmount > 0)
+              _summaryRow(
+                _t('Card Paid', 'කාඩ් ගෙවීම'),
+                'Rs ${preview.cardPaidAmount.toStringAsFixed(2)}',
+              ),
+            if (preview.cashPaidAmount <= 0 && preview.cardPaidAmount <= 0)
+              _summaryRow(
+                '${preview.paymentMethod} (${preview.dateTimeText.split(' ').first})',
+                'Rs ${preview.paidAmount.toStringAsFixed(2)}',
+              ),
             _summaryRow(
               _t('Balance', 'ඉතිරි මුදල'),
               'Rs ${preview.balance.toStringAsFixed(2)}',
@@ -488,6 +510,16 @@ class KotPreviewCard extends StatelessWidget {
             if (preview.customerMobile.trim().isNotEmpty)
               _infoRow('Mobile', preview.customerMobile),
             _infoRow('Payment', preview.paymentMethod),
+            if (preview.cashPaidAmount > 0)
+              _infoRow(
+                'Cash Paid',
+                'Rs ${preview.cashPaidAmount.toStringAsFixed(2)}',
+              ),
+            if (preview.cardPaidAmount > 0)
+              _infoRow(
+                'Card Paid',
+                'Rs ${preview.cardPaidAmount.toStringAsFixed(2)}',
+              ),
             const SizedBox(height: 10),
             const Divider(height: 1, color: Color(0xFF888888)),
             const SizedBox(height: 8),

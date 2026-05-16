@@ -19,6 +19,7 @@ class ExpenseEntity {
   late double amount;
   late DateTime expenseDate;
   late String paymentMethod;
+  bool paidFromDrawer = false;
   late String notes;
   @enumerated
   late ExpenseEntityStatus status;

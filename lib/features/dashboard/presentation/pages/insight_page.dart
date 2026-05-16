@@ -239,6 +239,30 @@ class _InsightMetrics extends StatelessWidget {
         iconColor: const Color(0xFF30B7B0),
         iconBackground: const Color(0xFFE8FBF7),
         noteColor: const Color(0xFF58C7BC),
+        gradientStart: const Color(0xFFF1FFFC),
+        gradientEnd: const Color(0xFFDDF7F2),
+      ),
+      _MetricData(
+        title: 'Total Purchase',
+        value: 'Rs ${data.totalPurchase.toStringAsFixed(2)}',
+        note: data.purchasesNote,
+        icon: Icons.local_shipping_outlined,
+        iconColor: const Color(0xFFF0AA3B),
+        iconBackground: const Color(0xFFFFF4E3),
+        noteColor: const Color(0xFF8E9BB0),
+        gradientStart: const Color(0xFFFFFAF0),
+        gradientEnd: const Color(0xFFFFEFD2),
+      ),
+      _MetricData(
+        title: 'Total Expenses',
+        value: 'Rs ${data.totalExpenses.toStringAsFixed(2)}',
+        note: data.expensesNote,
+        icon: Icons.receipt_long_outlined,
+        iconColor: const Color(0xFFE66A6A),
+        iconBackground: const Color(0xFFFFECEC),
+        noteColor: const Color(0xFFE66A6A),
+        gradientStart: const Color(0xFFFFF5F5),
+        gradientEnd: const Color(0xFFFFE3E3),
       ),
       _MetricData(
         title: 'Total Orders',
@@ -248,6 +272,8 @@ class _InsightMetrics extends StatelessWidget {
         iconColor: const Color(0xFF58A7F5),
         iconBackground: const Color(0xFFEAF5FF),
         noteColor: const Color(0xFF4F97F1),
+        gradientStart: const Color(0xFFF4FAFF),
+        gradientEnd: const Color(0xFFE1F0FF),
       ),
       _MetricData(
         title: 'Active Products',
@@ -257,6 +283,8 @@ class _InsightMetrics extends StatelessWidget {
         iconColor: const Color(0xFFF0AA3B),
         iconBackground: const Color(0xFFFFF4E3),
         noteColor: const Color(0xFF8E9BB0),
+        gradientStart: const Color(0xFFFFFAF0),
+        gradientEnd: const Color(0xFFFFEFD9),
       ),
       _MetricData(
         title: 'Total Customers',
@@ -266,13 +294,17 @@ class _InsightMetrics extends StatelessWidget {
         iconColor: const Color(0xFFC06AE9),
         iconBackground: const Color(0xFFF9EBFF),
         noteColor: const Color(0xFFC06AE9),
+        gradientStart: const Color(0xFFFCF6FF),
+        gradientEnd: const Color(0xFFF2E3FF),
       ),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1180
-            ? 4
+        final columns = constraints.maxWidth >= 1440
+            ? 6
+            : constraints.maxWidth >= 1080
+            ? 3
             : constraints.maxWidth >= 760
             ? 2
             : 1;
@@ -704,8 +736,26 @@ class _InsightMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _DashboardCard(
+    return Container(
       padding: const EdgeInsets.fromLTRB(20, 19, 20, 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [metric.gradientStart, metric.gradientEnd],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Color.lerp(metric.gradientEnd, metric.iconColor, 0.18)!,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120F172A),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -723,7 +773,7 @@ class _InsightMetricCard extends StatelessWidget {
           Text(
             metric.title,
             style: const TextStyle(
-              color: Color(0xFF93A0B2),
+              color: Color(0xFF7F8EA3),
               fontWeight: FontWeight.w700,
               fontSize: 13.5,
             ),
@@ -732,7 +782,7 @@ class _InsightMetricCard extends StatelessWidget {
           Text(
             metric.value,
             style: const TextStyle(
-              color: Color(0xFF39475B),
+              color: Color(0xFF334156),
               fontWeight: FontWeight.w800,
               fontSize: 18,
             ),
@@ -829,6 +879,16 @@ class _SalesChart extends StatelessWidget {
 
   final List<InsightSalesPoint> points;
 
+  int _labelStep(double chartWidth) {
+    if (points.length <= 1) {
+      return 1;
+    }
+
+    const minLabelWidth = 56.0;
+    final maxVisibleLabels = math.max(2, (chartWidth / minLabelWidth).floor());
+    return math.max(1, (points.length / maxVisibleLabels).ceil());
+  }
+
   @override
   Widget build(BuildContext context) {
     final accentColor = AppColors.primaryTeal;
@@ -880,38 +940,58 @@ class _SalesChart extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         Expanded(
-          child: Column(
-            children: [
-              Expanded(
-                child: CustomPaint(
-                  painter: _SalesChartPainter(
-                    points,
-                    maxValue,
-                    lineColor: accentColor,
-                    pointColor: accentColor,
-                    fillColor: accentFillColor,
-                    gridColor: gridColor,
-                    axisColor: axisColor,
-                  ),
-                  child: const SizedBox.expand(),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final labelStep = _labelStep(constraints.maxWidth);
+
+              return Column(
                 children: [
-                  for (final point in points)
-                    Text(
-                      point.label,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF98A5B8),
-                        fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: CustomPaint(
+                      painter: _SalesChartPainter(
+                        points,
+                        maxValue,
+                        lineColor: accentColor,
+                        pointColor: accentColor,
+                        fillColor: accentFillColor,
+                        gridColor: gridColor,
+                        axisColor: axisColor,
                       ),
+                      child: const SizedBox.expand(),
                     ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      for (var index = 0; index < points.length; index++)
+                        Expanded(
+                          child: Align(
+                            alignment: index == 0
+                                ? Alignment.centerLeft
+                                : index == points.length - 1
+                                ? Alignment.centerRight
+                                : Alignment.center,
+                            child:
+                                index == 0 ||
+                                    index == points.length - 1 ||
+                                    index % labelStep == 0
+                                ? Text(
+                                    points[index].label,
+                                    maxLines: 1,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      color: Color(0xFF98A5B8),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
       ],
@@ -1208,8 +1288,10 @@ class _InsightPageSkeleton extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 760;
-        final columns = constraints.maxWidth >= 1180
-            ? 4
+        final columns = constraints.maxWidth >= 1440
+            ? 6
+            : constraints.maxWidth >= 1080
+            ? 3
             : constraints.maxWidth >= 760
             ? 2
             : 1;
@@ -1227,7 +1309,7 @@ class _InsightPageSkeleton extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: List<Widget>.generate(
-                  4,
+                  6,
                   (index) => SizedBox(
                     width: metricWidth.clamp(220.0, 420.0),
                     child: Container(
@@ -1338,10 +1420,20 @@ class _SalesChartPainter extends CustomPainter {
       ..strokeWidth = 1.2;
     final linePaint = Paint()
       ..color = lineColor
-      ..strokeWidth = 2.2
+      ..strokeWidth = 2.8
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
+    final glowPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.16)
+      ..strokeWidth = 8
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
     final pointPaint = Paint()..color = pointColor;
+    final pointOuterPaint = Paint()..color = Colors.white;
+    final verticalGridPaint = Paint()
+      ..color = fillColor.withValues(alpha: 0.55)
+      ..strokeWidth = 1;
 
     final chartHeight = size.height - 10;
     final stepX = points.length == 1
@@ -1355,13 +1447,7 @@ class _SalesChartPainter extends CustomPainter {
 
     for (var i = 0; i < points.length; i++) {
       final x = stepX * i;
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, chartHeight),
-        Paint()
-          ..color = fillColor
-          ..strokeWidth = 1,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, chartHeight), verticalGridPaint);
     }
 
     canvas.drawLine(
@@ -1386,9 +1472,29 @@ class _SalesChartPainter extends CustomPainter {
       path.cubicTo(controlX, current.dy, controlX, next.dy, next.dx, next.dy);
     }
 
+    final fillPath = Path.from(path)
+      ..lineTo(offsets.last.dx, chartHeight)
+      ..lineTo(offsets.first.dx, chartHeight)
+      ..close();
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          lineColor.withValues(alpha: 0.22),
+          lineColor.withValues(alpha: 0.08),
+          lineColor.withValues(alpha: 0.02),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, chartHeight))
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(path, glowPaint);
     canvas.drawPath(path, linePaint);
 
     for (final offset in offsets) {
+      canvas.drawCircle(offset, 5.2, pointOuterPaint);
       canvas.drawCircle(offset, 3.8, pointPaint);
     }
   }
@@ -1446,6 +1552,8 @@ class _MetricData {
     required this.iconColor,
     required this.iconBackground,
     required this.noteColor,
+    required this.gradientStart,
+    required this.gradientEnd,
   });
 
   final String title;
@@ -1455,6 +1563,8 @@ class _MetricData {
   final Color iconColor;
   final Color iconBackground;
   final Color noteColor;
+  final Color gradientStart;
+  final Color gradientEnd;
 }
 
 class _CategoryStockData {

@@ -211,10 +211,13 @@ class _InvoicePageState extends State<InvoicePage> {
             )
             .toList(),
         subtotal: invoice.subtotal,
+        discount: invoice.discount,
         tax: invoice.tax,
         total: invoice.amount,
         paymentMethod: invoice.paymentMethod,
-        paidAmount: invoice.amount,
+        paidAmount: invoice.paidAmount,
+        cashPaidAmount: invoice.cashPaidAmount,
+        cardPaidAmount: invoice.cardPaidAmount,
         balance: 0,
       );
 
@@ -1056,6 +1059,28 @@ class InvoiceDetailsDialog extends StatelessWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.payments_outlined,
+                            label: 'Cash Paid',
+                            value:
+                                'Rs ${invoice.cashPaidAmount.toStringAsFixed(2)}',
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _InfoBlock(
+                            icon: Icons.credit_card_outlined,
+                            label: 'Card Paid',
+                            value:
+                                'Rs ${invoice.cardPaidAmount.toStringAsFixed(2)}',
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 18),
                     const Text(
                       'Invoice Items',
@@ -1165,6 +1190,14 @@ class InvoiceDetailsDialog extends StatelessWidget {
                               value:
                                   'Rs ${invoice.subtotal.toStringAsFixed(2)}',
                             ),
+                            if (invoice.discount > 0) ...[
+                              const SizedBox(height: 8),
+                              _AmountRow(
+                                label: 'Discount',
+                                value:
+                                    '-Rs ${invoice.discount.toStringAsFixed(2)}',
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             _AmountRow(
                               label: 'Tax',

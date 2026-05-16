@@ -210,6 +210,12 @@ class InvoicePrintService {
           'Rs ${preview.subtotal.toStringAsFixed(2)}',
           style,
         ),
+        if (preview.discount > 0)
+          _summaryRow(
+            t('Discount', 'වට්ටම'),
+            '-Rs ${preview.discount.toStringAsFixed(2)}',
+            style,
+          ),
         if (preview.tax > 0)
           _summaryRow(
             t('Tax', 'බදු'),
@@ -225,11 +231,24 @@ class InvoicePrintService {
         pw.SizedBox(height: 6),
         pw.Divider(thickness: 1),
         pw.SizedBox(height: 6),
-        _summaryRow(
-          '${preview.paymentMethod} (${preview.dateTimeText.split(' ').first})',
-          'Rs ${preview.paidAmount.toStringAsFixed(2)}',
-          style,
-        ),
+        if (preview.cashPaidAmount > 0)
+          _summaryRow(
+            t('Cash Paid', 'මුදල් ගෙවීම'),
+            'Rs ${preview.cashPaidAmount.toStringAsFixed(2)}',
+            style,
+          ),
+        if (preview.cardPaidAmount > 0)
+          _summaryRow(
+            t('Card Paid', 'කාඩ් ගෙවීම'),
+            'Rs ${preview.cardPaidAmount.toStringAsFixed(2)}',
+            style,
+          ),
+        if (preview.cashPaidAmount <= 0 && preview.cardPaidAmount <= 0)
+          _summaryRow(
+            '${preview.paymentMethod} (${preview.dateTimeText.split(' ').first})',
+            'Rs ${preview.paidAmount.toStringAsFixed(2)}',
+            style,
+          ),
         _summaryRow(
           t('Balance', 'ඉතිරි මුදල'),
           'Rs ${preview.balance.toStringAsFixed(2)}',

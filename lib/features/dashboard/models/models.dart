@@ -29,6 +29,7 @@ class ProductRecord {
     required this.unit,
     required this.lowStock,
     required this.status,
+    this.isQuickSelling = false,
   });
 
   final int? id;
@@ -39,6 +40,7 @@ class ProductRecord {
   final String unit;
   final int lowStock;
   final ProductStatus status;
+  final bool isQuickSelling;
 
   ProductRecord copyWith({
     int? id,
@@ -49,6 +51,7 @@ class ProductRecord {
     String? unit,
     int? lowStock,
     ProductStatus? status,
+    bool? isQuickSelling,
   }) {
     return ProductRecord(
       id: id ?? this.id,
@@ -59,6 +62,7 @@ class ProductRecord {
       unit: unit ?? this.unit,
       lowStock: lowStock ?? this.lowStock,
       status: status ?? this.status,
+      isQuickSelling: isQuickSelling ?? this.isQuickSelling,
     );
   }
 }
@@ -252,7 +256,8 @@ class PosCatalogItem {
     required this.productBarcode,
     required this.category,
     required this.availableQty,
-    required this.sellingPrice,
+    required this.retailPrice,
+    required this.wholesalePrice,
   });
 
   final int? stockId;
@@ -262,7 +267,8 @@ class PosCatalogItem {
   final String productBarcode;
   final String category;
   final int availableQty;
-  final double sellingPrice;
+  final double retailPrice;
+  final double wholesalePrice;
 
   String get stockKey => stockCloudId ?? '${stockId ?? stockBarcode}';
 }
@@ -282,6 +288,8 @@ class PosCartItem {
     required this.productBarcode,
     required this.productName,
     required this.category,
+    required this.retailPrice,
+    required this.wholesalePrice,
     required this.unitPrice,
     required this.availableQty,
     required this.quantity,
@@ -293,6 +301,8 @@ class PosCartItem {
   final String productBarcode;
   final String productName;
   final String category;
+  final double retailPrice;
+  final double wholesalePrice;
   final double unitPrice;
   final int availableQty;
   final int quantity;
@@ -307,6 +317,8 @@ class PosCartItem {
     String? productBarcode,
     String? productName,
     String? category,
+    double? retailPrice,
+    double? wholesalePrice,
     double? unitPrice,
     int? availableQty,
     int? quantity,
@@ -318,6 +330,8 @@ class PosCartItem {
       productBarcode: productBarcode ?? this.productBarcode,
       productName: productName ?? this.productName,
       category: category ?? this.category,
+      retailPrice: retailPrice ?? this.retailPrice,
+      wholesalePrice: wholesalePrice ?? this.wholesalePrice,
       unitPrice: unitPrice ?? this.unitPrice,
       availableQty: availableQty ?? this.availableQty,
       quantity: quantity ?? this.quantity,
@@ -790,10 +804,13 @@ class InvoiceRecord {
     required this.date,
     required this.amount,
     required this.subtotal,
+    required this.discount,
     required this.tax,
     required this.status,
     required this.items,
     required this.paymentMethod,
+    required this.cashPaidAmount,
+    required this.cardPaidAmount,
     required this.cashierName,
   });
 
@@ -803,11 +820,16 @@ class InvoiceRecord {
   final String date;
   final double amount;
   final double subtotal;
+  final double discount;
   final double tax;
   final InvoiceStatus status;
   final List<InvoiceLineItem> items;
   final String paymentMethod;
+  final double cashPaidAmount;
+  final double cardPaidAmount;
   final String cashierName;
+
+  double get paidAmount => cashPaidAmount + cardPaidAmount;
 }
 
 class InvoiceLineItem {
@@ -889,10 +911,14 @@ class InsightExpiredStockItem {
 class InsightDashboardData {
   const InsightDashboardData({
     required this.totalSales,
+    required this.totalPurchase,
+    required this.totalExpenses,
     required this.totalOrders,
     required this.activeProducts,
     required this.totalCustomers,
     required this.salesGrowthNote,
+    required this.purchasesNote,
+    required this.expensesNote,
     required this.ordersGrowthNote,
     required this.productsNote,
     required this.customersNote,
@@ -905,10 +931,14 @@ class InsightDashboardData {
   });
 
   final double totalSales;
+  final double totalPurchase;
+  final double totalExpenses;
   final int totalOrders;
   final int activeProducts;
   final int totalCustomers;
   final String salesGrowthNote;
+  final String purchasesNote;
+  final String expensesNote;
   final String ordersGrowthNote;
   final String productsNote;
   final String customersNote;
@@ -945,6 +975,41 @@ class ReportSalesPoint {
 
   final String label;
   final double value;
+}
+
+enum ReportSalesPeriod {
+  daily('Daily'),
+  weekly('Weekly'),
+  monthly('Monthly'),
+  yearly('Yearly');
+
+  const ReportSalesPeriod(this.label);
+
+  final String label;
+}
+
+class ReportProductSalesRow {
+  const ReportProductSalesRow({
+    required this.product,
+    required this.quantity,
+    required this.totalSales,
+  });
+
+  final String product;
+  final int quantity;
+  final double totalSales;
+}
+
+class ReportCategorySalesRow {
+  const ReportCategorySalesRow({
+    required this.category,
+    required this.quantity,
+    required this.totalSales,
+  });
+
+  final String category;
+  final int quantity;
+  final double totalSales;
 }
 
 class ReportLowStockRow {
@@ -992,21 +1057,35 @@ class ReportTopCustomerRow {
 class ReportDashboardData {
   const ReportDashboardData({
     required this.summary,
+    required this.salesPeriod,
     required this.salesPoints,
     required this.taxPoints,
+    required this.productSales,
+    required this.categorySales,
     required this.lowStockRows,
     required this.stockValuationRows,
     required this.topCustomers,
+    required this.expenses,
+    required this.totalExpenseAmount,
+    required this.fromDate,
+    required this.toDate,
     required this.fromDateLabel,
     required this.toDateLabel,
   });
 
   final ReportSummaryData summary;
+  final ReportSalesPeriod salesPeriod;
   final List<ReportSalesPoint> salesPoints;
   final List<ReportSalesPoint> taxPoints;
+  final List<ReportProductSalesRow> productSales;
+  final List<ReportCategorySalesRow> categorySales;
   final List<ReportLowStockRow> lowStockRows;
   final List<ReportStockValuationRow> stockValuationRows;
   final List<ReportTopCustomerRow> topCustomers;
+  final List<ExpenseRecord> expenses;
+  final double totalExpenseAmount;
+  final DateTime fromDate;
+  final DateTime toDate;
   final String fromDateLabel;
   final String toDateLabel;
 }
@@ -1029,6 +1108,7 @@ class ExpenseRecord {
     required this.amount,
     required this.date,
     required this.paymentMethod,
+    required this.paidFromDrawer,
     required this.notes,
     required this.status,
     required this.createdAt,
@@ -1042,6 +1122,7 @@ class ExpenseRecord {
   final double amount;
   final DateTime date;
   final String paymentMethod;
+  final bool paidFromDrawer;
   final String notes;
   final ExpenseStatus status;
   final DateTime createdAt;
@@ -1055,6 +1136,7 @@ class ExpenseRecord {
     double? amount,
     DateTime? date,
     String? paymentMethod,
+    bool? paidFromDrawer,
     String? notes,
     ExpenseStatus? status,
     DateTime? createdAt,
@@ -1068,6 +1150,7 @@ class ExpenseRecord {
       amount: amount ?? this.amount,
       date: date ?? this.date,
       paymentMethod: paymentMethod ?? this.paymentMethod,
+      paidFromDrawer: paidFromDrawer ?? this.paidFromDrawer,
       notes: notes ?? this.notes,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,

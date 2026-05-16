@@ -169,6 +169,7 @@ class ExpenseRemoteRepository implements ExpenseRepository {
       'amount': expense.amount,
       'expenseDate': Timestamp.fromDate(expense.date),
       'paymentMethod': expense.paymentMethod.trim(),
+      'paidFromDrawer': expense.paidFromDrawer,
       'notes': expense.notes.trim(),
       'status': expense.status.name,
       'createdAt': existing.data()?['createdAt'] ?? Timestamp.fromDate(now),
@@ -193,6 +194,7 @@ class ExpenseRemoteRepository implements ExpenseRepository {
         'category': trimmedCategory,
         'amount': expense.amount,
         'date': expense.date.toIso8601String(),
+        'paidFromDrawer': expense.paidFromDrawer,
       },
     );
 
@@ -308,6 +310,7 @@ class ExpenseRemoteRepository implements ExpenseRepository {
       amount: (data['amount'] as num?)?.toDouble() ?? 0,
       date: _readDate(data['expenseDate']) ?? DateTime.now(),
       paymentMethod: data['paymentMethod']?.toString().trim() ?? 'Cash',
+      paidFromDrawer: data['paidFromDrawer'] == true,
       notes: data['notes']?.toString().trim() ?? '',
       status: (data['status']?.toString().trim() ?? 'active') == 'inactive'
           ? ExpenseStatus.inactive

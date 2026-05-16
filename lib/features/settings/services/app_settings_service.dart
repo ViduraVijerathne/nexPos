@@ -16,6 +16,36 @@ class PosCustomerSettings {
   final bool createCustomerOnlyContact;
 }
 
+enum PosCatalogLoadMode {
+  defaultOrder('Default'),
+  quickSelling('Quick Selling Products'),
+  mostSelling('Most Selling Products'),
+  highStock('High Stock');
+
+  const PosCatalogLoadMode(this.label);
+
+  final String label;
+}
+
+class PosCatalogSettings {
+  const PosCatalogSettings({
+    required this.defaultLoadMode,
+    required this.defaultViewMode,
+  });
+
+  final PosCatalogLoadMode defaultLoadMode;
+  final PosCatalogViewMode defaultViewMode;
+}
+
+enum PosCatalogViewMode {
+  row('Row Mode'),
+  compact('Compact Mode');
+
+  const PosCatalogViewMode(this.label);
+
+  final String label;
+}
+
 class GrnEntrySettings {
   const GrnEntrySettings({required this.addItemOnEnter});
 
@@ -224,6 +254,8 @@ class AppSettingsService {
   static const String _posTaxPercentKey = 'settings.pos_tax_percent';
   static const String _posCustomerOnlyContactKey =
       'settings.pos_customer_only_contact';
+  static const String _posCatalogLoadModeKey = 'settings.pos_catalog_load_mode';
+  static const String _posCatalogViewModeKey = 'settings.pos_catalog_view_mode';
   static const String _grnAddItemOnEnterKey = 'settings.grn_add_item_on_enter';
   static const String _touchUiEnabledKey = 'settings.touch_ui_enabled';
   static const String _posInvoicePrintModeKey =
@@ -274,6 +306,11 @@ class AppSettingsService {
       'settings.report_header_margin_bottom';
 
   final ValueNotifier<bool> touchModeNotifier = ValueNotifier<bool>(false);
+  final ValueNotifier<int> posSettingsVersionNotifier = ValueNotifier<int>(0);
+
+  void _notifyPosSettingsChanged() {
+    posSettingsVersionNotifier.value = posSettingsVersionNotifier.value + 1;
+  }
 
   Future<PosTaxSettings> loadPosTaxSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -290,6 +327,7 @@ class AppSettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_posTaxEnabledKey, isTaxEnabled);
     await prefs.setDouble(_posTaxPercentKey, taxPercent);
+    _notifyPosSettingsChanged();
   }
 
   Future<PosCustomerSettings> loadPosCustomerSettings() async {
@@ -305,6 +343,32 @@ class AppSettingsService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_posCustomerOnlyContactKey, createCustomerOnlyContact);
+    _notifyPosSettingsChanged();
+  }
+
+  Future<PosCatalogSettings> loadPosCatalogSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawMode = prefs.getString(_posCatalogLoadModeKey);
+    final mode = PosCatalogLoadMode.values.firstWhere(
+      (item) => item.name == rawMode,
+      orElse: () => PosCatalogLoadMode.defaultOrder,
+    );
+    final rawViewMode = prefs.getString(_posCatalogViewModeKey);
+    final viewMode = PosCatalogViewMode.values.firstWhere(
+      (item) => item.name == rawViewMode,
+      orElse: () => PosCatalogViewMode.row,
+    );
+    return PosCatalogSettings(defaultLoadMode: mode, defaultViewMode: viewMode);
+  }
+
+  Future<void> savePosCatalogSettings({
+    required PosCatalogLoadMode defaultLoadMode,
+    required PosCatalogViewMode defaultViewMode,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_posCatalogLoadModeKey, defaultLoadMode.name);
+    await prefs.setString(_posCatalogViewModeKey, defaultViewMode.name);
+    _notifyPosSettingsChanged();
   }
 
   Future<GrnEntrySettings> loadGrnEntrySettings() async {
@@ -332,6 +396,7 @@ class AppSettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_touchUiEnabledKey, isEnabled);
     touchModeNotifier.value = isEnabled;
+    _notifyPosSettingsChanged();
   }
 
   Future<PosPrintSettings> loadPosPrintSettings() async {
@@ -399,6 +464,7 @@ class AppSettingsService {
     if (kotPrinterUrl != null) {
       await prefs.setString(_restaurantKotPrinterUrlKey, kotPrinterUrl);
     }
+    _notifyPosSettingsChanged();
   }
 
   Future<void> saveRestaurantExtensionEnabled({required bool isEnabled}) async {
@@ -461,6 +527,7 @@ class AppSettingsService {
       _posShortcutProcessPaymentKey,
       settings.processPaymentKey.name,
     );
+    _notifyPosSettingsChanged();
   }
 
   Future<InvoiceLayoutSettings> loadInvoiceLayoutSettings() async {

@@ -32,29 +32,34 @@ const ProductEntitySchema = CollectionSchema(
       name: r'createdAt',
       type: IsarType.dateTime,
     ),
-    r'lowStockQuantity': PropertySchema(
+    r'isQuickSelling': PropertySchema(
       id: 3,
+      name: r'isQuickSelling',
+      type: IsarType.bool,
+    ),
+    r'lowStockQuantity': PropertySchema(
+      id: 4,
       name: r'lowStockQuantity',
       type: IsarType.long,
     ),
     r'name': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'name',
       type: IsarType.string,
     ),
     r'status': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'status',
       type: IsarType.byte,
       enumMap: _ProductEntitystatusEnumValueMap,
     ),
     r'unit': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'unit',
       type: IsarType.string,
     ),
     r'updatedAt': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'updatedAt',
       type: IsarType.dateTime,
     )
@@ -135,11 +140,12 @@ void _productEntitySerialize(
   writer.writeString(offsets[0], object.barcode);
   writer.writeString(offsets[1], object.category);
   writer.writeDateTime(offsets[2], object.createdAt);
-  writer.writeLong(offsets[3], object.lowStockQuantity);
-  writer.writeString(offsets[4], object.name);
-  writer.writeByte(offsets[5], object.status.index);
-  writer.writeString(offsets[6], object.unit);
-  writer.writeDateTime(offsets[7], object.updatedAt);
+  writer.writeBool(offsets[3], object.isQuickSelling);
+  writer.writeLong(offsets[4], object.lowStockQuantity);
+  writer.writeString(offsets[5], object.name);
+  writer.writeByte(offsets[6], object.status.index);
+  writer.writeString(offsets[7], object.unit);
+  writer.writeDateTime(offsets[8], object.updatedAt);
 }
 
 ProductEntity _productEntityDeserialize(
@@ -153,13 +159,14 @@ ProductEntity _productEntityDeserialize(
   object.category = reader.readString(offsets[1]);
   object.createdAt = reader.readDateTime(offsets[2]);
   object.id = id;
-  object.lowStockQuantity = reader.readLong(offsets[3]);
-  object.name = reader.readString(offsets[4]);
+  object.isQuickSelling = reader.readBool(offsets[3]);
+  object.lowStockQuantity = reader.readLong(offsets[4]);
+  object.name = reader.readString(offsets[5]);
   object.status =
-      _ProductEntitystatusValueEnumMap[reader.readByteOrNull(offsets[5])] ??
+      _ProductEntitystatusValueEnumMap[reader.readByteOrNull(offsets[6])] ??
           ProductEntityStatus.active;
-  object.unit = reader.readString(offsets[6]);
-  object.updatedAt = reader.readDateTimeOrNull(offsets[7]);
+  object.unit = reader.readString(offsets[7]);
+  object.updatedAt = reader.readDateTimeOrNull(offsets[8]);
   return object;
 }
 
@@ -177,15 +184,17 @@ P _productEntityDeserializeProp<P>(
     case 2:
       return (reader.readDateTime(offset)) as P;
     case 3:
-      return (reader.readLong(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 4:
-      return (reader.readString(offset)) as P;
+      return (reader.readLong(offset)) as P;
     case 5:
+      return (reader.readString(offset)) as P;
+    case 6:
       return (_ProductEntitystatusValueEnumMap[reader.readByteOrNull(offset)] ??
           ProductEntityStatus.active) as P;
-    case 6:
-      return (reader.readString(offset)) as P;
     case 7:
+      return (reader.readString(offset)) as P;
+    case 8:
       return (reader.readDateTimeOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -870,6 +879,16 @@ extension ProductEntityQueryFilter
   }
 
   QueryBuilder<ProductEntity, ProductEntity, QAfterFilterCondition>
+      isQuickSellingEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isQuickSelling',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QAfterFilterCondition>
       lowStockQuantityEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
@@ -1373,6 +1392,20 @@ extension ProductEntityQuerySortBy
   }
 
   QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
+      sortByIsQuickSelling() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isQuickSelling', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
+      sortByIsQuickSellingDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isQuickSelling', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
       sortByLowStockQuantity() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'lowStockQuantity', Sort.asc);
@@ -1489,6 +1522,20 @@ extension ProductEntityQuerySortThenBy
   }
 
   QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
+      thenByIsQuickSelling() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isQuickSelling', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
+      thenByIsQuickSellingDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isQuickSelling', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QAfterSortBy>
       thenByLowStockQuantity() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'lowStockQuantity', Sort.asc);
@@ -1575,6 +1622,13 @@ extension ProductEntityQueryWhereDistinct
   }
 
   QueryBuilder<ProductEntity, ProductEntity, QDistinct>
+      distinctByIsQuickSelling() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isQuickSelling');
+    });
+  }
+
+  QueryBuilder<ProductEntity, ProductEntity, QDistinct>
       distinctByLowStockQuantity() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'lowStockQuantity');
@@ -1631,6 +1685,12 @@ extension ProductEntityQueryProperty
   QueryBuilder<ProductEntity, DateTime, QQueryOperations> createdAtProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'createdAt');
+    });
+  }
+
+  QueryBuilder<ProductEntity, bool, QQueryOperations> isQuickSellingProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isQuickSelling');
     });
   }
 

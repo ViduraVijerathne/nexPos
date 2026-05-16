@@ -4,6 +4,7 @@ import '../../../core/database/app_database.dart';
 import '../../../core/database/entities/entities.dart';
 import '../models/models.dart';
 import 'customer_local_repository.dart';
+import 'expense_local_repository.dart';
 import 'grn_local_repository.dart';
 import 'insight_repository.dart';
 import 'product_local_repository.dart';
@@ -17,6 +18,7 @@ class InsightLocalRepository implements InsightRepository {
     await const StockLocalRepository().initialize();
     await const CustomerLocalRepository().initialize();
     await const GrnLocalRepository().initialize();
+    await const ExpenseLocalRepository().initialize();
   }
 
   Future<InsightDashboardData> fetchDashboardData({
@@ -28,6 +30,8 @@ class InsightLocalRepository implements InsightRepository {
     final products = await isar.productEntitys.where().findAll();
     final customers = await isar.customerEntitys.where().findAll();
     final stocks = await isar.stockEntitys.where().findAll();
+    final grns = await isar.grnEntitys.where().findAll();
+    final expenses = await isar.expenseEntitys.where().findAll();
     final normalizedFrom = fromDate == null
         ? DateTime.now().subtract(const Duration(days: 6))
         : DateTime(fromDate.year, fromDate.month, fromDate.day);
@@ -44,6 +48,14 @@ class InsightLocalRepository implements InsightRepository {
     final totalSales = invoices.fold<double>(
       0,
       (sum, invoice) => sum + invoice.totalAmount,
+    );
+    final totalPurchase = grns.fold<double>(0, (sum, grn) => sum + grn.total);
+    final activeExpenses = expenses
+        .where((expense) => expense.status == ExpenseEntityStatus.active)
+        .toList();
+    final totalExpenses = activeExpenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.amount,
     );
     final totalOrders = invoices.length;
     final activeProducts = products
@@ -104,6 +116,8 @@ class InsightLocalRepository implements InsightRepository {
 
     return InsightDashboardData(
       totalSales: totalSales,
+      totalPurchase: totalPurchase,
+      totalExpenses: totalExpenses,
       totalOrders: totalOrders,
       activeProducts: activeProducts,
       totalCustomers: totalCustomers,
@@ -114,6 +128,12 @@ class InsightLocalRepository implements InsightRepository {
         emptyFallback: 'No sales last month',
         prefix: '',
       ),
+      purchasesNote: grns.isEmpty
+          ? 'No purchase records yet'
+          : '${grns.length} GRNs recorded',
+      expensesNote: activeExpenses.isEmpty
+          ? 'No active expenses recorded'
+          : '${activeExpenses.length} active expenses',
       ordersGrowthNote: _buildGrowthNote(
         currentValue: currentMonthOrders.toDouble(),
         previousValue: previousMonthOrders.toDouble(),

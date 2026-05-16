@@ -65,6 +65,10 @@ class DaySessionPrintService {
               _row('Cash Sales', 'Rs ${summary.cashSales.toStringAsFixed(2)}'),
               _row('Card Sales', 'Rs ${summary.cardSales.toStringAsFixed(2)}'),
               _row(
+                'Drawer Expenses',
+                'Rs ${summary.drawerExpenseTotal.toStringAsFixed(2)}',
+              ),
+              _row(
                 'Total Sales',
                 'Rs ${summary.totalSales.toStringAsFixed(2)}',
               ),

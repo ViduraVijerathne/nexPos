@@ -42,6 +42,18 @@ class InsightRemoteRepository implements InsightRepository {
       .doc(shopId)
       .collection('stocks');
 
+  CollectionReference<Map<String, dynamic>> get _grnsRef => FirebaseFirestore
+      .instance
+      .collection('shops')
+      .doc(shopId)
+      .collection('grns');
+
+  CollectionReference<Map<String, dynamic>> get _expensesRef =>
+      FirebaseFirestore.instance
+          .collection('shops')
+          .doc(shopId)
+          .collection('expenses');
+
   @override
   Future<void> initialize() async {
     if (shopId.isEmpty) {
@@ -73,6 +85,8 @@ class InsightRemoteRepository implements InsightRepository {
     final productsSnapshot = await _productsRef.get();
     final customersSnapshot = await _customersRef.get();
     final stocksSnapshot = await _stocksRef.get();
+    final grnsSnapshot = await _grnsRef.get();
+    final expensesSnapshot = await _expensesRef.get();
     await SubscriptionUsageService.instance.recordRead(
       shopId: shopId,
       module: 'insight',
@@ -80,12 +94,16 @@ class InsightRemoteRepository implements InsightRepository {
           invoicesSnapshot.docs.length +
           productsSnapshot.docs.length +
           customersSnapshot.docs.length +
-          stocksSnapshot.docs.length,
+          stocksSnapshot.docs.length +
+          grnsSnapshot.docs.length +
+          expensesSnapshot.docs.length,
       payload: <Object?>[
         invoicesSnapshot.docs.map((doc) => doc.data()).toList(),
         productsSnapshot.docs.map((doc) => doc.data()).toList(),
         customersSnapshot.docs.map((doc) => doc.data()).toList(),
         stocksSnapshot.docs.map((doc) => doc.data()).toList(),
+        grnsSnapshot.docs.map((doc) => doc.data()).toList(),
+        expensesSnapshot.docs.map((doc) => doc.data()).toList(),
       ],
     );
 
@@ -101,10 +119,27 @@ class InsightRemoteRepository implements InsightRepository {
     final stocks = stocksSnapshot.docs
         .map((doc) => _StockAnalyticsRecord.fromMap(doc.id, doc.data()))
         .toList();
+    final grns = grnsSnapshot.docs
+        .map((doc) => _GrnAnalyticsRecord.fromMap(doc.data()))
+        .toList();
+    final expenses = expensesSnapshot.docs
+        .map((doc) => _ExpenseAnalyticsRecord.fromMap(doc.data()))
+        .toList();
 
     final totalSales = invoices.fold<double>(
       0,
       (sum, invoice) => sum + invoice.totalAmount,
+    );
+    final totalPurchase = grns.fold<double>(
+      0,
+      (sum, grn) => sum + grn.totalAmount,
+    );
+    final activeExpenses = expenses
+        .where((expense) => expense.isActive)
+        .toList();
+    final totalExpenses = activeExpenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.amount,
     );
     final totalOrders = invoices.length;
     final activeProducts = products.where((product) => product.isActive).length;
@@ -155,6 +190,8 @@ class InsightRemoteRepository implements InsightRepository {
 
     return InsightDashboardData(
       totalSales: totalSales,
+      totalPurchase: totalPurchase,
+      totalExpenses: totalExpenses,
       totalOrders: totalOrders,
       activeProducts: activeProducts,
       totalCustomers: totalCustomers,
@@ -164,6 +201,12 @@ class InsightRemoteRepository implements InsightRepository {
         suffix: 'from last month',
         emptyFallback: 'No sales last month',
       ),
+      purchasesNote: grns.isEmpty
+          ? 'No purchase records yet'
+          : '${grns.length} GRNs recorded',
+      expensesNote: activeExpenses.isEmpty
+          ? 'No active expenses recorded'
+          : '${activeExpenses.length} active expenses',
       ordersGrowthNote: _buildGrowthNote(
         currentValue: currentMonthOrders.toDouble(),
         previousValue: previousMonthOrders.toDouble(),
@@ -495,6 +538,39 @@ class _StockAnalyticsRecord {
       availableQuantity: (data['availableQuantity'] as num?)?.toInt() ?? 0,
       isActive: (data['status']?.toString() ?? 'active') == 'active',
       expiryDate: _readNullableDate(data['expiryDate']),
+    );
+  }
+}
+
+class _GrnAnalyticsRecord {
+  const _GrnAnalyticsRecord({required this.totalAmount});
+
+  final double totalAmount;
+
+  factory _GrnAnalyticsRecord.fromMap(Map<String, dynamic> data) {
+    final subtotal =
+        (data['subTotal'] as num?)?.toDouble() ??
+        (data['subtotal'] as num?)?.toDouble() ??
+        0;
+    final discount = (data['discount'] as num?)?.toDouble() ?? 0;
+    final explicitTotal = (data['total'] as num?)?.toDouble();
+
+    return _GrnAnalyticsRecord(
+      totalAmount: explicitTotal ?? (subtotal - discount),
+    );
+  }
+}
+
+class _ExpenseAnalyticsRecord {
+  const _ExpenseAnalyticsRecord({required this.amount, required this.isActive});
+
+  final double amount;
+  final bool isActive;
+
+  factory _ExpenseAnalyticsRecord.fromMap(Map<String, dynamic> data) {
+    return _ExpenseAnalyticsRecord(
+      amount: (data['amount'] as num?)?.toDouble() ?? 0,
+      isActive: (data['status']?.toString() ?? 'active') == 'active',
     );
   }
 }

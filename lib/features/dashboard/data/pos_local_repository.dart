@@ -106,7 +106,10 @@ class PosLocalRepository implements PosRepository {
                 productBarcode: product?.barcode ?? stock.productBarcode ?? '',
                 category: product?.category ?? 'Uncategorized',
                 availableQty: stock.availableQuantity,
-                sellingPrice: stock.sellingPrice,
+                retailPrice: stock.sellingPrice,
+                wholesalePrice: (stock.sellingPrice - stock.maxDiscount)
+                    .clamp(0, double.infinity)
+                    .toDouble(),
               );
             })
             .toList()

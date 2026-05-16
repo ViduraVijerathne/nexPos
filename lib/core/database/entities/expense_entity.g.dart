@@ -42,24 +42,29 @@ const ExpenseEntitySchema = CollectionSchema(
       name: r'notes',
       type: IsarType.string,
     ),
-    r'paymentMethod': PropertySchema(
+    r'paidFromDrawer': PropertySchema(
       id: 5,
+      name: r'paidFromDrawer',
+      type: IsarType.bool,
+    ),
+    r'paymentMethod': PropertySchema(
+      id: 6,
       name: r'paymentMethod',
       type: IsarType.string,
     ),
     r'status': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'status',
       type: IsarType.byte,
       enumMap: _ExpenseEntitystatusEnumValueMap,
     ),
     r'title': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'title',
       type: IsarType.string,
     ),
     r'updatedAt': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'updatedAt',
       type: IsarType.dateTime,
     )
@@ -129,10 +134,11 @@ void _expenseEntitySerialize(
   writer.writeDateTime(offsets[2], object.createdAt);
   writer.writeDateTime(offsets[3], object.expenseDate);
   writer.writeString(offsets[4], object.notes);
-  writer.writeString(offsets[5], object.paymentMethod);
-  writer.writeByte(offsets[6], object.status.index);
-  writer.writeString(offsets[7], object.title);
-  writer.writeDateTime(offsets[8], object.updatedAt);
+  writer.writeBool(offsets[5], object.paidFromDrawer);
+  writer.writeString(offsets[6], object.paymentMethod);
+  writer.writeByte(offsets[7], object.status.index);
+  writer.writeString(offsets[8], object.title);
+  writer.writeDateTime(offsets[9], object.updatedAt);
 }
 
 ExpenseEntity _expenseEntityDeserialize(
@@ -148,12 +154,13 @@ ExpenseEntity _expenseEntityDeserialize(
   object.expenseDate = reader.readDateTime(offsets[3]);
   object.id = id;
   object.notes = reader.readString(offsets[4]);
-  object.paymentMethod = reader.readString(offsets[5]);
+  object.paidFromDrawer = reader.readBool(offsets[5]);
+  object.paymentMethod = reader.readString(offsets[6]);
   object.status =
-      _ExpenseEntitystatusValueEnumMap[reader.readByteOrNull(offsets[6])] ??
+      _ExpenseEntitystatusValueEnumMap[reader.readByteOrNull(offsets[7])] ??
           ExpenseEntityStatus.active;
-  object.title = reader.readString(offsets[7]);
-  object.updatedAt = reader.readDateTimeOrNull(offsets[8]);
+  object.title = reader.readString(offsets[8]);
+  object.updatedAt = reader.readDateTimeOrNull(offsets[9]);
   return object;
 }
 
@@ -175,13 +182,15 @@ P _expenseEntityDeserializeProp<P>(
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
-      return (reader.readString(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 6:
+      return (reader.readString(offset)) as P;
+    case 7:
       return (_ExpenseEntitystatusValueEnumMap[reader.readByteOrNull(offset)] ??
           ExpenseEntityStatus.active) as P;
-    case 7:
-      return (reader.readString(offset)) as P;
     case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
       return (reader.readDateTimeOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -888,6 +897,16 @@ extension ExpenseEntityQueryFilter
   }
 
   QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterFilterCondition>
+      paidFromDrawerEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'paidFromDrawer',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterFilterCondition>
       paymentMethodEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -1362,6 +1381,20 @@ extension ExpenseEntityQuerySortBy
   }
 
   QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
+      sortByPaidFromDrawer() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'paidFromDrawer', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
+      sortByPaidFromDrawerDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'paidFromDrawer', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
       sortByPaymentMethod() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'paymentMethod', Sort.asc);
@@ -1491,6 +1524,20 @@ extension ExpenseEntityQuerySortThenBy
   }
 
   QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
+      thenByPaidFromDrawer() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'paidFromDrawer', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
+      thenByPaidFromDrawerDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'paidFromDrawer', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QAfterSortBy>
       thenByPaymentMethod() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'paymentMethod', Sort.asc);
@@ -1577,6 +1624,13 @@ extension ExpenseEntityQueryWhereDistinct
     });
   }
 
+  QueryBuilder<ExpenseEntity, ExpenseEntity, QDistinct>
+      distinctByPaidFromDrawer() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'paidFromDrawer');
+    });
+  }
+
   QueryBuilder<ExpenseEntity, ExpenseEntity, QDistinct> distinctByPaymentMethod(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -1641,6 +1695,12 @@ extension ExpenseEntityQueryProperty
   QueryBuilder<ExpenseEntity, String, QQueryOperations> notesProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'notes');
+    });
+  }
+
+  QueryBuilder<ExpenseEntity, bool, QQueryOperations> paidFromDrawerProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'paidFromDrawer');
     });
   }
 

@@ -4,15 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/services/day_session_print_service.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/toast/app_toast.dart';
 import '../../../../core/services/invoice_print_service.dart';
 import '../../../../core/services/kot_print_service.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/toast/app_toast.dart';
+import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
 import '../../data/customer_remote_repository.dart';
 import '../../data/customer_repository.dart';
 import '../../data/customer_repository_factory.dart';
+import '../../data/expense_local_repository.dart';
+import '../../data/expense_remote_repository.dart';
+import '../../data/expense_repository.dart';
+import '../../data/expense_repository_factory.dart';
 import '../../data/invoice_local_repository.dart';
 import '../../data/invoice_remote_repository.dart';
 import '../../data/invoice_repository.dart';
@@ -30,6 +35,8 @@ import 'package:printing/printing.dart';
 
 enum PosPaymentMethod { cash, card, multiple }
 
+enum PosPricingGroup { retail, wholesale }
+
 class PosPage extends StatefulWidget {
   const PosPage({super.key});
 
@@ -41,6 +48,7 @@ class _PosPageState extends State<PosPage> {
   PosRepository? _repository;
   CustomerRepository? _customerRepository;
   InvoiceRepository? _invoiceRepository;
+  ExpenseRepository? _expenseRepository;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
@@ -62,6 +70,7 @@ class _PosPageState extends State<PosPage> {
 
   String _selectedCategory = 'All';
   PosPaymentMethod _selectedPaymentMethod = PosPaymentMethod.cash;
+  PosPricingGroup _selectedPricingGroup = PosPricingGroup.retail;
   PosCustomerOption _selectedCustomer = PosLocalRepository.walkInCustomer;
   String? _selectedStockKey;
   bool _showCustomerSuggestions = false;
@@ -72,6 +81,7 @@ class _PosPageState extends State<PosPage> {
   bool _isOpeningCustomerDialog = false;
   bool _isRecentInvoicesLoading = false;
   bool _isDaySessionLoading = false;
+  bool _isSavingQuickExpense = false;
   String? _viewingInvoiceId;
   String? _printingInvoiceId;
   PosTaxSettings _taxSettings = const PosTaxSettings(
@@ -183,7 +193,8 @@ class _PosPageState extends State<PosPage> {
             productBarcode: item.productBarcode,
             category: item.category,
             availableQty: remainingQty,
-            sellingPrice: item.sellingPrice,
+            retailPrice: item.retailPrice,
+            wholesalePrice: item.wholesalePrice,
           );
         })
         .where((item) => item.availableQty > 0)
@@ -228,8 +239,34 @@ class _PosPageState extends State<PosPage> {
       productBarcode: item.productBarcode,
       category: item.category,
       availableQty: remainingQty,
-      sellingPrice: item.sellingPrice,
+      retailPrice: item.retailPrice,
+      wholesalePrice: item.wholesalePrice,
     );
+  }
+
+  double _catalogPriceForGroup(PosCatalogItem item) {
+    return switch (_selectedPricingGroup) {
+      PosPricingGroup.retail => item.retailPrice,
+      PosPricingGroup.wholesale => item.wholesalePrice,
+    };
+  }
+
+  double _cartPriceForGroup(PosCartItem item) {
+    return switch (_selectedPricingGroup) {
+      PosPricingGroup.retail => item.retailPrice,
+      PosPricingGroup.wholesale => item.wholesalePrice,
+    };
+  }
+
+  void _applyPricingGroup(PosPricingGroup group) {
+    setState(() {
+      _selectedPricingGroup = group;
+      for (var index = 0; index < _cartItems.length; index += 1) {
+        final item = _cartItems[index];
+        _cartItems[index] = item.copyWith(unitPrice: _cartPriceForGroup(item));
+      }
+    });
+    _searchFocusNode.requestFocus();
   }
 
   void _moveCatalogSelection(int delta) {
@@ -311,12 +348,15 @@ class _PosPageState extends State<PosPage> {
       final repository = await PosRepositoryFactory.create();
       final customerRepository = await CustomerRepositoryFactory.create();
       final invoiceRepository = await InvoiceRepositoryFactory.create();
+      final expenseRepository = await ExpenseRepositoryFactory.create();
       await repository.initialize();
       await customerRepository.initialize();
       await invoiceRepository.initialize();
+      await expenseRepository.initialize();
       _repository = repository;
       _customerRepository = customerRepository;
       _invoiceRepository = invoiceRepository;
+      _expenseRepository = expenseRepository;
       final taxSettings = await AppSettingsService.instance
           .loadPosTaxSettings();
       final customerSettings = await AppSettingsService.instance
@@ -633,7 +673,9 @@ class _PosPageState extends State<PosPage> {
             productBarcode: item.productBarcode,
             productName: item.productName,
             category: item.category,
-            unitPrice: item.sellingPrice,
+            retailPrice: item.retailPrice,
+            wholesalePrice: item.wholesalePrice,
+            unitPrice: _catalogPriceForGroup(item),
             availableQty: item.availableQty,
             quantity: 1,
           ),
@@ -703,6 +745,7 @@ class _PosPageState extends State<PosPage> {
       _searchController.clear();
       _selectedCategory = 'All';
       _selectedPaymentMethod = PosPaymentMethod.cash;
+      _selectedPricingGroup = PosPricingGroup.retail;
       _selectedStockKey = _pickSelectableStockKey();
     });
     _resetToWalkInCustomer();
@@ -1087,6 +1130,12 @@ class _PosPageState extends State<PosPage> {
     if (error is InvoiceRemoteRepositoryException) {
       return error.message;
     }
+    if (error is ExpenseLocalRepositoryException) {
+      return error.message;
+    }
+    if (error is ExpenseRemoteRepositoryException) {
+      return error.message;
+    }
     return error.toString();
   }
 
@@ -1204,8 +1253,13 @@ class _PosPageState extends State<PosPage> {
 
   Future<void> _openDayEndDialog() async {
     final repository = _invoiceRepository;
+    final expenseRepository = _expenseRepository;
     if (repository == null) {
       AppToast.error('Invoice service is still loading. Please try again.');
+      return;
+    }
+    if (expenseRepository == null) {
+      AppToast.error('Expense service is still loading. Please try again.');
       return;
     }
 
@@ -1213,6 +1267,7 @@ class _PosPageState extends State<PosPage> {
     try {
       final summary = await DaySessionService.instance.buildSummary(
         repository: repository,
+        expenseRepository: expenseRepository,
         session: _drawerSession,
       );
       if (!mounted) {
@@ -1300,6 +1355,36 @@ class _PosPageState extends State<PosPage> {
       AppToast.error(
         'Failed to load invoice details: ${_readableError(error)}',
       );
+    }
+  }
+
+  Future<void> _openQuickExpenseDialog() async {
+    final repository = _expenseRepository;
+    if (repository == null) {
+      AppToast.error('Expense service is still loading. Please try again.');
+      return;
+    }
+
+    setState(() => _isSavingQuickExpense = true);
+    try {
+      final created = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _PosExpenseDialog(
+          repository: repository,
+          paidFromDrawerByDefault: true,
+        ),
+      );
+
+      if (created != true || !mounted) {
+        return;
+      }
+
+      AppToast.success('Expense recorded successfully');
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingQuickExpense = false);
+      }
     }
   }
 
@@ -1421,6 +1506,7 @@ class _PosPageState extends State<PosPage> {
           products: _visibleCatalogItems,
           selectedStockKey: _selectedStockKey,
           viewMode: _catalogSettings.defaultViewMode,
+          selectedPricingGroup: _selectedPricingGroup,
           isCatalogLoading: _isCatalogLoading,
           onSearchChanged: _handleSearchChanged,
           onSearchSubmitted: _handleSearchSubmitted,
@@ -1455,6 +1541,7 @@ class _PosPageState extends State<PosPage> {
           cardAmountFocusNode: _cardAmountFocusNode,
           discountFocusNode: _discountFocusNode,
           selectedPaymentMethod: _selectedPaymentMethod,
+          selectedPricingGroup: _selectedPricingGroup,
           subtotal: _subtotal,
           discount: _discount,
           tax: _tax,
@@ -1468,6 +1555,7 @@ class _PosPageState extends State<PosPage> {
           onPaymentMethodChanged: (method) {
             setState(() => _selectedPaymentMethod = method);
           },
+          onPricingGroupChanged: _applyPricingGroup,
           onAmountChanged: (_) => setState(() {}),
           onCustomerChanged: _handleCustomerChanged,
           onCustomerTapped: () {
@@ -1494,6 +1582,17 @@ class _PosPageState extends State<PosPage> {
                   SizedBox(height: sectionGap),
                   Row(
                     children: [
+                      Expanded(
+                        child: _SecondaryActionButton(
+                          label: 'Expenses',
+                          icon: Icons.receipt_long_rounded,
+                          onPressed: _isSavingQuickExpense
+                              ? null
+                              : _openQuickExpenseDialog,
+                          isLoading: _isSavingQuickExpense,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: _SecondaryActionButton(
                           label: _drawerSession.isActive
@@ -1538,6 +1637,15 @@ class _PosPageState extends State<PosPage> {
                     children: [
                       const Expanded(child: _PosHeader()),
                       const SizedBox(width: 16),
+                      _SecondaryActionButton(
+                        label: 'Expenses',
+                        icon: Icons.receipt_long_rounded,
+                        onPressed: _isSavingQuickExpense
+                            ? null
+                            : _openQuickExpenseDialog,
+                        isLoading: _isSavingQuickExpense,
+                      ),
+                      const SizedBox(width: 10),
                       _SecondaryActionButton(
                         label: _drawerSession.isActive
                             ? 'Day End'
@@ -1909,6 +2017,7 @@ class _ProductsPanel extends StatelessWidget {
     required this.products,
     required this.selectedStockKey,
     required this.viewMode,
+    required this.selectedPricingGroup,
     required this.isCatalogLoading,
     required this.onSearchChanged,
     required this.onSearchSubmitted,
@@ -1925,6 +2034,7 @@ class _ProductsPanel extends StatelessWidget {
   final List<PosCatalogItem> products;
   final String? selectedStockKey;
   final PosCatalogViewMode viewMode;
+  final PosPricingGroup selectedPricingGroup;
   final bool isCatalogLoading;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
@@ -2045,6 +2155,7 @@ class _ProductsPanel extends StatelessWidget {
                       final product = products[index];
                       return _ProductCompactTile(
                         product: product,
+                        selectedPricingGroup: selectedPricingGroup,
                         isSelected: product.stockKey == selectedStockKey,
                         onTap: () => onProductSelected(product),
                       );
@@ -2058,6 +2169,7 @@ class _ProductsPanel extends StatelessWidget {
 
                       return _ProductRow(
                         product: product,
+                        selectedPricingGroup: selectedPricingGroup,
                         isSelected: product.stockKey == selectedStockKey,
                         onTap: () => onProductSelected(product),
                       );
@@ -2073,16 +2185,22 @@ class _ProductsPanel extends StatelessWidget {
 class _ProductCompactTile extends StatelessWidget {
   const _ProductCompactTile({
     required this.product,
+    required this.selectedPricingGroup,
     required this.isSelected,
     required this.onTap,
   });
 
   final PosCatalogItem product;
+  final PosPricingGroup selectedPricingGroup;
   final bool isSelected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final displayPrice = selectedPricingGroup == PosPricingGroup.retail
+        ? product.retailPrice
+        : product.wholesalePrice;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2141,7 +2259,7 @@ class _ProductCompactTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                  'Rs ${displayPrice.toStringAsFixed(2)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
@@ -2288,6 +2406,7 @@ class _CheckoutPanel extends StatelessWidget {
     required this.cardAmountFocusNode,
     required this.discountFocusNode,
     required this.selectedPaymentMethod,
+    required this.selectedPricingGroup,
     required this.subtotal,
     required this.discount,
     required this.tax,
@@ -2298,6 +2417,7 @@ class _CheckoutPanel extends StatelessWidget {
     required this.isProcessing,
     required this.isOpeningCustomerDialog,
     required this.onPaymentMethodChanged,
+    required this.onPricingGroupChanged,
     required this.onAmountChanged,
     required this.onCustomerChanged,
     required this.onCustomerTapped,
@@ -2322,6 +2442,7 @@ class _CheckoutPanel extends StatelessWidget {
   final FocusNode cardAmountFocusNode;
   final FocusNode discountFocusNode;
   final PosPaymentMethod selectedPaymentMethod;
+  final PosPricingGroup selectedPricingGroup;
   final double subtotal;
   final double discount;
   final double tax;
@@ -2332,6 +2453,7 @@ class _CheckoutPanel extends StatelessWidget {
   final bool isProcessing;
   final bool isOpeningCustomerDialog;
   final ValueChanged<PosPaymentMethod> onPaymentMethodChanged;
+  final ValueChanged<PosPricingGroup> onPricingGroupChanged;
   final ValueChanged<String> onAmountChanged;
   final VoidCallback onCustomerTapped;
   final ValueChanged<String> onCustomerChanged;
@@ -2507,6 +2629,77 @@ class _CheckoutPanel extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 22),
+                      const Text(
+                        'Pricing Group',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4A586B),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      isCompact
+                          ? Column(
+                              children: [
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: _PaymentMethodButton(
+                                    label: 'Retail',
+                                    icon: Icons.storefront_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.retail,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.retail,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: _PaymentMethodButton(
+                                    label: 'Wholesale',
+                                    icon: Icons.local_shipping_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.wholesale,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.wholesale,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: _PaymentMethodButton(
+                                    label: 'Retail',
+                                    icon: Icons.storefront_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.retail,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.retail,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: _PaymentMethodButton(
+                                    label: 'Wholesale',
+                                    icon: Icons.local_shipping_outlined,
+                                    isSelected:
+                                        selectedPricingGroup ==
+                                        PosPricingGroup.wholesale,
+                                    onTap: () => onPricingGroupChanged(
+                                      PosPricingGroup.wholesale,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                       const SizedBox(height: 22),
                       const Text(
                         'Payment Method',
@@ -3017,16 +3210,22 @@ class _CategoryChip extends StatelessWidget {
 class _ProductRow extends StatelessWidget {
   const _ProductRow({
     required this.product,
+    required this.selectedPricingGroup,
     required this.isSelected,
     required this.onTap,
   });
 
   final PosCatalogItem product;
+  final PosPricingGroup selectedPricingGroup;
   final bool isSelected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final displayPrice = selectedPricingGroup == PosPricingGroup.retail
+        ? product.retailPrice
+        : product.wholesalePrice;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 480;
@@ -3119,7 +3318,7 @@ class _ProductRow extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                                'Rs ${displayPrice.toStringAsFixed(2)}',
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -3162,7 +3361,7 @@ class _ProductRow extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Rs ${product.sellingPrice.toStringAsFixed(2)}',
+                        'Rs ${displayPrice.toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
@@ -3947,6 +4146,342 @@ class _RecentInvoicesDialog extends StatelessWidget {
   }
 }
 
+class _PosExpenseDialog extends StatefulWidget {
+  const _PosExpenseDialog({
+    required this.repository,
+    required this.paidFromDrawerByDefault,
+  });
+
+  final ExpenseRepository repository;
+  final bool paidFromDrawerByDefault;
+
+  @override
+  State<_PosExpenseDialog> createState() => _PosExpenseDialogState();
+}
+
+class _PosExpenseDialogState extends State<_PosExpenseDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _titleController;
+  late final TextEditingController _categoryController;
+  late final TextEditingController _amountController;
+  late final TextEditingController _dateController;
+  late final TextEditingController _paymentMethodController;
+  late final TextEditingController _notesController;
+  bool _paidFromDrawer = true;
+  bool _isSaving = false;
+  List<String> _categorySuggestions = const <String>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController();
+    _categoryController = TextEditingController();
+    _amountController = TextEditingController();
+    _dateController = TextEditingController(
+      text: formatAppDate(DateTime.now()),
+    );
+    _paymentMethodController = TextEditingController(text: 'Cash');
+    _notesController = TextEditingController();
+    _paidFromDrawer = widget.paidFromDrawerByDefault;
+    _categoryController.addListener(_loadSuggestions);
+    _loadSuggestions();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _categoryController.dispose();
+    _amountController.dispose();
+    _dateController.dispose();
+    _paymentMethodController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadSuggestions() async {
+    final suggestions = await widget.repository.fetchCategorySuggestions(
+      _categoryController.text,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => _categorySuggestions = suggestions);
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final parsedDate = parseAppDate(_dateController.text);
+    if (parsedDate == null) {
+      AppToast.error('Please select a valid expense date');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await widget.repository.saveExpense(
+        ExpenseRecord(
+          title: _titleController.text.trim(),
+          category: _categoryController.text.trim(),
+          amount: double.tryParse(_amountController.text.trim()) ?? 0,
+          date: parsedDate,
+          paymentMethod: _paymentMethodController.text.trim(),
+          paidFromDrawer: _paidFromDrawer,
+          notes: _notesController.text.trim(),
+          status: ExpenseStatus.active,
+          createdAt: DateTime.now(),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSaving = false);
+      AppToast.error('Failed to save expense: $error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    InputDecoration decoration(String hint) => InputDecoration(
+      hintText: hint,
+      filled: true,
+      fillColor: const Color(0xFFFBFCFE),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE1E7F0)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE1E7F0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: AppColors.primaryTeal, width: 1.4),
+      ),
+    );
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760, maxHeight: 760),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 18, 18),
+              child: Row(
+                children: [
+                  const Text(
+                    'Add Expense',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2E3A4D),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        controller: _titleController,
+                        decoration: decoration('Expense title'),
+                        validator: (value) =>
+                            (value == null || value.trim().isEmpty)
+                            ? 'Expense title is required'
+                            : null,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: _categoryController,
+                                  decoration: decoration('Category'),
+                                  validator: (value) =>
+                                      (value == null || value.trim().isEmpty)
+                                      ? 'Category is required'
+                                      : null,
+                                ),
+                                if (_categorySuggestions.isNotEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF8FBFE),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFE1E7F0),
+                                      ),
+                                    ),
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: _categorySuggestions
+                                          .map(
+                                            (category) => ActionChip(
+                                              label: Text(category),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _categoryController.text =
+                                                      category;
+                                                  _categoryController
+                                                          .selection =
+                                                      TextSelection.collapsed(
+                                                        offset: category.length,
+                                                      );
+                                                });
+                                              },
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _amountController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: decoration('Amount'),
+                              validator: (value) {
+                                final parsed = double.tryParse(
+                                  value?.trim() ?? '',
+                                );
+                                if (parsed == null || parsed <= 0) {
+                                  return 'Enter a valid amount';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AppDateField(
+                              controller: _dateController,
+                              hintText: 'Expense date',
+                              decoration: decoration('Expense date'),
+                              validator: (value) => parseAppDate(value) == null
+                                  ? 'Select a valid date'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _paymentMethodController,
+                              decoration: decoration('Payment method'),
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                  ? 'Payment method is required'
+                                  : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      CheckboxListTile(
+                        value: _paidFromDrawer,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Paid from cashier drawer',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          'Day end drawer balance will be reduced by this expense amount.',
+                        ),
+                        onChanged: (value) {
+                          setState(() => _paidFromDrawer = value ?? false);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _notesController,
+                        maxLines: 4,
+                        decoration: decoration('Notes (optional)'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _save,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_isSaving ? 'Saving...' : 'Add Expense'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryTeal,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DayEndSummaryDialog extends StatefulWidget {
   const _DayEndSummaryDialog({
     required this.summary,
@@ -4074,19 +4609,33 @@ class _DayEndSummaryDialogState extends State<_DayEndSummaryDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _DaySummaryCard(
-                          label: 'Total Sales',
+                          label: 'Drawer Expenses',
                           value:
-                              'Rs ${widget.summary.totalSales.toStringAsFixed(2)}',
+                              'Rs ${widget.summary.drawerExpenseTotal.toStringAsFixed(2)}',
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _DaySummaryCard(
-                    label: 'Expected Drawer Amount',
-                    value:
-                        'Rs ${widget.summary.expectedDrawerAmount.toStringAsFixed(2)}',
-                    highlight: true,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Total Sales',
+                          value:
+                              'Rs ${widget.summary.totalSales.toStringAsFixed(2)}',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _DaySummaryCard(
+                          label: 'Expected Drawer Amount',
+                          value:
+                              'Rs ${widget.summary.expectedDrawerAmount.toStringAsFixed(2)}',
+                          highlight: true,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   TextField(

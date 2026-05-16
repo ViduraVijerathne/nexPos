@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/expense_repository.dart';
 import '../data/invoice_repository.dart';
 import '../models/models.dart';
 
@@ -31,6 +32,7 @@ class DrawerSessionSummary {
     required this.cashSales,
     required this.cardSales,
     required this.totalSales,
+    required this.drawerExpenseTotal,
     required this.expectedDrawerAmount,
   });
 
@@ -39,6 +41,7 @@ class DrawerSessionSummary {
   final double cashSales;
   final double cardSales;
   final double totalSales;
+  final double drawerExpenseTotal;
   final double expectedDrawerAmount;
 }
 
@@ -104,6 +107,7 @@ class DaySessionService {
 
   Future<DrawerSessionSummary> buildSummary({
     required InvoiceRepository repository,
+    required ExpenseRepository expenseRepository,
     required DrawerSessionState session,
   }) async {
     final startedAt = session.startedAt;
@@ -114,6 +118,7 @@ class DaySessionService {
         cashSales: 0,
         cardSales: 0,
         totalSales: 0,
+        drawerExpenseTotal: 0,
         expectedDrawerAmount: session.openingCash,
       );
     }
@@ -122,6 +127,13 @@ class DaySessionService {
       repository: repository,
       startedAt: startedAt,
     );
+    final expenseReport = await expenseRepository.fetchExpenseReport(
+      fromDate: startedAt,
+      toDate: DateTime.now(),
+    );
+    final drawerExpenseTotal = expenseReport.expenses
+        .where((expense) => expense.paidFromDrawer)
+        .fold<double>(0, (sum, expense) => sum + expense.amount);
 
     final cashSales = invoices.fold<double>(
       0,
@@ -142,7 +154,9 @@ class DaySessionService {
       cashSales: cashSales,
       cardSales: cardSales,
       totalSales: totalSales,
-      expectedDrawerAmount: session.openingCash + cashSales,
+      drawerExpenseTotal: drawerExpenseTotal,
+      expectedDrawerAmount:
+          session.openingCash + cashSales - drawerExpenseTotal,
     );
   }
 

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/services/report_print_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
@@ -35,6 +36,8 @@ class _ReportPageState extends State<ReportPage> {
     contactNumber: '',
     address: '',
   );
+  _ReportMenuSection _selectedSection = _ReportMenuSection.sales;
+  ReportSalesPeriod _selectedSalesPeriod = ReportSalesPeriod.daily;
 
   @override
   void initState() {
@@ -50,7 +53,11 @@ class _ReportPageState extends State<ReportPage> {
       final repository = _repository ?? await ReportRepositoryFactory.create();
       await repository.initialize();
       final results = await Future.wait([
-        repository.fetchDashboardData(fromDate: _fromDate, toDate: _toDate),
+        repository.fetchDashboardData(
+          fromDate: _fromDate,
+          toDate: _toDate,
+          salesPeriod: _selectedSalesPeriod,
+        ),
         AppSettingsService.instance.loadReportHeaderSettings(),
         SetupService.instance.loadState(),
       ]);
@@ -125,8 +132,53 @@ class _ReportPageState extends State<ReportPage> {
     await _initializePage();
   }
 
-  void _showExportToast(String section) {
-    AppToast.success('$section exported successfully');
+  Future<void> _changeSalesPeriod(ReportSalesPeriod period) async {
+    if (_selectedSalesPeriod == period) {
+      return;
+    }
+    setState(() {
+      _selectedSalesPeriod = period;
+      _isLoading = true;
+    });
+    await _initializePage();
+  }
+
+  Future<void> _exportSection(ReportExportSection section) async {
+    final data = _data;
+    if (data == null) {
+      return;
+    }
+    try {
+      final path = await ReportPrintService.exportReport(
+        shopInfo: _shopInfo,
+        headerSettings: _headerSettings,
+        report: data,
+        section: section,
+      );
+      if (path == null) {
+        return;
+      }
+      AppToast.success('${section.title} exported successfully');
+    } catch (error) {
+      AppToast.error('Failed to export report: $error');
+    }
+  }
+
+  Future<void> _printSection(ReportExportSection section) async {
+    final data = _data;
+    if (data == null) {
+      return;
+    }
+    try {
+      await ReportPrintService.printReport(
+        shopInfo: _shopInfo,
+        headerSettings: _headerSettings,
+        report: data,
+        section: section,
+      );
+    } catch (error) {
+      AppToast.error('Failed to print report: $error');
+    }
   }
 
   @override
@@ -161,57 +213,62 @@ class _ReportPageState extends State<ReportPage> {
             settings: _headerSettings,
             onFromTap: _pickFromDate,
             onToTap: _pickToDate,
-            onPrintAll: () => _showExportToast('All reports'),
+            onPrintAll: () => _printSection(ReportExportSection.all),
           ),
           const SizedBox(height: 18),
           _ReportSummaryCards(summary: data.summary),
           const SizedBox(height: 22),
-          const _SectionBanner(
-            title: 'Sales Reports',
-            subtitle: 'Track sales performance and payment trends',
-            background: Color(0xFF36B4AE),
-          ),
-          const SizedBox(height: 18),
-          _DailySalesSummaryCard(
-            points: data.salesPoints,
-            onExport: () => _showExportToast('Daily sales summary'),
-          ),
-          const SizedBox(height: 18),
-          _TaxTrendCard(
-            points: data.taxPoints,
-            onExport: () => _showExportToast('Tax report'),
-          ),
-          const SizedBox(height: 22),
-          const _SectionBanner(
-            title: 'Inventory Reports',
-            subtitle: 'Monitor stock levels and valuation',
-            background: Color(0xFFD88F21),
-          ),
-          const SizedBox(height: 18),
-          _LowStockReportCard(
-            rows: data.lowStockRows,
-            onExport: () => _showExportToast('Low stock report'),
-          ),
-          const SizedBox(height: 18),
-          _StockValuationCard(
-            rows: data.stockValuationRows,
-            onExport: () => _showExportToast('Stock valuation report'),
-          ),
-          const SizedBox(height: 22),
-          const _SectionBanner(
-            title: 'Customer Reports',
-            subtitle: 'Top customers and purchase patterns',
-            background: Color(0xFF9B28BE),
-          ),
-          const SizedBox(height: 18),
-          _TopCustomersCard(
-            rows: data.topCustomers,
-            onExport: () => _showExportToast('Top customers report'),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 980;
+              final menu = _ReportMenuCard(
+                selectedSection: _selectedSection,
+                onSelected: (section) {
+                  setState(() => _selectedSection = section);
+                },
+              );
+              final content = _ReportSectionContent(
+                section: _selectedSection,
+                data: data,
+                selectedSalesPeriod: _selectedSalesPeriod,
+                onSalesPeriodChanged: _changeSalesPeriod,
+                onExport: _exportSection,
+                onPrint: _printSection,
+              );
+
+              if (isCompact) {
+                return Column(
+                  children: [menu, const SizedBox(height: 18), content],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(width: 280, child: menu),
+                  const SizedBox(width: 18),
+                  Expanded(child: content),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
+}
+
+enum _ReportMenuSection {
+  sales('Sales Report', Icons.point_of_sale_outlined),
+  tax('Tax Collector Report', Icons.account_balance_wallet_outlined),
+  inventory('Inventory Reports', Icons.inventory_2_outlined),
+  customer('Customer Reports', Icons.people_outline_rounded),
+  expenses('Expenses Report', Icons.receipt_long_outlined);
+
+  const _ReportMenuSection(this.label, this.icon);
+
+  final String label;
+  final IconData icon;
 }
 
 class _ReportPageSkeleton extends StatelessWidget {
@@ -422,6 +479,243 @@ class _ReportsHeader extends StatelessWidget {
   }
 }
 
+class _ReportMenuCard extends StatelessWidget {
+  const _ReportMenuCard({
+    required this.selectedSection,
+    required this.onSelected,
+  });
+
+  final _ReportMenuSection selectedSection;
+  final ValueChanged<_ReportMenuSection> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE6EDF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'REPORT MENU',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 18),
+          ..._ReportMenuSection.values.map(
+            (section) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _ReportMenuItem(
+                section: section,
+                isSelected: section == selectedSection,
+                onTap: () => onSelected(section),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportMenuItem extends StatelessWidget {
+  const _ReportMenuItem({
+    required this.section,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final _ReportMenuSection section;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primaryLight : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? AppColors.primaryTeal : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              section.icon,
+              size: 20,
+              color: isSelected
+                  ? AppColors.primaryTeal
+                  : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                section.label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected
+                      ? AppColors.primaryTeal
+                      : AppColors.textPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportSectionContent extends StatelessWidget {
+  const _ReportSectionContent({
+    required this.section,
+    required this.data,
+    required this.selectedSalesPeriod,
+    required this.onSalesPeriodChanged,
+    required this.onExport,
+    required this.onPrint,
+  });
+
+  final _ReportMenuSection section;
+  final ReportDashboardData data;
+  final ReportSalesPeriod selectedSalesPeriod;
+  final ValueChanged<ReportSalesPeriod> onSalesPeriodChanged;
+  final ValueChanged<ReportExportSection> onExport;
+  final ValueChanged<ReportExportSection> onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (section) {
+      case _ReportMenuSection.sales:
+        return Column(
+          children: [
+            const _SectionBanner(
+              title: 'Sales Reports',
+              subtitle: 'Track sales performance and payment trends',
+              background: Color(0xFF36B4AE),
+            ),
+            const SizedBox(height: 18),
+            _SalesPeriodSelector(
+              value: selectedSalesPeriod,
+              onChanged: onSalesPeriodChanged,
+              onPrint: () => onPrint(ReportExportSection.sales),
+            ),
+            const SizedBox(height: 18),
+            _DailySalesSummaryCard(
+              points: data.salesPoints,
+              title: '${selectedSalesPeriod.label} Sales Summary',
+              subtitle: 'Sales and order trends',
+              onExport: () => onExport(ReportExportSection.sales),
+            ),
+            const SizedBox(height: 18),
+            _ProductSalesCard(
+              rows: data.productSales,
+              onExport: () => onExport(ReportExportSection.sales),
+            ),
+            const SizedBox(height: 18),
+            _CategorySalesCard(
+              rows: data.categorySales,
+              onExport: () => onExport(ReportExportSection.sales),
+            ),
+          ],
+        );
+      case _ReportMenuSection.tax:
+        return Column(
+          children: [
+            const _SectionBanner(
+              title: 'Tax Collector Report',
+              subtitle: 'Track tax collection trends for the selected period',
+              background: Color(0xFF9B28BE),
+            ),
+            const SizedBox(height: 18),
+            _SectionActionRow(onPrint: () => onPrint(ReportExportSection.tax)),
+            const SizedBox(height: 18),
+            _TaxTrendCard(
+              points: data.taxPoints,
+              onExport: () => onExport(ReportExportSection.tax),
+            ),
+          ],
+        );
+      case _ReportMenuSection.inventory:
+        return Column(
+          children: [
+            const _SectionBanner(
+              title: 'Inventory Reports',
+              subtitle: 'Monitor stock levels and valuation',
+              background: Color(0xFFD88F21),
+            ),
+            const SizedBox(height: 18),
+            _SectionActionRow(
+              onPrint: () => onPrint(ReportExportSection.inventory),
+            ),
+            const SizedBox(height: 18),
+            _LowStockReportCard(
+              rows: data.lowStockRows,
+              onExport: () => onExport(ReportExportSection.inventory),
+            ),
+            const SizedBox(height: 18),
+            _StockValuationCard(
+              rows: data.stockValuationRows,
+              onExport: () => onExport(ReportExportSection.inventory),
+            ),
+          ],
+        );
+      case _ReportMenuSection.customer:
+        return Column(
+          children: [
+            const _SectionBanner(
+              title: 'Customer Reports',
+              subtitle: 'Top customers and purchase patterns',
+              background: Color(0xFF9B28BE),
+            ),
+            const SizedBox(height: 18),
+            _SectionActionRow(
+              onPrint: () => onPrint(ReportExportSection.customers),
+            ),
+            const SizedBox(height: 18),
+            _TopCustomersCard(
+              rows: data.topCustomers,
+              onExport: () => onExport(ReportExportSection.customers),
+            ),
+          ],
+        );
+      case _ReportMenuSection.expenses:
+        return Column(
+          children: [
+            const _SectionBanner(
+              title: 'Expenses Report',
+              subtitle: 'Track operational expenses for the selected period',
+              background: Color(0xFFDC5F7A),
+            ),
+            const SizedBox(height: 18),
+            _SectionActionRow(
+              onPrint: () => onPrint(ReportExportSection.expenses),
+            ),
+            const SizedBox(height: 18),
+            _ExpensesReportCard(
+              expenses: data.expenses,
+              totalAmount: data.totalExpenseAmount,
+              onExport: () => onExport(ReportExportSection.expenses),
+            ),
+          ],
+        );
+    }
+  }
+}
+
 class _ReportSummaryCards extends StatelessWidget {
   const _ReportSummaryCards({required this.summary});
 
@@ -514,10 +808,107 @@ class _SectionBanner extends StatelessWidget {
   }
 }
 
+class _SectionActionRow extends StatelessWidget {
+  const _SectionActionRow({required this.onPrint});
+
+  final VoidCallback onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: OutlinedButton.icon(
+        onPressed: onPrint,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF374457),
+          side: const BorderSide(color: Color(0xFFE2E8F0)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        icon: const Icon(Icons.print_outlined, size: 16),
+        label: const Text(
+          'Print',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class _SalesPeriodSelector extends StatelessWidget {
+  const _SalesPeriodSelector({
+    required this.value,
+    required this.onChanged,
+    required this.onPrint,
+  });
+
+  final ReportSalesPeriod value;
+  final ValueChanged<ReportSalesPeriod> onChanged;
+  final VoidCallback onPrint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: ReportSalesPeriod.values.map((period) {
+              final isSelected = period == value;
+              return InkWell(
+                onTap: () => onChanged(period),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primaryLight
+                        : AppColors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppColors.primaryTeal
+                          : const Color(0xFFE2E8F0),
+                    ),
+                  ),
+                  child: Text(
+                    period.label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: isSelected
+                          ? AppColors.primaryTeal
+                          : const Color(0xFF4C5A6D),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(width: 12),
+        _SectionActionRow(onPrint: onPrint),
+      ],
+    );
+  }
+}
+
 class _DailySalesSummaryCard extends StatelessWidget {
-  const _DailySalesSummaryCard({required this.points, required this.onExport});
+  const _DailySalesSummaryCard({
+    required this.points,
+    required this.title,
+    required this.subtitle,
+    required this.onExport,
+  });
 
   final List<ReportSalesPoint> points;
+  final String title;
+  final String subtitle;
   final VoidCallback onExport;
 
   @override
@@ -528,12 +919,12 @@ class _DailySalesSummaryCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Daily Sales Summary',
+                      title,
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -542,7 +933,7 @@ class _DailySalesSummaryCard extends StatelessWidget {
                     ),
                     SizedBox(height: 6),
                     Text(
-                      'Sales and order trends',
+                      subtitle,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
@@ -558,6 +949,182 @@ class _DailySalesSummaryCard extends StatelessWidget {
           const SizedBox(height: 16),
           SizedBox(height: 260, child: _SalesBarChart(points: points)),
         ],
+      ),
+    );
+  }
+}
+
+class _ProductSalesCard extends StatelessWidget {
+  const _ProductSalesCard({required this.rows, required this.onExport});
+
+  final List<ReportProductSalesRow> rows;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PanelCard(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 720;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: math.min(constraints.maxWidth, 280),
+                      maxWidth: constraints.maxWidth - (isCompact ? 0 : 160),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Product-wise Sales Report',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF374457),
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Products ranked by quantity and sales value',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF8A97AA),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _ExportButton(onTap: onExport),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (rows.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                    child: Text(
+                      'No product sales data found',
+                      style: TextStyle(
+                        color: Color(0xFF8A97AA),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+              else if (isCompact) ...[
+                for (final row in rows.take(12)) ...[
+                  _ProductSalesCompactRow(row: row),
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                ],
+              ] else ...[
+                const _ProductSalesTableHeader(),
+                const SizedBox(height: 4),
+                for (final row in rows.take(12)) ...[
+                  _ProductSalesTableRow(row: row),
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                ],
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CategorySalesCard extends StatelessWidget {
+  const _CategorySalesCard({required this.rows, required this.onExport});
+
+  final List<ReportCategorySalesRow> rows;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PanelCard(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 720;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: math.min(constraints.maxWidth, 280),
+                      maxWidth: constraints.maxWidth - (isCompact ? 0 : 160),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Category-wise Sales Report',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF374457),
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Categories ranked by quantity and sales value',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF8A97AA),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _ExportButton(onTap: onExport),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (rows.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 28),
+                  child: Center(
+                    child: Text(
+                      'No category sales data found',
+                      style: TextStyle(
+                        color: Color(0xFF8A97AA),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                )
+              else if (isCompact) ...[
+                for (final row in rows.take(12)) ...[
+                  _CategorySalesCompactRow(row: row),
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                ],
+              ] else ...[
+                const _CategorySalesTableHeader(),
+                const SizedBox(height: 4),
+                for (final row in rows.take(12)) ...[
+                  _CategorySalesTableRow(row: row),
+                  const Divider(height: 1, color: Color(0xFFF0F4F8)),
+                ],
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -823,6 +1390,79 @@ class _TopCustomersCard extends StatelessWidget {
   }
 }
 
+class _ExpensesReportCard extends StatelessWidget {
+  const _ExpensesReportCard({
+    required this.expenses,
+    required this.totalAmount,
+    required this.onExport,
+  });
+
+  final List<ExpenseRecord> expenses;
+  final double totalAmount;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PanelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Expense Summary',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF374457),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Total expenses: Rs ${totalAmount.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8A97AA),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _ExportButton(onTap: onExport),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const _ExpenseReportTableHeader(),
+          const SizedBox(height: 4),
+          if (expenses.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: Text(
+                  'No expense records found',
+                  style: TextStyle(
+                    color: Color(0xFF8A97AA),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            )
+          else
+            for (final expense in expenses.take(12)) ...[
+              _ExpenseReportTableRow(expense: expense),
+              const Divider(height: 1, color: Color(0xFFF0F4F8)),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
 class _DatePickerChip extends StatelessWidget {
   const _DatePickerChip({required this.label, required this.onTap});
 
@@ -941,6 +1581,7 @@ class _PanelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
+      clipBehavior: Clip.antiAlias,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -966,12 +1607,12 @@ class _SalesBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = points.isEmpty
-        ? 1.0
-        : (points.map((point) => point.value).reduce(math.max) * 1.05).clamp(
-            1.0,
-            double.infinity,
-          );
+    final finiteValues = points
+        .map((point) => point.value)
+        .where((value) => value.isFinite && value >= 0)
+        .toList();
+    final baseMax = finiteValues.isEmpty ? 0.0 : finiteValues.reduce(math.max);
+    final maxValue = math.max(1.0, baseMax * 1.05);
 
     return CustomPaint(
       painter: _SalesBarChartPainter(points: points, maxValue: maxValue),
@@ -993,12 +1634,12 @@ class _TrendLineChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = points.isEmpty
-        ? 1.0
-        : (points.map((point) => point.value).reduce(math.max) * 1.1).clamp(
-            1.0,
-            double.infinity,
-          );
+    final finiteValues = points
+        .map((point) => point.value)
+        .where((value) => value.isFinite && value >= 0)
+        .toList();
+    final baseMax = finiteValues.isEmpty ? 0.0 : finiteValues.reduce(math.max);
+    final maxValue = math.max(1.0, baseMax * 1.1);
 
     return CustomPaint(
       painter: _TrendLineChartPainter(
@@ -1018,8 +1659,19 @@ class _SalesBarChartPainter extends CustomPainter {
   final List<ReportSalesPoint> points;
   final double maxValue;
 
+  int _labelStep(double chartWidth) {
+    if (points.length <= 1) {
+      return 1;
+    }
+
+    const minLabelWidth = 56.0;
+    final maxVisibleLabels = math.max(2, (chartWidth / minLabelWidth).floor());
+    return math.max(1, (points.length / maxVisibleLabels).ceil());
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
+    final safeMaxValue = maxValue.isFinite && maxValue > 0 ? maxValue : 1.0;
     final leftPadding = 54.0;
     final bottomPadding = 28.0;
     final topPadding = 10.0;
@@ -1040,10 +1692,10 @@ class _SalesBarChartPainter extends CustomPainter {
     );
 
     final yLabels = [
-      maxValue,
-      maxValue * 0.75,
-      maxValue * 0.50,
-      maxValue * 0.25,
+      safeMaxValue,
+      safeMaxValue * 0.75,
+      safeMaxValue * 0.50,
+      safeMaxValue * 0.25,
       0.0,
     ];
 
@@ -1074,13 +1726,14 @@ class _SalesBarChartPainter extends CustomPainter {
 
     final slotWidth = chartWidth / points.length;
     final barWidth = math.min(14.0, slotWidth * 0.35);
+    final labelStep = _labelStep(chartWidth);
 
     for (var i = 0; i < points.length; i++) {
       final point = points[i];
       final x = leftPadding + (slotWidth * i) + ((slotWidth - barWidth) / 2);
       final barHeight = maxValue <= 0
           ? 0.0
-          : (point.value / maxValue) * chartHeight;
+          : (point.value / safeMaxValue) * chartHeight;
       final rect = RRect.fromRectAndRadius(
         Rect.fromLTWH(
           x,
@@ -1091,6 +1744,12 @@ class _SalesBarChartPainter extends CustomPainter {
         const Radius.circular(2),
       );
       canvas.drawRRect(rect, barPaint);
+
+      final shouldDrawLabel =
+          i == 0 || i == points.length - 1 || i % labelStep == 0;
+      if (!shouldDrawLabel) {
+        continue;
+      }
 
       final labelPainter = TextPainter(
         text: TextSpan(text: point.label, style: textStyle),
@@ -1127,8 +1786,19 @@ class _TrendLineChartPainter extends CustomPainter {
   final Color lineColor;
   final Color fillColor;
 
+  int _labelStep(double chartWidth) {
+    if (points.length <= 1) {
+      return 1;
+    }
+
+    const minLabelWidth = 56.0;
+    final maxVisibleLabels = math.max(2, (chartWidth / minLabelWidth).floor());
+    return math.max(1, (points.length / maxVisibleLabels).ceil());
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
+    final safeMaxValue = maxValue.isFinite && maxValue > 0 ? maxValue : 1.0;
     final leftPadding = 54.0;
     final rightPadding = 16.0;
     final bottomPadding = 28.0;
@@ -1157,10 +1827,10 @@ class _TrendLineChartPainter extends CustomPainter {
     );
 
     final yLabels = [
-      maxValue,
-      maxValue * 0.75,
-      maxValue * 0.50,
-      maxValue * 0.25,
+      safeMaxValue,
+      safeMaxValue * 0.75,
+      safeMaxValue * 0.50,
+      safeMaxValue * 0.25,
       0.0,
     ];
 
@@ -1194,6 +1864,7 @@ class _TrendLineChartPainter extends CustomPainter {
     }
 
     final stepX = points.length == 1 ? 0.0 : chartWidth / (points.length - 1);
+    final labelStep = _labelStep(chartWidth);
     final linePath = Path();
     final fillPath = Path();
 
@@ -1201,7 +1872,10 @@ class _TrendLineChartPainter extends CustomPainter {
       final point = points[i];
       final x = leftPadding + (stepX * i);
       final y =
-          topPadding + chartHeight - ((point.value / maxValue) * chartHeight);
+          topPadding +
+          chartHeight -
+          (((point.value.isFinite ? point.value : 0.0) / safeMaxValue) *
+              chartHeight);
 
       if (i == 0) {
         linePath.moveTo(x, y);
@@ -1226,8 +1900,17 @@ class _TrendLineChartPainter extends CustomPainter {
       final point = points[i];
       final x = leftPadding + (stepX * i);
       final y =
-          topPadding + chartHeight - ((point.value / maxValue) * chartHeight);
+          topPadding +
+          chartHeight -
+          (((point.value.isFinite ? point.value : 0.0) / safeMaxValue) *
+              chartHeight);
       canvas.drawCircle(Offset(x, y), 4.5, dotPaint);
+
+      final shouldDrawLabel =
+          i == 0 || i == points.length - 1 || i % labelStep == 0;
+      if (!shouldDrawLabel) {
+        continue;
+      }
 
       final labelPainter = TextPainter(
         text: TextSpan(text: point.label, style: textStyle),
@@ -1433,6 +2116,272 @@ class _TopCustomersTableHeader extends StatelessWidget {
   }
 }
 
+class _ProductSalesTableHeader extends StatelessWidget {
+  const _ProductSalesTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(flex: 46, child: _HeaderText('Product')),
+          Expanded(flex: 18, child: _HeaderText('Qty')),
+          Expanded(flex: 24, child: _HeaderText('Total Sales')),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductSalesTableRow extends StatelessWidget {
+  const _ProductSalesTableRow({required this.row});
+
+  final ReportProductSalesRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 46,
+            child: Text(
+              row.product,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF4C5A6D),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 18,
+            child: Text(
+              '${row.quantity}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 24,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'Rs ${row.totalSales.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF36B4AE),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductSalesCompactRow extends StatelessWidget {
+  const _ProductSalesCompactRow({required this.row});
+
+  final ReportProductSalesRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            row.product,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4C5A6D),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              _ReportInfoChip(label: 'Qty', value: '${row.quantity}'),
+              _ReportInfoChip(
+                label: 'Total Sales',
+                value: 'Rs ${row.totalSales.toStringAsFixed(2)}',
+                valueColor: const Color(0xFF36B4AE),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategorySalesTableHeader extends StatelessWidget {
+  const _CategorySalesTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(flex: 46, child: _HeaderText('Category')),
+          Expanded(flex: 18, child: _HeaderText('Qty')),
+          Expanded(flex: 24, child: _HeaderText('Total Sales')),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategorySalesTableRow extends StatelessWidget {
+  const _CategorySalesTableRow({required this.row});
+
+  final ReportCategorySalesRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 46,
+            child: Text(
+              row.category,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF4C5A6D),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 18,
+            child: Text(
+              '${row.quantity}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 24,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'Rs ${row.totalSales.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF36B4AE),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategorySalesCompactRow extends StatelessWidget {
+  const _CategorySalesCompactRow({required this.row});
+
+  final ReportCategorySalesRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            row.category,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4C5A6D),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              _ReportInfoChip(label: 'Qty', value: '${row.quantity}'),
+              _ReportInfoChip(
+                label: 'Total Sales',
+                value: 'Rs ${row.totalSales.toStringAsFixed(2)}',
+                valueColor: const Color(0xFF36B4AE),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportInfoChip extends StatelessWidget {
+  const _ReportInfoChip({
+    required this.label,
+    required this.value,
+    this.valueColor = const Color(0xFF4C5A6D),
+  });
+
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE7EDF5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF8A97AA),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TopCustomersTableRow extends StatelessWidget {
   const _TopCustomersTableRow({required this.row});
 
@@ -1505,6 +2454,124 @@ class _TopCustomersTableRow extends StatelessWidget {
                 fontSize: 13.5,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpenseReportTableHeader extends StatelessWidget {
+  const _ExpenseReportTableHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(flex: 28, child: _HeaderText('Title')),
+          Expanded(flex: 18, child: _HeaderText('Category')),
+          Expanded(flex: 16, child: _HeaderText('Method')),
+          Expanded(flex: 18, child: _HeaderText('Date')),
+          Expanded(flex: 20, child: _HeaderText('Amount')),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpenseReportTableRow extends StatelessWidget {
+  const _ExpenseReportTableRow({required this.expense});
+
+  final ExpenseRecord expense;
+
+  String _formatDate(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 28,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  expense.title,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF4C5A6D),
+                  ),
+                ),
+                if (expense.paidFromDrawer)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Paid from drawer',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFDC5F7A),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 18,
+            child: Text(
+              expense.category,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 16,
+            child: Text(
+              expense.paymentMethod,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 18,
+            child: Text(
+              _formatDate(expense.date),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF7D8BA0),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 20,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'Rs ${expense.amount.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFDC5F7A),
+                ),
               ),
             ),
           ),

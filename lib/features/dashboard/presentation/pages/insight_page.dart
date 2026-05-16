@@ -241,6 +241,24 @@ class _InsightMetrics extends StatelessWidget {
         noteColor: const Color(0xFF58C7BC),
       ),
       _MetricData(
+        title: 'Total Purchase',
+        value: 'Rs ${data.totalPurchase.toStringAsFixed(2)}',
+        note: data.purchasesNote,
+        icon: Icons.local_shipping_outlined,
+        iconColor: const Color(0xFFF0AA3B),
+        iconBackground: const Color(0xFFFFF4E3),
+        noteColor: const Color(0xFF8E9BB0),
+      ),
+      _MetricData(
+        title: 'Total Expenses',
+        value: 'Rs ${data.totalExpenses.toStringAsFixed(2)}',
+        note: data.expensesNote,
+        icon: Icons.receipt_long_outlined,
+        iconColor: const Color(0xFFE66A6A),
+        iconBackground: const Color(0xFFFFECEC),
+        noteColor: const Color(0xFFE66A6A),
+      ),
+      _MetricData(
         title: 'Total Orders',
         value: '${data.totalOrders}',
         note: data.ordersGrowthNote,
@@ -271,8 +289,10 @@ class _InsightMetrics extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 1180
-            ? 4
+        final columns = constraints.maxWidth >= 1440
+            ? 6
+            : constraints.maxWidth >= 1080
+            ? 3
             : constraints.maxWidth >= 760
             ? 2
             : 1;
@@ -1208,8 +1228,10 @@ class _InsightPageSkeleton extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 760;
-        final columns = constraints.maxWidth >= 1180
-            ? 4
+        final columns = constraints.maxWidth >= 1440
+            ? 6
+            : constraints.maxWidth >= 1080
+            ? 3
             : constraints.maxWidth >= 760
             ? 2
             : 1;
@@ -1227,7 +1249,7 @@ class _InsightPageSkeleton extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: List<Widget>.generate(
-                  4,
+                  6,
                   (index) => SizedBox(
                     width: metricWidth.clamp(220.0, 420.0),
                     child: Container(

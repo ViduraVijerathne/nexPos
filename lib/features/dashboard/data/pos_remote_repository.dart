@@ -168,7 +168,12 @@ class PosRemoteRepository implements PosRepository {
                     '',
                 category: product?['category']?.toString() ?? 'Uncategorized',
                 availableQty: (data['availableQuantity'] as num?)?.toInt() ?? 0,
-                sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0,
+                retailPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0,
+                wholesalePrice:
+                    (((data['sellingPrice'] as num?)?.toDouble() ?? 0) -
+                            ((data['maxDiscount'] as num?)?.toDouble() ?? 0))
+                        .clamp(0, double.infinity)
+                        .toDouble(),
               );
             })
             .toList()

@@ -33,3 +33,11 @@ export ANALYZER_STATE_LOCATION_OVERRIDE=/workspace/.dartServer
 Regression tests cover concurrent local sales/payments, stock rollback, decimal cash, remote cache/counter behavior, remote GRN retry safety, corrupt backup protection, immediate search submission, and duplicate checkout prevention. Billing layout tests exercise 320, 390, 640, 800, 1024, 1440 and 1920 pixel widths, including a short landscape viewport and enlarged text.
 
 Cloud tests use fake Firestore; real security rules, contention retries, printers, and physical devices still require integration testing. The cloud environment has no Android SDK or complete native desktop build toolchain. Existing analyzer warnings and deprecation notices remain. A multi-batch online restore can still be interrupted after some destination writes; take a current backup before restoration. These checks do not certify that every possible bug or device combination has been covered.
+
+## Continuing reliability goal
+
+Keep billing fast and protect customer, stock and financial data during concurrent requests, retries, navigation and restore operations. Each confirmed issue should receive a regression check and a fix on `dev`.
+
+Customer saves now serialize duplicate-email validation with the write, reject edits to deleted records, and return the same trimmed values that were stored. Regression coverage includes concurrent customer creation and deleted-customer edits, alongside stock creation/deactivation and checkout concurrency checks.
+
+Further integration work should exercise real Firestore security rules and concurrent clients, device keyboards and navigation, printer failures, and interrupted backup restores. Passing the current test suite is evidence for the covered scenarios, rather than completion of this continuing goal.

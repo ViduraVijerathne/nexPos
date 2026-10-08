@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:nex_pos_desktop/features/dashboard/data/customer_local_repository.dart';
 import 'helpers/isar_test_support.dart';
 import 'package:nex_pos_desktop/features/dashboard/data/stock_local_repository.dart';
 
@@ -125,6 +126,57 @@ void main() {
       await directory.delete(recursive: true);
     });
 
+    test('concurrent customer creation cannot duplicate an email', () async {
+      const customer = CustomerRecord(
+        id: 0,
+        name: ' Alice ',
+        email: ' alice@example.com ',
+        phone: ' 123 ',
+        address: ' Town ',
+        joinDate: '',
+        invoices: [],
+      );
+      final results = await Future.wait<Object?>([
+        for (var i = 0; i < 2; i++)
+          const CustomerLocalRepository()
+              .saveCustomer(customer)
+              .then<Object?>(
+                (value) => value,
+                onError: (Object error) => error,
+              ),
+      ]);
+      expect(results.whereType<CustomerRecord>(), hasLength(1));
+      expect(
+        results.whereType<CustomerLocalRepositoryException>(),
+        hasLength(1),
+      );
+      expect(await isar.customerEntitys.count(), 1);
+      final saved = results.whereType<CustomerRecord>().single;
+      expect(saved.name, 'Alice');
+      expect(saved.email, 'alice@example.com');
+      expect(saved.phone, '123');
+      expect(saved.address, 'Town');
+    });
+    test('editing a deleted customer cannot recreate the record', () async {
+      const customer = CustomerRecord(
+        id: 0,
+        name: 'Alice',
+        email: '',
+        phone: '123',
+        address: '',
+        joinDate: '',
+        invoices: [],
+      );
+      final saved = await const CustomerLocalRepository().saveCustomer(
+        customer,
+      );
+      await isar.writeTxn(() => isar.customerEntitys.delete(saved.id));
+      await expectLater(
+        const CustomerLocalRepository().saveCustomer(saved),
+        throwsA(isA<CustomerLocalRepositoryException>()),
+      );
+      expect(await isar.customerEntitys.count(), 0);
+    });
     test(
       'concurrent stock creation rejects duplicate barcode without replacement',
       () async {

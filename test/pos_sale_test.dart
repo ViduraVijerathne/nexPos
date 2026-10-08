@@ -126,6 +126,47 @@ void main() {
     });
 
     test(
+      'concurrent stock creation rejects duplicate barcode without replacement',
+      () async {
+        const record = StockRecord(
+          barcode: 'new-stock',
+          product: 'Test product',
+          initialQty: 8,
+          availableQty: 8,
+          buyingPrice: 5,
+          sellingPrice: 10,
+          maxDiscount: 0,
+          status: StockStatus.active,
+          grnId: 'Not Assigned',
+        );
+        final results = await Future.wait<Object?>([
+          for (var i = 0; i < 2; i++)
+            const StockLocalRepository()
+                .saveStock(record)
+                .then<Object?>(
+                  (value) => value,
+                  onError: (Object error) => error,
+                ),
+        ]);
+        expect(results.whereType<StockRecord>(), hasLength(1));
+        expect(
+          results.whereType<StockLocalRepositoryException>(),
+          hasLength(1),
+        );
+        expect(await isar.stockEntitys.count(), 2);
+        expect((await isar.stockEntitys.get(1))!.availableQuantity, 5);
+      },
+    );
+    test('saving a deleted stock does not recreate it', () async {
+      final record = (await const StockLocalRepository().fetchStockById(1))!;
+      await isar.writeTxn(() => isar.stockEntitys.delete(1));
+      await expectLater(
+        const StockLocalRepository().saveStock(record),
+        throwsA(isA<StockLocalRepositoryException>()),
+      );
+      expect(await isar.stockEntitys.count(), 0);
+    });
+    test(
       'deactivation cannot restore stock consumed by a concurrent sale',
       () async {
         final results = await Future.wait<Object?>([

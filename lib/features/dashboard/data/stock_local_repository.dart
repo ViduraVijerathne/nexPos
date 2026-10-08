@@ -150,49 +150,54 @@ class StockLocalRepository implements StockRepository {
       throw StockLocalRepositoryException('Stock barcode is required');
     }
 
-    final existing = stock.id == null
-        ? null
-        : await isar.stockEntitys.get(stock.id!);
-    final conflicting = await isar.stockEntitys
-        .filter()
-        .barcodeEqualTo(trimmedBarcode, caseSensitive: false)
-        .findFirst();
-    if (conflicting != null && conflicting.id != stock.id) {
-      throw StockLocalRepositoryException(
-        'A stock item with this barcode already exists',
-      );
-    }
-
-    ProductEntity? linkedProduct;
-    if (stock.product.trim().isNotEmpty) {
-      linkedProduct = await isar.productEntitys
+    StockEntity? existing;
+    final savedRecord = await isar.writeTxn<StockRecord>(() async {
+      existing = stock.id == null
+          ? null
+          : await isar.stockEntitys.get(stock.id!);
+      if (stock.id != null && existing == null) {
+        throw StockLocalRepositoryException(
+          'Stock no longer exists. Reload before editing.',
+        );
+      }
+      final conflicting = await isar.stockEntitys
           .filter()
-          .nameEqualTo(stock.product.trim(), caseSensitive: false)
+          .barcodeEqualTo(trimmedBarcode, caseSensitive: false)
           .findFirst();
-    }
+      if (conflicting != null && conflicting.id != stock.id) {
+        throw StockLocalRepositoryException(
+          'A stock item with this barcode already exists',
+        );
+      }
 
-    final now = DateTime.now();
-    final entity = StockEntity()
-      ..id = stock.id ?? Isar.autoIncrement
-      ..barcode = trimmedBarcode
-      ..productName = stock.product.trim()
-      ..productBarcode = linkedProduct?.barcode
-      ..grnCode = stock.grnId == 'Not Assigned' ? null : stock.grnId.trim()
-      ..initialQuantity = stock.initialQty
-      ..availableQuantity = stock.availableQty
-      ..buyingPrice = stock.buyingPrice
-      ..sellingPrice = stock.sellingPrice
-      ..maxDiscount = stock.maxDiscount
-      ..status = _mapStatusToEntity(stock.status)
-      ..expiryDate = _parseDateOrNull(stock.expiryDate)
-      ..createdAt = existing?.createdAt ?? now
-      ..updatedAt = existing == null ? null : now;
+      ProductEntity? linkedProduct;
+      if (stock.product.trim().isNotEmpty) {
+        linkedProduct = await isar.productEntitys
+            .filter()
+            .nameEqualTo(stock.product.trim(), caseSensitive: false)
+            .findFirst();
+      }
 
-    late final int savedId;
-    await isar.writeTxn(() async {
-      savedId = await isar.stockEntitys.put(entity);
+      final now = DateTime.now();
+      final entity = StockEntity()
+        ..id = stock.id ?? Isar.autoIncrement
+        ..barcode = trimmedBarcode
+        ..productName = stock.product.trim()
+        ..productBarcode = linkedProduct?.barcode
+        ..grnCode = stock.grnId == 'Not Assigned' ? null : stock.grnId.trim()
+        ..initialQuantity = stock.initialQty
+        ..availableQuantity = stock.availableQty
+        ..buyingPrice = stock.buyingPrice
+        ..sellingPrice = stock.sellingPrice
+        ..maxDiscount = stock.maxDiscount
+        ..status = _mapStatusToEntity(stock.status)
+        ..expiryDate = _parseDateOrNull(stock.expiryDate)
+        ..createdAt = existing?.createdAt ?? now
+        ..updatedAt = existing == null ? null : now;
+
+      entity.id = await isar.stockEntitys.put(entity);
+      return _mapEntityToRecord(entity);
     });
-    final savedRecord = _mapEntityToRecord(entity..id = savedId);
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.stock,
       entityId: '${savedRecord.id ?? savedRecord.barcode}',

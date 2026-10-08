@@ -4,6 +4,7 @@ import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import '../../settings/services/app_settings_service.dart';
 import 'pos_repository.dart';
+import 'sale_validation.dart';
 
 class PosRemoteRepositoryException implements Exception {
   PosRemoteRepositoryException(this.message);
@@ -266,19 +267,21 @@ class PosRemoteRepository implements PosRepository {
     required double discountAmount,
     required double taxAmount,
   }) async {
-    if (items.isEmpty) {
-      throw PosRemoteRepositoryException('Add at least one item to the cart');
+    final validationError = validateSaleInput(
+      items: items,
+      amountPaid: amountPaid,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
+      discountAmount: discountAmount,
+      taxAmount: taxAmount,
+    );
+    if (validationError != null) {
+      throw PosRemoteRepositoryException(validationError);
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
     final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
     final total = (subtotal - sanitizedDiscount) + taxAmount;
-    if (amountPaid < total) {
-      throw PosRemoteRepositoryException(
-        'Paid amount must be equal to or greater than total',
-      );
-    }
-
     final stockIds = items
         .map((item) => item.stockCloudId)
         .whereType<String>()

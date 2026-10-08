@@ -12,11 +12,12 @@ DateTime? parseAppDate(String? value) {
     return null;
   }
 
-  try {
-    return DateTime.parse(normalized);
-  } catch (_) {
+  if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(normalized)) {
     return null;
   }
+  final parsed = DateTime.tryParse(normalized);
+  // Dart normalizes overflowing dates, such as February 30, into March.
+  return parsed != null && formatAppDate(parsed) == normalized ? parsed : null;
 }
 
 Future<DateTime?> showAppDatePicker({

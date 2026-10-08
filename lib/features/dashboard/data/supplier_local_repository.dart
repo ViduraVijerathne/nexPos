@@ -133,18 +133,16 @@ class SupplierLocalRepository implements SupplierRepository {
 
   Future<SupplierRecord?> toggleSupplierStatus(SupplierRecord supplier) async {
     final isar = await AppDatabase.instance;
-    final entity = await isar.supplierEntitys.get(supplier.id);
-    if (entity == null) {
-      return null;
-    }
-
-    entity
-      ..isActive = !entity.isActive
-      ..updatedAt = DateTime.now();
-
-    await isar.writeTxn(() async {
+    final changed = await isar.writeTxn<bool>(() async {
+      final entity = await isar.supplierEntitys.get(supplier.id);
+      if (entity == null) return false;
+      entity
+        ..isActive = !entity.isActive
+        ..updatedAt = DateTime.now();
       await isar.supplierEntitys.put(entity);
+      return true;
     });
+    if (!changed) return null;
 
     return fetchSupplierDetails(supplier);
   }
@@ -155,29 +153,32 @@ class SupplierLocalRepository implements SupplierRepository {
     required double amount,
     required String method,
   }) async {
-    final isar = await AppDatabase.instance;
-    final grn = await isar.grnEntitys.filter().codeEqualTo(grnId).findFirst();
-    if (grn == null) {
-      throw SupplierLocalRepositoryException('GRN not found');
-    }
-
-    final currentDue = (grn.total - grn.paidAmount).clamp(0, double.infinity);
-    if (amount <= 0 || amount > currentDue) {
+    if (!amount.isFinite || amount <= 0) {
       throw SupplierLocalRepositoryException('Invalid payment amount');
     }
-
-    final payment = GrnPaymentEmbedded()
-      ..paidAt = DateTime.now()
-      ..amount = amount
-      ..method = method
-      ..remainingBalance = (currentDue - amount).clamp(0, double.infinity);
-
-    grn
-      ..paidAmount = grn.paidAmount + amount
-      ..updatedAt = DateTime.now()
-      ..paymentHistory = <GrnPaymentEmbedded>[...grn.paymentHistory, payment];
-
+    final isar = await AppDatabase.instance;
     await isar.writeTxn(() async {
+      final grn = await isar.grnEntitys.filter().codeEqualTo(grnId).findFirst();
+      if (grn == null) {
+        throw SupplierLocalRepositoryException('GRN not found');
+      }
+
+      final currentDue = (grn.total - grn.paidAmount).clamp(0, double.infinity);
+      if (amount <= 0 || amount > currentDue) {
+        throw SupplierLocalRepositoryException('Invalid payment amount');
+      }
+
+      final payment = GrnPaymentEmbedded()
+        ..paidAt = DateTime.now()
+        ..amount = amount
+        ..method = method
+        ..remainingBalance = (currentDue - amount).clamp(0, double.infinity);
+
+      grn
+        ..paidAmount = grn.paidAmount + amount
+        ..updatedAt = DateTime.now()
+        ..paymentHistory = <GrnPaymentEmbedded>[...grn.paymentHistory, payment];
+
       await isar.grnEntitys.put(grn);
     });
 

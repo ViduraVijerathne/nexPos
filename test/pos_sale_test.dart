@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:nex_pos_desktop/features/dashboard/data/supplier_local_repository.dart';
+import 'package:nex_pos_desktop/features/dashboard/data/supplier_remote_repository.dart';
 import 'package:nex_pos_desktop/features/dashboard/data/customer_local_repository.dart';
 import 'helpers/isar_test_support.dart';
 import 'package:nex_pos_desktop/features/dashboard/data/stock_local_repository.dart';
@@ -177,6 +179,110 @@ void main() {
       );
       expect(await isar.customerEntitys.count(), 0);
     });
+    test('concurrent supplier status toggles retain both changes', () async {
+      const supplier = SupplierRecord(
+        id: 0,
+        supplierName: 'Supplier',
+        companyName: '',
+        contactNumber: '',
+        companyContact: '',
+        email: 'supplier@example.com',
+        address: '',
+        isActive: true,
+        grns: [],
+      );
+      final saved = await const SupplierLocalRepository().saveSupplier(
+        supplier,
+      );
+      await Future.wait([
+        const SupplierLocalRepository().toggleSupplierStatus(saved),
+        const SupplierLocalRepository().toggleSupplierStatus(saved),
+      ]);
+      expect((await isar.supplierEntitys.get(saved.id))!.isActive, isTrue);
+    });
+    test(
+      'supplier payments reject NaN and infinity before database access',
+      () async {
+        const supplier = SupplierRecord(
+          id: 1,
+          supplierName: 'Supplier',
+          companyName: '',
+          contactNumber: '',
+          companyContact: '',
+          email: '',
+          address: '',
+          isActive: true,
+          grns: [],
+        );
+        for (final amount in [double.nan, double.infinity, -1.0, 0.0]) {
+          await expectLater(
+            const SupplierLocalRepository().recordDuePayment(
+              supplier: supplier,
+              grnId: 'missing',
+              amount: amount,
+              method: 'Cash',
+            ),
+            throwsA(isA<SupplierLocalRepositoryException>()),
+          );
+          await expectLater(
+            SupplierRemoteRepository(shopId: 'test').recordDuePayment(
+              supplier: supplier,
+              grnId: 'missing',
+              amount: amount,
+              method: 'Cash',
+            ),
+            throwsA(isA<SupplierRemoteRepositoryException>()),
+          );
+        }
+      },
+    );
+    test(
+      'supplier-page concurrent payments cannot lose history or overpay',
+      () async {
+        final grn = GrnEntity()
+          ..code = 'SUP-GRN'
+          ..supplierName = 'Supplier'
+          ..date = DateTime.now()
+          ..subTotal = 100
+          ..discount = 0
+          ..paidAmount = 0
+          ..paymentMethod = 'Cash'
+          ..createdAt = DateTime.now();
+        await isar.writeTxn(() => isar.grnEntitys.put(grn));
+        const supplier = SupplierRecord(
+          id: 1,
+          supplierName: 'Supplier',
+          companyName: '',
+          contactNumber: '',
+          companyContact: '',
+          email: '',
+          address: '',
+          isActive: true,
+          grns: [],
+        );
+        final results = await Future.wait<Object?>([
+          for (var i = 0; i < 2; i++)
+            const SupplierLocalRepository()
+                .recordDuePayment(
+                  supplier: supplier,
+                  grnId: 'SUP-GRN',
+                  amount: 60,
+                  method: 'Cash',
+                )
+                .then<Object?>(
+                  (value) => value,
+                  onError: (Object error) => error,
+                ),
+        ]);
+        expect(
+          results.whereType<SupplierLocalRepositoryException>(),
+          hasLength(1),
+        );
+        final saved = (await isar.grnEntitys.get(grn.id))!;
+        expect(saved.paidAmount, 60);
+        expect(saved.paymentHistory, hasLength(1));
+      },
+    );
     test(
       'concurrent stock creation rejects duplicate barcode without replacement',
       () async {

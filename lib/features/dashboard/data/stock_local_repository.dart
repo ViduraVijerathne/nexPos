@@ -213,19 +213,16 @@ class StockLocalRepository implements StockRepository {
 
   Future<StockRecord?> deactivateStockById(int stockId) async {
     final isar = await AppDatabase.instance;
-    final entity = await isar.stockEntitys.get(stockId);
-    if (entity == null) {
-      return null;
-    }
-
-    entity
-      ..status = StockEntityStatus.inactive
-      ..updatedAt = DateTime.now();
-
-    await isar.writeTxn(() async {
+    final savedRecord = await isar.writeTxn<StockRecord?>(() async {
+      final entity = await isar.stockEntitys.get(stockId);
+      if (entity == null) return null;
+      entity
+        ..status = StockEntityStatus.inactive
+        ..updatedAt = DateTime.now();
       await isar.stockEntitys.put(entity);
+      return _mapEntityToRecord(entity);
     });
-    final savedRecord = _mapEntityToRecord(entity);
+    if (savedRecord == null) return null;
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.stock,
       entityId: '${savedRecord.id ?? savedRecord.barcode}',

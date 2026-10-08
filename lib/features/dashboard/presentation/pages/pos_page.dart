@@ -604,6 +604,18 @@ class _PosPageState extends State<PosPage> {
   }
 
   Future<void> _handleSearchSubmitted(String value) async {
+    try {
+      await _submitSearch(value);
+    } catch (error) {
+      if (mounted &&
+          _searchController.text.trim().toLowerCase() ==
+              value.trim().toLowerCase()) {
+        AppToast.error('Unable to find product: ${_readableError(error)}');
+      }
+    }
+  }
+
+  Future<void> _submitSearch(String value) async {
     if (_isProcessing) return;
     _searchDebounce?.cancel();
     final normalizedValue = value.trim().toLowerCase();

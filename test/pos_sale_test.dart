@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'helpers/isar_test_support.dart';
+import 'package:nex_pos_desktop/features/dashboard/data/stock_local_repository.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
@@ -124,6 +125,22 @@ void main() {
       await directory.delete(recursive: true);
     });
 
+    test(
+      'deactivation cannot restore stock consumed by a concurrent sale',
+      () async {
+        final results = await Future.wait<Object?>([
+          _sell(
+            const PosLocalRepository(),
+          ).then<Object?>((value) => value, onError: (Object error) => error),
+          const StockLocalRepository().deactivateStockById(1),
+        ]);
+        final sold = results.first is PosCheckoutResult;
+        final stock = (await isar.stockEntitys.get(1))!;
+        expect(stock.availableQuantity, sold ? 4 : 5);
+        expect(stock.status, StockEntityStatus.inactive);
+        expect(await isar.invoiceEntitys.count(), sold ? 1 : 0);
+      },
+    );
     test(
       'concurrent sales retain both invoices and stock deductions',
       () async {

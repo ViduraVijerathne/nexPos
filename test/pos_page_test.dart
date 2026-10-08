@@ -33,6 +33,7 @@ class _Expenses implements ExpenseRepository {
 }
 
 class _Pos implements PosRepository {
+  bool failLookup = false;
   int quantity = 5;
   int soldQuantity = 0;
   int customerSearches = 0;
@@ -71,8 +72,13 @@ class _Pos implements PosRepository {
   }
 
   @override
-  Future<PosCatalogItem?> findExactCatalogMatch(String value) async =>
-      value == 'tea' ? (await fetchCatalog()).items.first : null;
+  Future<PosCatalogItem?> findExactCatalogMatch(String value) async {
+    if (failLookup) throw StateError('Network unavailable');
+    return value == 'tea' || value == 'tea-code'
+        ? (await fetchCatalog()).items.first
+        : null;
+  }
+
   @override
   Future<List<PosCustomerOption>> searchCustomers(String query) async {
     customerSearches++;
@@ -196,6 +202,29 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('failed barcode lookup leaves cart intact and can be retried', (
+    tester,
+  ) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _Pos()..failLookup = true;
+    await open(tester, repository);
+    await tester.enterText(
+      find.byKey(const ValueKey('pos-product-search')),
+      'tea-code',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Cart (0)'), findsOneWidget);
+    repository.failLookup = false;
+    await tester.enterText(
+      find.byKey(const ValueKey('pos-product-search')),
+      'tea-code',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(find.text('Cart (1)'), findsOneWidget);
+  });
   testWidgets('unknown barcode cannot add the highlighted unrelated item', (
     tester,
   ) async {

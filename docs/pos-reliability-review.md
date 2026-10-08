@@ -13,6 +13,7 @@ The `dev` branch improves checkout correctness and speed, reduces repeated cloud
 - Mobile billing uses Products, Cart and Checkout tabs. Tablets use two columns and desktops three. Short screens scroll; customer, supplier, invoice and GRN tables scroll horizontally and their filters stack.
 - Receipt errors identify the bill as saved. Restaurant KOT processing remains available when the receipt toggle is off.
 - Offline backup restore stages and validates an Isar backup before replacing the live database. Online restores reject incomplete backups and read the source before changing destination collections.
+- Barcode lookup errors leave the cart intact and allow a retry. Stock deactivation reads and writes inside the same transaction so it cannot restore quantities consumed by a concurrent sale.
 - Supplier payments are validated and serialized locally. Online GRN creation and pending-stock insertion commit the GRN and stock together; retrying cannot duplicate an already completed insertion.
 
 ## Verification

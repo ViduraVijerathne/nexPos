@@ -30,6 +30,9 @@ class PosLocalRepository implements PosRepository {
     isWalkIn: true,
   );
 
+  @override
+  void invalidateCatalog() {}
+
   Future<void> initialize() async {
     await const StockLocalRepository().initialize();
     await const CustomerLocalRepository().initialize();
@@ -53,13 +56,14 @@ class PosLocalRepository implements PosRepository {
     };
 
     final activeStocks = await isar.stockEntitys.where().findAll();
-    final invoices = await isar.invoiceEntitys.where().findAll();
     final normalizedQuery = searchQuery?.trim().toLowerCase() ?? '';
     final normalizedCategory = category?.trim() ?? 'All';
     final appliedLoadMode = normalizedQuery.isEmpty
         ? loadMode
         : PosCatalogLoadMode.defaultOrder;
-    final salesByProductKey = _buildLocalSalesMap(invoices);
+    final salesByProductKey = appliedLoadMode == PosCatalogLoadMode.mostSelling
+        ? _buildLocalSalesMap(await isar.invoiceEntitys.where().findAll())
+        : <String, int>{};
 
     final items =
         activeStocks
@@ -125,8 +129,8 @@ class PosLocalRepository implements PosRepository {
 
     final categories = <String>{
       'All',
-      ...items
-          .map((item) => item.category)
+      ...products
+          .map((product) => product.category)
           .where((value) => value.trim().isNotEmpty),
     }.toList();
 
@@ -218,7 +222,7 @@ class PosLocalRepository implements PosRepository {
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
     final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
-    final total = (subtotal - sanitizedDiscount) + taxAmount;
+    final total = roundMoney((subtotal - sanitizedDiscount) + taxAmount);
     final isar = await AppDatabase.instance;
     late final String invoiceNumber;
     await isar.writeTxn(() async {

@@ -9,6 +9,7 @@ import '../../../../core/services/kot_print_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
 import '../../../../core/widgets/app_date_field.dart';
+import '../../../../core/widgets/adaptive_data_layout.dart';
 import '../../../../core/widgets/invoice_preview.dart';
 import '../../data/customer_local_repository.dart';
 import '../../data/customer_remote_repository.dart';
@@ -25,6 +26,7 @@ import '../../data/invoice_repository_factory.dart';
 import '../../data/pos_local_repository.dart';
 import '../../data/pos_remote_repository.dart';
 import '../../data/pos_repository.dart';
+import '../../data/sale_validation.dart';
 import '../../data/pos_repository_factory.dart';
 import '../../models/models.dart';
 import '../../services/day_session_service.dart';
@@ -38,7 +40,17 @@ enum PosPaymentMethod { cash, card, multiple }
 enum PosPricingGroup { retail, wholesale }
 
 class PosPage extends StatefulWidget {
-  const PosPage({super.key});
+  const PosPage({
+    super.key,
+    this.repository,
+    this.customerRepository,
+    this.invoiceRepository,
+    this.expenseRepository,
+  });
+  final PosRepository? repository;
+  final CustomerRepository? customerRepository;
+  final InvoiceRepository? invoiceRepository;
+  final ExpenseRepository? expenseRepository;
 
   @override
   State<PosPage> createState() => _PosPageState();
@@ -95,9 +107,11 @@ class _PosPageState extends State<PosPage> {
     defaultLoadMode: PosCatalogLoadMode.defaultOrder,
     defaultViewMode: PosCatalogViewMode.row,
   );
-  PosPrintSettings _printSettings = PosPrintSettings.defaults;
   PosShortcutSettings _shortcutSettings = PosShortcutSettings.defaults;
   bool _touchModeEnabled = false;
+  bool _printReceipt = true;
+  int _catalogRequest = 0;
+  int _customerRequest = 0;
   DrawerSessionState _drawerSession = const DrawerSessionState.inactive();
 
   @override
@@ -161,7 +175,7 @@ class _PosPageState extends State<PosPage> {
   double get _tax => _taxSettings.isTaxEnabled
       ? _discountedSubtotal * _taxSettings.taxRate
       : 0;
-  double get _total => _discountedSubtotal + _tax;
+  double get _total => roundMoney(_discountedSubtotal + _tax);
   double get _enteredCashAmount =>
       double.tryParse(_amountController.text.trim()) ?? 0;
   double get _enteredCardAmount =>
@@ -202,7 +216,17 @@ class _PosPageState extends State<PosPage> {
   }
 
   bool get _canProcessPayment =>
-      !_isProcessing && _cartItems.isNotEmpty && _amountPaid >= _total;
+      !_isProcessing &&
+      !_isOpeningCustomerDialog &&
+      validateSaleInput(
+            items: _cartItems,
+            amountPaid: _amountPaid,
+            cashPaidAmount: _cashPaidAmount,
+            cardPaidAmount: _cardPaidAmount,
+            discountAmount: _discount,
+            taxAmount: _tax,
+          ) ==
+          null;
 
   String? _pickSelectableStockKey({String? preferred}) {
     final items = _visibleCatalogItems;
@@ -309,7 +333,8 @@ class _PosPageState extends State<PosPage> {
       _taxSettings = taxSettings;
       _customerSettings = customerSettings;
       _catalogSettings = catalogSettings;
-      _printSettings = printSettings;
+      _printReceipt =
+          printSettings.invoicePrintMode != PosInvoicePrintMode.none;
       _shortcutSettings = shortcutSettings;
       _touchModeEnabled = touchSettings.isEnabled;
       _drawerSession = drawerSession;
@@ -345,10 +370,14 @@ class _PosPageState extends State<PosPage> {
 
   Future<void> _initializePage() async {
     try {
-      final repository = await PosRepositoryFactory.create();
-      final customerRepository = await CustomerRepositoryFactory.create();
-      final invoiceRepository = await InvoiceRepositoryFactory.create();
-      final expenseRepository = await ExpenseRepositoryFactory.create();
+      final repository =
+          widget.repository ?? await PosRepositoryFactory.create();
+      final customerRepository =
+          widget.customerRepository ?? await CustomerRepositoryFactory.create();
+      final invoiceRepository =
+          widget.invoiceRepository ?? await InvoiceRepositoryFactory.create();
+      final expenseRepository =
+          widget.expenseRepository ?? await ExpenseRepositoryFactory.create();
       await repository.initialize();
       await customerRepository.initialize();
       await invoiceRepository.initialize();
@@ -375,14 +404,15 @@ class _PosPageState extends State<PosPage> {
           _taxSettings = taxSettings;
           _customerSettings = customerSettings;
           _catalogSettings = catalogSettings;
-          _printSettings = printSettings;
+          _printReceipt =
+              printSettings.invoicePrintMode != PosInvoicePrintMode.none;
           _shortcutSettings = shortcutSettings;
           _touchModeEnabled = touchSettings.isEnabled;
           _drawerSession = drawerSession;
         });
       }
       await _loadCatalog();
-      await _loadCustomers();
+
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_touchModeEnabled) {
@@ -480,6 +510,7 @@ class _PosPageState extends State<PosPage> {
     if (repository == null) {
       return;
     }
+    final request = ++_catalogRequest;
     if (mounted) {
       setState(() => _isCatalogLoading = true);
     }
@@ -490,7 +521,7 @@ class _PosPageState extends State<PosPage> {
         loadMode: _catalogSettings.defaultLoadMode,
       );
 
-      if (!mounted) {
+      if (!mounted || request != _catalogRequest) {
         return;
       }
 
@@ -505,7 +536,7 @@ class _PosPageState extends State<PosPage> {
         _isCatalogLoading = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || request != _catalogRequest) {
         return;
       }
       setState(() {
@@ -521,6 +552,7 @@ class _PosPageState extends State<PosPage> {
     if (repository == null) {
       return;
     }
+    final request = ++_customerRequest;
     if (mounted) {
       setState(() => _isCustomerLoading = true);
     }
@@ -532,7 +564,7 @@ class _PosPageState extends State<PosPage> {
             : _customerController.text,
       );
 
-      if (!mounted) {
+      if (!mounted || request != _customerRequest) {
         return;
       }
 
@@ -541,7 +573,7 @@ class _PosPageState extends State<PosPage> {
         _isCustomerLoading = false;
       });
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || request != _customerRequest) {
         return;
       }
       setState(() => _isCustomerLoading = false);
@@ -550,11 +582,13 @@ class _PosPageState extends State<PosPage> {
   }
 
   void _handleSearchChanged(String _) {
+    _catalogRequest++;
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 180), _loadCatalog);
   }
 
   void _handleCustomerChanged(String value) {
+    _customerRequest++;
     setState(() {
       _showCustomerSuggestions = true;
       if (value.trim().isEmpty) {
@@ -570,6 +604,8 @@ class _PosPageState extends State<PosPage> {
   }
 
   Future<void> _handleSearchSubmitted(String value) async {
+    if (_isProcessing) return;
+    _searchDebounce?.cancel();
     final normalizedValue = value.trim().toLowerCase();
     if (normalizedValue.isNotEmpty) {
       final exactVisibleMatch = _visibleCatalogItems
@@ -591,6 +627,10 @@ class _PosPageState extends State<PosPage> {
         final adjustedMatch = exactMatch == null
             ? null
             : _adjustCatalogItemForCart(exactMatch);
+        if (!mounted ||
+            _isProcessing ||
+            _searchController.text.trim().toLowerCase() != normalizedValue)
+          return;
         if (adjustedMatch != null) {
           _addCatalogItemToCart(adjustedMatch);
           return;
@@ -598,7 +638,24 @@ class _PosPageState extends State<PosPage> {
       }
     }
 
-    final visibleItems = _visibleCatalogItems;
+    await _loadCatalog();
+    if (!mounted ||
+        _isProcessing ||
+        _searchController.text.trim().toLowerCase() != normalizedValue)
+      return;
+    final visibleItems = _visibleCatalogItems
+        .where(
+          (item) =>
+              normalizedValue.isEmpty ||
+              item.productName.toLowerCase().contains(normalizedValue) ||
+              item.stockBarcode.toLowerCase().contains(normalizedValue) ||
+              item.productBarcode.toLowerCase().contains(normalizedValue),
+        )
+        .toList();
+    if (visibleItems.isEmpty && normalizedValue.isNotEmpty) {
+      AppToast.error('No available product matches "$value"');
+      return;
+    }
     if (visibleItems.length == 1) {
       _addCatalogItemToCart(visibleItems.first);
       return;
@@ -641,6 +698,9 @@ class _PosPageState extends State<PosPage> {
   }
 
   void _addCatalogItemToCart(PosCatalogItem item) {
+    if (_isProcessing) return;
+    _searchDebounce?.cancel();
+    _catalogRequest++;
     final shouldReloadAfterAdd = _searchController.text.trim().isNotEmpty;
 
     final existingIndex = _cartItems.indexWhere(
@@ -649,7 +709,7 @@ class _PosPageState extends State<PosPage> {
 
     if (existingIndex >= 0) {
       final existingItem = _cartItems[existingIndex];
-      if (existingItem.quantity >= item.availableQty) {
+      if (item.availableQty <= 0) {
         AppToast.error('No more quantity available for ${item.productName}');
         return;
       }
@@ -657,7 +717,7 @@ class _PosPageState extends State<PosPage> {
       setState(() {
         _cartItems[existingIndex] = existingItem.copyWith(
           quantity: existingItem.quantity + 1,
-          availableQty: item.availableQty,
+          availableQty: existingItem.quantity + item.availableQty,
         );
         _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
         _searchController.clear();
@@ -692,6 +752,7 @@ class _PosPageState extends State<PosPage> {
   }
 
   void _changeCartQuantity(PosCartItem item, int delta) {
+    if (_isProcessing) return;
     final index = _cartItems.indexWhere(
       (cartItem) => cartItem.stockKey == item.stockKey,
     );
@@ -726,6 +787,7 @@ class _PosPageState extends State<PosPage> {
   }
 
   void _removeCartItem(PosCartItem item) {
+    if (_isProcessing) return;
     setState(() {
       _cartItems.removeWhere((cartItem) => cartItem.stockKey == item.stockKey);
       _selectedStockKey = _pickSelectableStockKey(preferred: item.stockKey);
@@ -736,7 +798,29 @@ class _PosPageState extends State<PosPage> {
     _searchFocusNode.requestFocus();
   }
 
-  void _startNewTransaction() {
+  Future<void> _startNewTransaction() async {
+    if (_isProcessing) return;
+    if (_cartItems.isNotEmpty) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Discard this bill?'),
+          content: const Text('The items in this unpaid bill will be removed.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep bill'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || discard != true) return;
+    }
+    _searchDebounce?.cancel();
     setState(() {
       _cartItems.clear();
       _amountController.clear();
@@ -750,6 +834,7 @@ class _PosPageState extends State<PosPage> {
     });
     _resetToWalkInCustomer();
     _searchFocusNode.requestFocus();
+    _loadCatalog();
     AppToast.success('New transaction started');
   }
 
@@ -759,6 +844,14 @@ class _PosPageState extends State<PosPage> {
     }
 
     setState(() => _isProcessing = true);
+    final items = List<PosCartItem>.unmodifiable(_cartItems);
+    final subtotal = _subtotal,
+        discount = _discount,
+        tax = _tax,
+        total = _total;
+    final paid = _amountPaid, cash = _cashPaidAmount, card = _cardPaidAmount;
+    final paymentMethod = _selectedPaymentMethod.label;
+    final printReceipt = _printReceipt;
 
     try {
       final checkoutCustomer = await _resolveCheckoutCustomer();
@@ -770,15 +863,15 @@ class _PosPageState extends State<PosPage> {
       }
 
       final result = await _repository!.processSale(
-        items: _cartItems,
+        items: items,
         customer: checkoutCustomer,
-        paymentMethod: _selectedPaymentMethod.label,
-        amountPaid: _amountPaid,
-        cashPaidAmount: _cashPaidAmount,
-        cardPaidAmount: _cardPaidAmount,
+        paymentMethod: paymentMethod,
+        amountPaid: paid,
+        cashPaidAmount: cash,
+        cardPaidAmount: card,
         cashierName: 'Admin User',
-        discountAmount: _discount,
-        taxAmount: _tax,
+        discountAmount: discount,
+        taxAmount: tax,
       );
 
       if (!mounted) {
@@ -793,7 +886,7 @@ class _PosPageState extends State<PosPage> {
             .toString()
             .replaceFirst('T', ' ')
             .substring(0, 16),
-        items: _cartItems
+        items: items
             .map(
               (item) => InvoicePreviewLine(
                 name: item.productName,
@@ -802,14 +895,14 @@ class _PosPageState extends State<PosPage> {
               ),
             )
             .toList(),
-        subtotal: _subtotal,
-        discount: _discount,
-        tax: _tax,
-        total: _total,
-        paymentMethod: _selectedPaymentMethod.label,
-        paidAmount: _amountPaid,
-        cashPaidAmount: _cashPaidAmount,
-        cardPaidAmount: _cardPaidAmount,
+        subtotal: subtotal,
+        discount: discount,
+        tax: tax,
+        total: total,
+        paymentMethod: paymentMethod,
+        paidAmount: paid,
+        cashPaidAmount: cash,
+        cardPaidAmount: card,
         balance: result.changeAmount,
       );
 
@@ -831,16 +924,29 @@ class _PosPageState extends State<PosPage> {
       _resetToWalkInCustomer();
       await _loadCatalog();
       _searchFocusNode.requestFocus();
-      final currentPrintSettings = await AppSettingsService.instance
-          .loadPosPrintSettings();
-      if (mounted) {
-        setState(() => _printSettings = currentPrintSettings);
-      }
-      if (currentPrintSettings.invoicePrintMode ==
-          PosInvoicePrintMode.instant) {
-        await _printInstantly(preview);
-      } else {
-        await _showPrintPreview(preview);
+      try {
+        final currentPrintSettings = await AppSettingsService.instance
+            .loadPosPrintSettings();
+        if (!mounted) return;
+        if (!printReceipt) {
+          if (currentPrintSettings.restaurantExtensionEnabled) {
+            final setupState = await SetupService.instance.loadState();
+            await _handlePostInvoiceRestaurantPrint(
+              preview: preview,
+              shopInfo: setupState.shopInfo,
+              printSettings: currentPrintSettings,
+            );
+          }
+        } else if (currentPrintSettings.invoicePrintMode ==
+            PosInvoicePrintMode.instant) {
+          await _printInstantly(preview);
+        } else {
+          await _showPrintPreview(preview);
+        }
+      } catch (_) {
+        AppToast.error(
+          'Bill saved. Printing failed; reprint it from Recent Invoices.',
+        );
       }
     } on PosLocalRepositoryException catch (error) {
       if (!mounted) {
@@ -1071,7 +1177,7 @@ class _PosPageState extends State<PosPage> {
           _showCustomerSuggestions = false;
         });
       }
-      await _loadCustomers();
+
       AppToast.success('Customer created successfully');
       return customer;
     }
@@ -1518,6 +1624,10 @@ class _PosPageState extends State<PosPage> {
             _searchFocusNode.requestFocus();
           },
           onProductSelected: _addCatalogItemToCart,
+          onRefresh: () {
+            _repository?.invalidateCatalog();
+            _loadCatalog();
+          },
         );
 
         final orderPanel = _OrderItemsPanel(
@@ -1560,10 +1670,19 @@ class _PosPageState extends State<PosPage> {
           onCustomerChanged: _handleCustomerChanged,
           onCustomerTapped: () {
             setState(() => _showCustomerSuggestions = true);
+            _loadCustomers();
           },
           onCustomerSelected: _selectCustomer,
           onResetCustomer: _resetToWalkInCustomer,
           onProcessPayment: _processPayment,
+          printReceipt: _printReceipt,
+          onPrintReceiptChanged: (value) =>
+              setState(() => _printReceipt = value),
+          onExactCash: () => setState(() {
+            _selectedPaymentMethod = PosPaymentMethod.cash;
+            _amountController.text = _total.toStringAsFixed(2);
+            _cardAmountController.clear();
+          }),
           isOpeningCustomerDialog: _isOpeningCustomerDialog,
           touchModeEnabled: _touchModeEnabled,
           onTouchDigitPressed: _appendTouchDigit,
@@ -1574,165 +1693,114 @@ class _PosPageState extends State<PosPage> {
           padding: EdgeInsets.all(pagePadding),
           child: CallbackShortcuts(
             bindings: _buildShortcutBindings(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (constraints.maxWidth < 760) ...[
-                  const _PosHeader(),
-                  SizedBox(height: sectionGap),
+            child: AbsorbPointer(
+              absorbing: _isProcessing,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Row(
                     children: [
                       Expanded(
-                        child: _SecondaryActionButton(
-                          label: 'Expenses',
-                          icon: Icons.receipt_long_rounded,
-                          onPressed: _isSavingQuickExpense
-                              ? null
-                              : _openQuickExpenseDialog,
-                          isLoading: _isSavingQuickExpense,
+                        child: _PosHeader(
+                          compact: isMobile || constraints.maxHeight < 600,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SecondaryActionButton(
-                          label: _drawerSession.isActive
-                              ? 'Day End'
-                              : 'Day Start',
-                          icon: _drawerSession.isActive
-                              ? Icons.event_available_rounded
-                              : Icons.play_circle_outline_rounded,
-                          onPressed: _isDaySessionLoading
-                              ? null
-                              : _openDaySessionAction,
-                          isLoading: _isDaySessionLoading,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SecondaryActionButton(
-                          label: 'Recent Invoice',
-                          icon: Icons.history_rounded,
-                          onPressed: _isRecentInvoicesLoading
-                              ? null
-                              : _openRecentInvoicesDialog,
-                          isLoading: _isRecentInvoicesLoading,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _PrimaryActionButton(
-                          label: 'New Transaction',
-                          icon: Icons.add,
-                          onPressed: _isProcessing
-                              ? null
-                              : _startNewTransaction,
-                          isLoading: false,
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(child: _PosHeader()),
-                      const SizedBox(width: 16),
-                      _SecondaryActionButton(
-                        label: 'Expenses',
-                        icon: Icons.receipt_long_rounded,
-                        onPressed: _isSavingQuickExpense
-                            ? null
-                            : _openQuickExpenseDialog,
-                        isLoading: _isSavingQuickExpense,
-                      ),
-                      const SizedBox(width: 10),
-                      _SecondaryActionButton(
-                        label: _drawerSession.isActive
-                            ? 'Day End'
-                            : 'Day Start',
-                        icon: _drawerSession.isActive
-                            ? Icons.event_available_rounded
-                            : Icons.play_circle_outline_rounded,
-                        onPressed: _isDaySessionLoading
-                            ? null
-                            : _openDaySessionAction,
-                        isLoading: _isDaySessionLoading,
-                      ),
-                      const SizedBox(width: 10),
-                      _SecondaryActionButton(
-                        label: 'Recent Invoice',
-                        icon: Icons.history_rounded,
-                        onPressed: _isRecentInvoicesLoading
-                            ? null
-                            : _openRecentInvoicesDialog,
-                        isLoading: _isRecentInvoicesLoading,
-                      ),
-                      const SizedBox(width: 10),
-                      _PrimaryActionButton(
-                        label: 'New Transaction',
-                        icon: Icons.add,
+                      IconButton.filled(
+                        tooltip: 'New transaction',
                         onPressed: _isProcessing ? null : _startNewTransaction,
-                        isLoading: false,
+                        icon: const Icon(Icons.add_rounded),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'POS actions',
+                        enabled: !_isProcessing,
+                        onSelected: (value) {
+                          if (value == 'expenses') _openQuickExpenseDialog();
+                          if (value == 'day') _openDaySessionAction();
+                          if (value == 'invoices') _openRecentInvoicesDialog();
+                          if (value == 'refresh') {
+                            _repository?.invalidateCatalog();
+                            _loadCatalog();
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            enabled: !_isSavingQuickExpense,
+                            value: 'expenses',
+                            child: Text('Add expense'),
+                          ),
+                          PopupMenuItem(
+                            enabled: !_isDaySessionLoading,
+                            value: 'day',
+                            child: Text(
+                              _drawerSession.isActive ? 'Day End' : 'Day Start',
+                            ),
+                          ),
+                          PopupMenuItem(
+                            enabled: !_isRecentInvoicesLoading,
+                            value: 'invoices',
+                            child: Text('Recent Invoices'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'refresh',
+                            child: Text('Refresh products'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                SizedBox(height: sectionGap),
-                Expanded(
-                  child: _isLoading
-                      ? Center(
-                          child: CircularProgressIndicator(
-                            color: AppColors.primaryTeal,
+                  SizedBox(height: sectionGap),
+                  Expanded(
+                    child: _isLoading
+                        ? Center(
+                            child: CircularProgressIndicator(
+                              color: AppColors.primaryTeal,
+                            ),
+                          )
+                        : isMobile
+                        ? _MobilePosWorkspace(
+                            productsPanel: productsPanel,
+                            orderPanel: orderPanel,
+                            checkoutPanel: checkoutPanel,
+                            cartItemCount: _cartItems.fold<int>(
+                              0,
+                              (count, item) => count + item.quantity,
+                            ),
+                            total: _total,
+                          )
+                        : isTablet
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 6, child: productsPanel),
+                              SizedBox(width: sectionGap),
+                              Expanded(
+                                flex: 5,
+                                child: Column(
+                                  children: [
+                                    Expanded(child: orderPanel),
+                                    SizedBox(height: sectionGap),
+                                    Expanded(child: checkoutPanel),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 5, child: productsPanel),
+                              SizedBox(width: sectionGap),
+                              Expanded(flex: 3, child: orderPanel),
+                              SizedBox(width: sectionGap),
+                              Expanded(flex: 3, child: checkoutPanel),
+                            ],
                           ),
-                        )
-                      : isMobile
-                      ? Column(
-                          children: [
-                            Expanded(flex: 11, child: productsPanel),
-                            SizedBox(height: sectionGap),
-                            Expanded(
-                              flex: 10,
-                              child: _MobilePosBillingPanel(
-                                orderPanel: orderPanel,
-                                checkoutPanel: checkoutPanel,
-                                cartItemCount: _cartItems.length,
-                                canProcessPayment: _canProcessPayment,
-                              ),
-                            ),
-                          ],
-                        )
-                      : isTablet
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(flex: 6, child: productsPanel),
-                            SizedBox(width: sectionGap),
-                            Expanded(
-                              flex: 5,
-                              child: Column(
-                                children: [
-                                  Expanded(child: orderPanel),
-                                  SizedBox(height: sectionGap),
-                                  Expanded(child: checkoutPanel),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      : Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(flex: 5, child: productsPanel),
-                            SizedBox(width: sectionGap),
-                            Expanded(flex: 3, child: orderPanel),
-                            SizedBox(width: sectionGap),
-                            Expanded(flex: 3, child: checkoutPanel),
-                          ],
-                        ),
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
-        );
+        ).withAdaptivePageViewport(minHeight: 500);
       },
     );
   }
@@ -1778,11 +1846,12 @@ Color _posAccentStrong([double amount = 0.18]) =>
     Color.lerp(Colors.white, AppColors.primaryTeal, amount)!;
 
 class _PosHeader extends StatelessWidget {
-  const _PosHeader();
+  const _PosHeader({this.compact = false});
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -1793,15 +1862,16 @@ class _PosHeader extends StatelessWidget {
             color: Color(0xFF334156),
           ),
         ),
-        SizedBox(height: 6),
-        Text(
-          'Process customer transactions and manage orders.',
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF8492A6),
+        if (!compact) const SizedBox(height: 6),
+        if (!compact)
+          const Text(
+            'Process customer transactions and manage orders.',
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF8492A6),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -2025,6 +2095,7 @@ class _ProductsPanel extends StatelessWidget {
     required this.onMoveSelectionDown,
     required this.onCategorySelected,
     required this.onProductSelected,
+    required this.onRefresh,
   });
 
   final TextEditingController searchController;
@@ -2042,6 +2113,7 @@ class _ProductsPanel extends StatelessWidget {
   final VoidCallback onMoveSelectionDown;
   final ValueChanged<String> onCategorySelected;
   final ValueChanged<PosCatalogItem> onProductSelected;
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -2049,15 +2121,26 @@ class _ProductsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Products',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF374457),
-            ),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Products',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF374457),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh products',
+                onPressed: isCatalogLoading ? null : onRefresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           CallbackShortcuts(
             bindings: <ShortcutActivator, VoidCallback>{
               const SingleActivator(LogicalKeyboardKey.arrowDown):
@@ -2068,6 +2151,7 @@ class _ProductsPanel extends StatelessWidget {
             child: SizedBox(
               height: 38,
               child: TextField(
+                key: const ValueKey('pos-product-search'),
                 controller: searchController,
                 focusNode: searchFocusNode,
                 onChanged: onSearchChanged,
@@ -2154,6 +2238,7 @@ class _ProductsPanel extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final product = products[index];
                       return _ProductCompactTile(
+                        key: ValueKey('product-${product.stockKey}'),
                         product: product,
                         selectedPricingGroup: selectedPricingGroup,
                         isSelected: product.stockKey == selectedStockKey,
@@ -2168,6 +2253,7 @@ class _ProductsPanel extends StatelessWidget {
                       final product = products[index];
 
                       return _ProductRow(
+                        key: ValueKey('product-${product.stockKey}'),
                         product: product,
                         selectedPricingGroup: selectedPricingGroup,
                         isSelected: product.stockKey == selectedStockKey,
@@ -2184,6 +2270,7 @@ class _ProductsPanel extends StatelessWidget {
 
 class _ProductCompactTile extends StatelessWidget {
   const _ProductCompactTile({
+    super.key,
     required this.product,
     required this.selectedPricingGroup,
     required this.isSelected,
@@ -2339,56 +2426,52 @@ class _OrderItemsPanel extends StatelessWidget {
   }
 }
 
-class _MobilePosBillingPanel extends StatelessWidget {
-  const _MobilePosBillingPanel({
+class _MobilePosWorkspace extends StatelessWidget {
+  const _MobilePosWorkspace({
+    required this.productsPanel,
     required this.orderPanel,
     required this.checkoutPanel,
     required this.cartItemCount,
-    required this.canProcessPayment,
+    required this.total,
   });
-
-  final Widget orderPanel;
-  final Widget checkoutPanel;
+  final Widget productsPanel, orderPanel, checkoutPanel;
   final int cartItemCount;
-  final bool canProcessPayment;
+  final double total;
 
   @override
-  Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Container(
-            height: 42,
-            decoration: BoxDecoration(
-              color: _posAccentSurface(0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: TabBar(
-              padding: const EdgeInsets.all(4),
-              dividerColor: Colors.transparent,
-              indicator: BoxDecoration(
-                color: AppColors.primaryTeal,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              labelColor: AppColors.white,
-              unselectedLabelColor: const Color(0xFF5E6D82),
-              labelStyle: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-              tabs: [
-                Tab(text: 'Order ($cartItemCount)'),
-                Tab(text: canProcessPayment ? 'Checkout Ready' : 'Checkout'),
-              ],
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 3,
+    child: Column(
+      children: [
+        TabBar(
+          tabs: [
+            const Tab(text: 'Products'),
+            Tab(text: 'Cart ($cartItemCount)'),
+            const Tab(text: 'Checkout'),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: TabBarView(
+            children: [productsPanel, orderPanel, checkoutPanel],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Builder(
+          builder: (context) => SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: cartItemCount == 0
+                  ? null
+                  : () => DefaultTabController.of(context).animateTo(2),
+              icon: const Icon(Icons.shopping_cart_checkout),
+              label: Text('Review bill • Rs ${total.toStringAsFixed(2)}'),
             ),
           ),
-          const SizedBox(height: 12),
-          Expanded(child: TabBarView(children: [orderPanel, checkoutPanel])),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
 }
 
 class _CheckoutPanel extends StatelessWidget {
@@ -2424,6 +2507,9 @@ class _CheckoutPanel extends StatelessWidget {
     required this.onCustomerSelected,
     required this.onResetCustomer,
     required this.onProcessPayment,
+    required this.onExactCash,
+    required this.printReceipt,
+    required this.onPrintReceiptChanged,
     required this.touchModeEnabled,
     required this.onTouchDigitPressed,
     required this.onTouchBackspace,
@@ -2460,6 +2546,9 @@ class _CheckoutPanel extends StatelessWidget {
   final ValueChanged<PosCustomerOption> onCustomerSelected;
   final VoidCallback onResetCustomer;
   final VoidCallback onProcessPayment;
+  final VoidCallback onExactCash;
+  final bool printReceipt;
+  final ValueChanged<bool> onPrintReceiptChanged;
   final bool touchModeEnabled;
   final ValueChanged<String> onTouchDigitPressed;
   final VoidCallback onTouchBackspace;
@@ -2490,6 +2579,26 @@ class _CheckoutPanel extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF374457),
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('pos-exact-cash'),
+                          onPressed: subtotal > 0 && !isProcessing
+                              ? onExactCash
+                              : null,
+                          icon: const Icon(Icons.payments_outlined),
+                          label: Text(
+                            'Exact cash • Rs ${total.toStringAsFixed(2)}',
+                          ),
+                        ),
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Print receipt'),
+                        value: printReceipt,
+                        onChanged: isProcessing ? null : onPrintReceiptChanged,
                       ),
                       const SizedBox(height: 14),
                       const Text(
@@ -2610,21 +2719,26 @@ class _CheckoutPanel extends StatelessWidget {
                       const SizedBox(height: 14),
                       Row(
                         children: [
-                          const Text(
-                            'Total',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF344256),
+                          const Expanded(
+                            child: Text(
+                              'Total',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF344256),
+                              ),
                             ),
                           ),
-                          const Spacer(),
-                          Text(
-                            'Rs ${total.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.primaryTeal,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Rs ${total.toStringAsFixed(2)}',
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryTeal,
+                              ),
                             ),
                           ),
                         ],
@@ -2977,8 +3091,9 @@ class _CheckoutPanel extends StatelessWidget {
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
-                height: 42,
+                height: 52,
                 child: ElevatedButton.icon(
+                  key: const ValueKey('pos-process-payment'),
                   onPressed: canProcessPayment ? onProcessPayment : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primaryTeal,
@@ -3209,6 +3324,7 @@ class _CategoryChip extends StatelessWidget {
 
 class _ProductRow extends StatelessWidget {
   const _ProductRow({
+    super.key,
     required this.product,
     required this.selectedPricingGroup,
     required this.isSelected,
@@ -3314,16 +3430,16 @@ class _ProductRow extends StatelessWidget {
                       ),
                       if (isCompact) ...[
                         const SizedBox(height: 10),
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
                           children: [
-                            Expanded(
-                              child: Text(
-                                'Rs ${displayPrice.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.primaryTeal,
-                                ),
+                            Text(
+                              'Rs ${displayPrice.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primaryTeal,
                               ),
                             ),
                             Container(
@@ -3754,21 +3870,26 @@ class _SummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF7A879A),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7A879A),
+            ),
           ),
         ),
-        const Spacer(),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w800,
-            color: valueColor,
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: valueColor,
+            ),
           ),
         ),
       ],
@@ -3795,7 +3916,8 @@ class _PaymentMethodButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: 42,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.primaryTeal : AppColors.white,
           borderRadius: BorderRadius.circular(10),
@@ -3804,6 +3926,7 @@ class _PaymentMethodButton extends StatelessWidget {
           ),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
@@ -3847,96 +3970,6 @@ class _QtyButton extends StatelessWidget {
           border: Border.all(color: const Color(0xFFE1E8F1)),
         ),
         child: Icon(icon, size: 16, color: const Color(0xFF5B6A7F)),
-      ),
-    );
-  }
-}
-
-class _PrimaryActionButton extends StatelessWidget {
-  const _PrimaryActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.isLoading = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final bool isLoading;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 38,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryTeal,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-          elevation: 0,
-        ),
-        icon: isLoading
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : Icon(icon, size: 16),
-        label: Text(
-          label,
-          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
-        ),
-      ),
-    );
-  }
-}
-
-class _SecondaryActionButton extends StatelessWidget {
-  const _SecondaryActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.isLoading = false,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final bool isLoading;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 38,
-      child: OutlinedButton.icon(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primaryTeal,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          side: BorderSide(color: _posAccentBorder(0.52)),
-          backgroundColor: _posAccentSurface(0.08),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-        ),
-        icon: isLoading
-            ? SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.primaryTeal,
-                ),
-              )
-            : Icon(icon, size: 16),
-        label: Text(
-          label,
-          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
-        ),
       ),
     );
   }

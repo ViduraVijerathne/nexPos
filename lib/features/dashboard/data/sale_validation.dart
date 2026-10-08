@@ -1,5 +1,8 @@
 import '../models/models.dart';
 
+double roundMoney(double amount) =>
+    amount.isFinite ? double.parse(amount.toStringAsFixed(2)) : amount;
+
 String? validateSaleInput({
   required List<PosCartItem> items,
   required double amountPaid,
@@ -28,7 +31,9 @@ String? validateSaleInput({
     return 'Payment amounts, discount and tax must be finite and non-negative';
   }
   final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
-  final total = subtotal - discountAmount.clamp(0, subtotal) + taxAmount;
+  final total = roundMoney(
+    subtotal - discountAmount.clamp(0, subtotal) + taxAmount,
+  );
   if (!total.isFinite) {
     return 'Sale total must be finite';
   }

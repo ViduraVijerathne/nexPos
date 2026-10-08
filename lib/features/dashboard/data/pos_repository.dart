@@ -2,6 +2,7 @@ import '../models/models.dart';
 import '../../settings/services/app_settings_service.dart';
 
 abstract class PosRepository {
+  void invalidateCatalog() {}
   Future<void> initialize();
 
   Future<PosCatalogResult> fetchCatalog({

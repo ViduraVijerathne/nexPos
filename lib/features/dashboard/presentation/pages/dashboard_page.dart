@@ -178,8 +178,6 @@ class _DashboardPageState extends State<DashboardPage> {
       } else if (_selectedSection == DashboardSection.launcher) {
         _selectedSection = DashboardSection.pos;
         _loadedSections.add(DashboardSection.pos);
-        _pageVersions[DashboardSection.pos] =
-            (_pageVersions[DashboardSection.pos] ?? 0) + 1;
       }
     });
   }
@@ -204,10 +202,14 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _openSection(DashboardSection section) {
+    if (_selectedSection == section) return;
     setState(() {
       _selectedSection = section;
       _loadedSections.add(section);
-      _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
+      // Keep the POS alive so navigation cannot discard an unfinished bill.
+      if (section != DashboardSection.pos) {
+        _pageVersions[section] = (_pageVersions[section] ?? 0) + 1;
+      }
     });
   }
 

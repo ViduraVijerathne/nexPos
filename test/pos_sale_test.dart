@@ -1,9 +1,10 @@
-import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
+import 'helpers/isar_test_support.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar/isar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nex_pos_desktop/features/dashboard/data/grn_local_repository.dart';
 import 'package:nex_pos_desktop/core/database/app_database.dart';
 import 'package:nex_pos_desktop/core/database/entities/entities.dart';
 import 'package:nex_pos_desktop/core/database/isar_schemas.dart';
@@ -95,27 +96,9 @@ void main() {
   group('offline sale transactions', () {
     late Isar isar;
     late Directory directory;
-    setUpAll(() async {
-      final configFile = File('.dart_tool/package_config.json').absolute;
-      final config =
-          jsonDecode(await configFile.readAsString()) as Map<String, dynamic>;
-      final package = (config['packages'] as List)
-          .cast<Map<String, dynamic>>()
-          .singleWhere((entry) => entry['name'] == 'isar_flutter_libs');
-      final rootUri = package['rootUri'] as String;
-      final root = configFile.uri.resolve(
-        rootUri.endsWith('/') ? rootUri : '$rootUri/',
-      );
-      final library = Platform.isWindows
-          ? 'windows/isar.dll'
-          : Platform.isMacOS
-          ? 'macos/libisar.dylib'
-          : 'linux/libisar.so';
-      await Isar.initializeIsarCore(
-        libraries: {Abi.current(): root.resolve(library).toFilePath()},
-      );
-    });
+    setUpAll(initializeTestIsar);
     setUp(() async {
+      SharedPreferences.setMockInitialValues({});
       directory = await Directory.systemTemp.createTemp('nexpos-sale-test-');
       isar = await Isar.open(
         appIsarSchemas,
@@ -198,6 +181,77 @@ void main() {
         expect(invoice.cashPaidAmount, 10);
         expect(invoice.cardPaidAmount, 5);
         expect(invoice.totalAmount, 10);
+      },
+    );
+    test('decimal prices accept exact cash rounded to cents', () async {
+      final result = await _sell(
+        const PosLocalRepository(),
+        items: [_item(quantity: 3, price: 0.1)],
+        paid: 0.3,
+        cash: 0.3,
+      );
+      expect(result.changeAmount, 0);
+      final invoice = (await isar.invoiceEntitys.where().findAll()).single;
+      expect(invoice.totalAmount, 0.3);
+    });
+    test(
+      'concurrent supplier payments cannot overwrite history or overpay',
+      () async {
+        final grn = GrnEntity()
+          ..code = 'GRN-1'
+          ..supplierName = 'Supplier'
+          ..date = DateTime.now()
+          ..subTotal = 100
+          ..discount = 0
+          ..paidAmount = 0
+          ..paymentMethod = 'Cash'
+          ..createdAt = DateTime.now();
+        await isar.writeTxn(() => isar.grnEntitys.put(grn));
+        final results = await Future.wait([
+          for (var i = 0; i < 2; i++)
+            const GrnLocalRepository()
+                .recordDuePayment(grnId: 'GRN-1', amount: 60, method: 'Cash')
+                .then<Object?>(
+                  (result) => result,
+                  onError: (Object error) => error,
+                ),
+        ]);
+        expect(results.whereType<GrnRecord>().length, 1);
+        expect(results.whereType<GrnLocalRepositoryException>().length, 1);
+        final saved = (await isar.grnEntitys.where().findAll()).single;
+        expect(saved.paidAmount, 60);
+        expect(saved.paymentHistory.length, 1);
+      },
+    );
+    test(
+      'adding pending GRN stock cannot replace existing sold stock',
+      () async {
+        final line = GrnItemEmbedded()
+          ..productName = 'Product'
+          ..stockBarcode = 'stock-1'
+          ..quantity = 10
+          ..buyingPrice = 5
+          ..sellingPrice = 10;
+        final grn = GrnEntity()
+          ..code = 'GRN-1'
+          ..supplierName = 'Supplier'
+          ..date = DateTime.now()
+          ..subTotal = 50
+          ..discount = 0
+          ..paidAmount = 0
+          ..paymentMethod = 'Cash'
+          ..createdAt = DateTime.now()
+          ..items = [line];
+        await isar.writeTxn(() => isar.grnEntitys.put(grn));
+        await expectLater(
+          const GrnLocalRepository().addPendingItemsToStock('GRN-1'),
+          throwsA(isA<GrnLocalRepositoryException>()),
+        );
+        expect((await isar.stockEntitys.get(1))!.availableQuantity, 5);
+        expect(
+          (await isar.grnEntitys.get(grn.id))!.items.single.inStock,
+          isFalse,
+        );
       },
     );
   });

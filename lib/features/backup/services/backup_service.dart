@@ -12,6 +12,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/database/app_database.dart';
+import '../../../core/database/database_restore.dart';
+import '../../../core/database/isar_schemas.dart';
 import '../../activation/services/activation_service.dart';
 import '../../setup/services/setup_service.dart';
 import '../../subscription/services/subscription_usage_service.dart';
@@ -241,70 +243,36 @@ class BackupService {
       return;
     }
 
-    final backupFile = File(record.filePath);
-    if (!await backupFile.exists()) {
-      throw Exception('Backup file not found');
-    }
-
-    final dbFilePath = await AppDatabase.getDatabaseFilePath();
-    final dbFile = File(dbFilePath);
-    final stateFile = File(
-      record.filePath.replaceFirst('.isar', '.state.json'),
-    );
-
-    await AppDatabase.close();
-    if (await dbFile.exists()) {
-      await dbFile.delete();
-    }
-    await backupFile.copy(dbFile.path);
-
-    if (await stateFile.exists()) {
-      final decoded =
-          jsonDecode(await stateFile.readAsString()) as Map<String, dynamic>;
-      final setup = decoded['setup'];
-      final activation = decoded['activation'];
-      if (setup is Map<String, dynamic>) {
-        await SetupService.instance.importState(setup);
-      }
-      if (activation is Map<String, dynamic>) {
-        await ActivationService.instance.importState(activation);
-      }
-    }
+    await restoreFromExternalFile(record.filePath);
   }
 
+  String _stateFilePath(String path) => path.endsWith('.isar')
+      ? '${path.substring(0, path.length - 5)}.state.json'
+      : '$path.state.json';
+
   Future<void> restoreFromExternalFile(String filePath) async {
-    final externalFile = File(filePath);
-    if (!await externalFile.exists()) {
+    final source = File(filePath);
+    if (!await source.exists())
       throw Exception('Selected backup file not found');
+    final stateFile = File(_stateFilePath(filePath));
+    Map<String, dynamic>? state;
+    // Parse companion data before any live database mutation.
+    if (await stateFile.exists()) {
+      state =
+          jsonDecode(await stateFile.readAsString()) as Map<String, dynamic>;
     }
-
-    final dbFilePath = await AppDatabase.getDatabaseFilePath();
-    final dbFile = File(dbFilePath);
-
-    await AppDatabase.close();
-    if (await dbFile.exists()) {
-      await dbFile.delete();
-    }
-    await externalFile.copy(dbFile.path);
-
-    final externalStateFile = File(
-      filePath.endsWith('.isar')
-          ? filePath.replaceFirst('.isar', '.state.json')
-          : '$filePath.state.json',
+    await restoreDatabaseFile(
+      source: source,
+      target: File(await AppDatabase.getDatabaseFilePath()),
+      schemas: appIsarSchemas,
+      closeDatabase: AppDatabase.close,
     );
-    if (await externalStateFile.exists()) {
-      final decoded =
-          jsonDecode(await externalStateFile.readAsString())
-              as Map<String, dynamic>;
-      final setup = decoded['setup'];
-      final activation = decoded['activation'];
-      if (setup is Map<String, dynamic>) {
-        await SetupService.instance.importState(setup);
-      }
-      if (activation is Map<String, dynamic>) {
-        await ActivationService.instance.importState(activation);
-      }
-    }
+    final setup = state?['setup'];
+    final activation = state?['activation'];
+    if (setup is Map<String, dynamic>)
+      await SetupService.instance.importState(setup);
+    if (activation is Map<String, dynamic>)
+      await ActivationService.instance.importState(activation);
   }
 
   Future<String?> pickAndRestoreBackup() async {
@@ -339,15 +307,9 @@ class BackupService {
     }
 
     await sourceFile.copy(targetPath);
-    final sourceStateFile = File(
-      record.filePath.replaceFirst('.isar', '.state.json'),
-    );
+    final sourceStateFile = File(_stateFilePath(record.filePath));
     if (await sourceStateFile.exists()) {
-      final targetStateFile = File(
-        targetPath.endsWith('.isar')
-            ? targetPath.replaceFirst('.isar', '.state.json')
-            : '$targetPath.state.json',
-      );
+      final targetStateFile = File(_stateFilePath(targetPath));
       await sourceStateFile.copy(targetStateFile.path);
     }
     return targetPath;
@@ -432,7 +394,7 @@ class BackupService {
     await backupRef.set({
       'name': name ?? 'Cloud Shop Snapshot',
       'type': type,
-      'status': 'Completed',
+      'status': 'Creating',
       'storage': BackupStorage.remote.name,
       'shopId': shopId,
       'createdAt': now,
@@ -459,6 +421,8 @@ class BackupService {
         snapshot: entry.value,
       );
     }
+
+    await backupRef.update({'status': 'Completed'});
 
     return BackupRecord(
       id: backupRef.id,
@@ -526,6 +490,21 @@ class BackupService {
     }
 
     final backupData = backupSnapshot.data() ?? <String, dynamic>{};
+    if (backupData['status'] != 'Completed') {
+      throw Exception('Cloud snapshot is incomplete and cannot be restored');
+    }
+    // Read all source collections before altering any shop data.
+    final sources = <String, QuerySnapshot<Map<String, dynamic>>>{};
+    for (final collectionName in _onlineCollections) {
+      final source = await backupRef.collection(collectionName).get();
+      sources[collectionName] = source;
+      await SubscriptionUsageService.instance.recordRead(
+        shopId: shopId,
+        module: 'backups',
+        documentCount: source.docs.length,
+        payload: source.docs.map((doc) => doc.data()).toList(),
+      );
+    }
     final shopData = backupData['shopData'];
     if (shopData is Map<String, dynamic>) {
       await shopRef.set(shopData, SetOptions(merge: true));
@@ -539,7 +518,7 @@ class BackupService {
     for (final collectionName in _onlineCollections) {
       await _replaceShopCollectionFromBackup(
         shopRef: shopRef,
-        backupRef: backupRef,
+        backupSnapshot: sources[collectionName]!,
         collectionName: collectionName,
       );
     }
@@ -547,7 +526,7 @@ class BackupService {
 
   Future<void> _replaceShopCollectionFromBackup({
     required DocumentReference<Map<String, dynamic>> shopRef,
-    required DocumentReference<Map<String, dynamic>> backupRef,
+    required QuerySnapshot<Map<String, dynamic>> backupSnapshot,
     required String collectionName,
   }) async {
     final targetSnapshot = await shopRef.collection(collectionName).get();
@@ -576,13 +555,6 @@ class BackupService {
       );
     }
 
-    final backupSnapshot = await backupRef.collection(collectionName).get();
-    await SubscriptionUsageService.instance.recordRead(
-      shopId: shopRef.id,
-      module: 'backups',
-      documentCount: backupSnapshot.docs.length,
-      payload: backupSnapshot.docs.map((doc) => doc.data()).toList(),
-    );
     var writeCount = 0;
     for (var start = 0; start < backupSnapshot.docs.length; start += 400) {
       final batch = FirebaseFirestore.instance.batch();

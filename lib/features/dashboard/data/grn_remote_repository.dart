@@ -15,35 +15,35 @@ class GrnRemoteRepositoryException implements Exception {
 }
 
 class GrnRemoteRepository implements GrnRepository {
-  GrnRemoteRepository({required this.shopId});
+  GrnRemoteRepository({
+    required this.shopId,
+    FirebaseFirestore? firestore,
+    SubscriptionUsageService? usageService,
+  }) : _firestoreOverride = firestore,
+       _usageOverride = usageService;
+
+  final FirebaseFirestore? _firestoreOverride;
+  final SubscriptionUsageService? _usageOverride;
+  FirebaseFirestore get _firestore =>
+      _firestoreOverride ?? FirebaseFirestore.instance;
+  SubscriptionUsageService get _usage =>
+      _usageOverride ?? SubscriptionUsageService.instance;
 
   static const int pageSize = 10;
 
   final String shopId;
 
-  CollectionReference<Map<String, dynamic>> get _grnsRef => FirebaseFirestore
-      .instance
-      .collection('shops')
-      .doc(shopId)
-      .collection('grns');
+  CollectionReference<Map<String, dynamic>> get _grnsRef =>
+      _firestore.collection('shops').doc(shopId).collection('grns');
 
   CollectionReference<Map<String, dynamic>> get _productsRef =>
-      FirebaseFirestore.instance
-          .collection('shops')
-          .doc(shopId)
-          .collection('products');
+      _firestore.collection('shops').doc(shopId).collection('products');
 
   CollectionReference<Map<String, dynamic>> get _suppliersRef =>
-      FirebaseFirestore.instance
-          .collection('shops')
-          .doc(shopId)
-          .collection('suppliers');
+      _firestore.collection('shops').doc(shopId).collection('suppliers');
 
-  CollectionReference<Map<String, dynamic>> get _stocksRef => FirebaseFirestore
-      .instance
-      .collection('shops')
-      .doc(shopId)
-      .collection('stocks');
+  CollectionReference<Map<String, dynamic>> get _stocksRef =>
+      _firestore.collection('shops').doc(shopId).collection('stocks');
 
   @override
   Future<void> initialize() async {
@@ -63,7 +63,7 @@ class GrnRemoteRepository implements GrnRepository {
     double? dueAbove,
   }) async {
     final snapshot = await _grnsRef.get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.docs.length,
@@ -116,7 +116,7 @@ class GrnRemoteRepository implements GrnRepository {
   @override
   Future<List<String>> fetchProductSuggestions() async {
     final snapshot = await _productsRef.orderBy('nameLower').limit(50).get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.docs.length,
@@ -135,7 +135,7 @@ class GrnRemoteRepository implements GrnRepository {
         .orderBy('supplierName')
         .limit(50)
         .get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.docs.length,
@@ -151,7 +151,7 @@ class GrnRemoteRepository implements GrnRepository {
   @override
   Future<GrnRecord?> fetchGrnById(String grnId) async {
     final doc = await _grnsRef.doc(grnId).get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: doc.exists ? 1 : 0,
@@ -162,7 +162,7 @@ class GrnRemoteRepository implements GrnRepository {
           .where('code', isEqualTo: grnId)
           .limit(1)
           .get();
-      await SubscriptionUsageService.instance.recordRead(
+      await _usage.recordRead(
         shopId: shopId,
         module: 'grn',
         documentCount: snapshot.docs.length,
@@ -208,42 +208,45 @@ class GrnRemoteRepository implements GrnRepository {
           ]
         : <Map<String, dynamic>>[];
 
-    await _grnsRef.doc(record.id).set({
-      'code': record.id,
-      'supplierName': supplierName,
-      'supplierId': supplierId,
-      'date': _parseDate(record.date),
-      'subTotal': record.subTotal,
-      'discount': record.discount,
-      'paidAmount': record.paidAmount,
-      'paymentMethod': record.paymentMethod,
-      'items': items,
-      'paymentHistory': payments,
-      'createdAt': now,
-      'updatedAt': now,
-    }, SetOptions(merge: true));
-    await SubscriptionUsageService.instance.recordWrite(
-      shopId: shopId,
-      module: 'grn',
-      payload: <String, dynamic>{
+    final stockPayloads = <Map<String, dynamic>>[];
+    if (addToStock) {
+      for (final item in record.items) {
+        stockPayloads.add(await _stockPayload(record.id, item, now));
+      }
+    }
+    final stockRefs = [for (final _ in stockPayloads) _stocksRef.doc()];
+    final grnRef = _grnsRef.doc(record.id);
+    await _firestore.runTransaction((transaction) async {
+      if ((await transaction.get(grnRef)).exists) {
+        throw GrnRemoteRepositoryException(
+          'This GRN already exists. Reload before trying again.',
+        );
+      }
+      transaction.set(grnRef, {
         'code': record.id,
         'supplierName': supplierName,
+        'supplierId': supplierId,
+        'date': _parseDate(record.date),
         'subTotal': record.subTotal,
         'discount': record.discount,
         'paidAmount': record.paidAmount,
-        'itemCount': record.items.length,
-      },
-    );
-
-    if (addToStock) {
-      for (final item in record.items) {
-        await _createStockForItem(
-          grnId: record.id,
-          item: item.copyWithInStock(true),
-          createdAt: now,
-        );
+        'paymentMethod': record.paymentMethod,
+        'items': items,
+        'paymentHistory': payments,
+        'createdAt': now,
+        'updatedAt': now,
+      });
+      for (var i = 0; i < stockPayloads.length; i++) {
+        transaction.set(stockRefs[i], stockPayloads[i]);
       }
-    }
+    });
+    await _usage.recordRead(shopId: shopId, module: 'grn', documentCount: 1);
+    await _usage.recordWrite(
+      shopId: shopId,
+      module: 'grn',
+      documentCount: 1 + stockPayloads.length,
+      payload: items,
+    );
     final savedRecord = (await fetchGrnById(record.id))!;
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.grn,
@@ -268,8 +271,11 @@ class GrnRemoteRepository implements GrnRepository {
     required double amount,
     required String method,
   }) async {
+    if (!amount.isFinite || amount <= 0) {
+      throw GrnRemoteRepositoryException('Invalid payment amount');
+    }
     final docRef = _grnsRef.doc(grnId);
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(docRef);
       if (!snapshot.exists) {
         throw GrnRemoteRepositoryException('GRN not found');
@@ -301,7 +307,7 @@ class GrnRemoteRepository implements GrnRepository {
         'updatedAt': DateTime.now(),
       });
     });
-    await SubscriptionUsageService.instance.recordTransaction(
+    await _usage.recordTransaction(
       shopId: shopId,
       module: 'grn',
       reads: 1,
@@ -335,7 +341,7 @@ class GrnRemoteRepository implements GrnRepository {
   Future<GrnRecord?> addPendingItemsToStock(String grnId) async {
     final docRef = _grnsRef.doc(grnId);
     final snapshot = await docRef.get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.exists ? 1 : 0,
@@ -360,24 +366,60 @@ class GrnRemoteRepository implements GrnRepository {
     }
 
     final now = DateTime.now();
+    final productBarcodes = <String, String?>{};
     for (final item in pending) {
-      await _createStockForItem(
-        grnId: grnId,
-        item: _mapMapToItem(item).copyWithInStock(true),
-        createdAt: now,
-      );
-      item['inStock'] = true;
+      final name = item['productName']?.toString() ?? '';
+      if (!productBarcodes.containsKey(name)) {
+        productBarcodes[name] = await _findProductBarcodeByName(name);
+      }
     }
-
-    await docRef.update({'items': items, 'updatedAt': now});
-    await SubscriptionUsageService.instance.recordWrite(
-      shopId: shopId,
-      module: 'grn',
-      payload: <String, dynamic>{
-        'grnId': grnId,
-        'pendingItemCount': pending.length,
-      },
-    );
+    var addedCount = 0;
+    await _firestore.runTransaction((transaction) async {
+      addedCount = 0;
+      final current = await transaction.get(docRef);
+      if (!current.exists) {
+        throw GrnRemoteRepositoryException('GRN no longer exists');
+      }
+      final currentItems = List<Map<String, dynamic>>.from(
+        (current.data()?['items'] as List<dynamic>? ?? const []).map(
+          (item) => Map<String, dynamic>.from(item as Map),
+        ),
+      );
+      final writes =
+          <DocumentReference<Map<String, dynamic>>, Map<String, dynamic>>{};
+      for (final item in currentItems) {
+        if (item['inStock'] as bool? ?? false) continue;
+        final parsed = _mapMapToItem(item);
+        if (!productBarcodes.containsKey(parsed.product)) {
+          throw GrnRemoteRepositoryException(
+            'GRN changed. Reload before adding stock.',
+          );
+        }
+        writes[_stocksRef.doc()] = _stockMap(
+          grnId,
+          parsed,
+          now,
+          productBarcodes[parsed.product],
+        );
+        item['inStock'] = true;
+        addedCount++;
+      }
+      for (final entry in writes.entries) {
+        transaction.set(entry.key, entry.value);
+      }
+      if (addedCount > 0) {
+        transaction.update(docRef, {'items': currentItems, 'updatedAt': now});
+      }
+    });
+    await _usage.recordRead(shopId: shopId, module: 'grn', documentCount: 1);
+    if (addedCount > 0) {
+      await _usage.recordWrite(
+        shopId: shopId,
+        module: 'grn',
+        documentCount: addedCount + 1,
+        payload: {'grnId': grnId},
+      );
+    }
     final savedRecord = await fetchGrnById(grnId);
     if (savedRecord != null) {
       await ChangeLogService.instance.logChange(
@@ -385,10 +427,7 @@ class GrnRemoteRepository implements GrnRepository {
         entityId: savedRecord.id,
         action: 'add_to_stock',
         title: 'Added pending GRN items to stock for ${savedRecord.id}',
-        details: {
-          'supplier': savedRecord.supplier,
-          'itemCount': pending.length,
-        },
+        details: {'supplier': savedRecord.supplier, 'itemCount': addedCount},
       );
     }
     return savedRecord;
@@ -399,7 +438,7 @@ class GrnRemoteRepository implements GrnRepository {
         .where('supplierName', isEqualTo: supplierName)
         .limit(1)
         .get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.docs.length,
@@ -416,7 +455,7 @@ class GrnRemoteRepository implements GrnRepository {
         .where('name', isEqualTo: productName)
         .limit(1)
         .get();
-    await SubscriptionUsageService.instance.recordRead(
+    await _usage.recordRead(
       shopId: shopId,
       module: 'grn',
       documentCount: snapshot.docs.length,
@@ -428,38 +467,36 @@ class GrnRemoteRepository implements GrnRepository {
     return snapshot.docs.first.data()['barcode']?.toString();
   }
 
-  Future<void> _createStockForItem({
-    required String grnId,
-    required GrnItem item,
-    required DateTime createdAt,
-  }) async {
-    final productBarcode = await _findProductBarcodeByName(item.product);
-    await _stocksRef.add({
-      'barcode': item.stockBarcode,
-      'productName': item.product,
-      'productBarcode': productBarcode,
-      'grnCode': grnId,
-      'initialQuantity': item.quantity,
-      'availableQuantity': item.quantity,
-      'buyingPrice': item.buyingPrice,
-      'sellingPrice': item.sellingPrice,
-      'maxDiscount': item.maxDiscount,
-      'status': 'active',
-      'createdAt': createdAt,
-      'updatedAt': createdAt,
-    });
-    await SubscriptionUsageService.instance.recordWrite(
-      shopId: shopId,
-      module: 'grn',
-      payload: <String, dynamic>{
-        'barcode': item.stockBarcode,
-        'productName': item.product,
-        'grnCode': grnId,
-        'quantity': item.quantity,
-      },
-    );
-  }
+  Future<Map<String, dynamic>> _stockPayload(
+    String grnId,
+    GrnItem item,
+    DateTime createdAt,
+  ) async => _stockMap(
+    grnId,
+    item,
+    createdAt,
+    await _findProductBarcodeByName(item.product),
+  );
 
+  Map<String, dynamic> _stockMap(
+    String grnId,
+    GrnItem item,
+    DateTime createdAt,
+    String? productBarcode,
+  ) => {
+    'barcode': item.stockBarcode,
+    'productName': item.product,
+    'productBarcode': productBarcode,
+    'grnCode': grnId,
+    'initialQuantity': item.quantity,
+    'availableQuantity': item.quantity,
+    'buyingPrice': item.buyingPrice,
+    'sellingPrice': item.sellingPrice,
+    'maxDiscount': item.maxDiscount,
+    'status': 'active',
+    'createdAt': createdAt,
+    'updatedAt': createdAt,
+  };
   GrnRecord _mapGrnDocumentToRecord(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {

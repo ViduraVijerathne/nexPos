@@ -97,7 +97,7 @@ class _ToastCardState extends State<_ToastCard>
         );
       },
       child: SizedBox(
-        width: 360,
+        width: (MediaQuery.sizeOf(context).width - 40).clamp(0, 360),
         child: Material(
           color: Colors.transparent,
           child: Container(

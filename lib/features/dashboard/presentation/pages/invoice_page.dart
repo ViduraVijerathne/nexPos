@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/adaptive_data_layout.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
@@ -272,7 +273,7 @@ class _InvoicePageState extends State<InvoicePage> {
         children: [
           const _InvoiceHeader(),
           const SizedBox(height: 18),
-          Row(
+          AdaptiveRow(
             children: [
               Expanded(
                 child: _SummaryCard(
@@ -362,7 +363,7 @@ class _InvoicePageState extends State<InvoicePage> {
           ),
         ],
       ),
-    );
+    ).withAdaptivePageViewport();
   }
 }
 
@@ -506,7 +507,7 @@ class _InvoiceFilterCard extends StatelessWidget {
             firstChild: Column(
               children: [
                 const SizedBox(height: 14),
-                Row(
+                AdaptiveRow(
                   children: [
                     Expanded(
                       child: _FieldGroup(
@@ -874,7 +875,7 @@ class _InvoiceTableCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).withAdaptiveTable();
   }
 }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/adaptive_data_layout.dart';
 
 import '../../../../core/widgets/app_date_field.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -314,7 +315,7 @@ class _GrnPageState extends State<GrnPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          AdaptiveRow(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Expanded(child: _GrnHeader()),
@@ -356,7 +357,7 @@ class _GrnPageState extends State<GrnPage> {
           ),
         ],
       ),
-    );
+    ).withAdaptivePageViewport();
   }
 }
 
@@ -1914,7 +1915,7 @@ class _GrnFilterCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
+          AdaptiveRow(
             children: [
               Expanded(
                 child: _LabeledField(
@@ -2193,7 +2194,7 @@ class _GrnTableCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).withAdaptiveTable();
   }
 }
 

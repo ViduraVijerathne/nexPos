@@ -94,41 +94,52 @@ class SupplierLocalRepository implements SupplierRepository {
   Future<SupplierRecord> saveSupplier(SupplierRecord supplier) async {
     final isar = await AppDatabase.instance;
 
-    final existingByEmail = await isar.supplierEntitys
-        .filter()
-        .emailEqualTo(supplier.email.trim(), caseSensitive: false)
-        .findFirst();
-    if (existingByEmail != null && existingByEmail.id != supplier.id) {
-      throw SupplierLocalRepositoryException(
-        'A supplier with this email already exists',
-      );
-    }
+    return isar.writeTxn<SupplierRecord>(() async {
+      final existingByEmail = await isar.supplierEntitys
+          .filter()
+          .emailEqualTo(supplier.email.trim(), caseSensitive: false)
+          .findFirst();
+      if (existingByEmail != null && existingByEmail.id != supplier.id) {
+        throw SupplierLocalRepositoryException(
+          'A supplier with this email already exists',
+        );
+      }
 
-    final existing = supplier.id <= 0
-        ? null
-        : await isar.supplierEntitys.get(supplier.id);
-
-    final now = DateTime.now();
-    final entity = SupplierEntity()
-      ..id = supplier.id > 0 ? supplier.id : Isar.autoIncrement
-      ..supplierName = supplier.supplierName.trim()
-      ..companyName = supplier.companyName.trim()
-      ..contactNumber = supplier.contactNumber.trim()
-      ..companyContact = supplier.companyContact.trim().isEmpty
+      final existing = supplier.id <= 0
           ? null
-          : supplier.companyContact.trim()
-      ..email = supplier.email.trim()
-      ..address = supplier.address.trim()
-      ..isActive = supplier.isActive
-      ..createdAt = existing?.createdAt ?? now
-      ..updatedAt = existing == null ? null : now;
+          : await isar.supplierEntitys.get(supplier.id);
 
-    late final int savedId;
-    await isar.writeTxn(() async {
-      savedId = await isar.supplierEntitys.put(entity);
+      if (supplier.id > 0 && existing == null) {
+        throw SupplierLocalRepositoryException(
+          'Supplier no longer exists. Reload before editing.',
+        );
+      }
+      final now = DateTime.now();
+      final entity = SupplierEntity()
+        ..id = supplier.id > 0 ? supplier.id : Isar.autoIncrement
+        ..supplierName = supplier.supplierName.trim()
+        ..companyName = supplier.companyName.trim()
+        ..contactNumber = supplier.contactNumber.trim()
+        ..companyContact = supplier.companyContact.trim().isEmpty
+            ? null
+            : supplier.companyContact.trim()
+        ..email = supplier.email.trim()
+        ..address = supplier.address.trim()
+        ..isActive = supplier.isActive
+        ..createdAt = existing?.createdAt ?? now
+        ..updatedAt = existing == null ? null : now;
+
+      final savedId = await isar.supplierEntitys.put(entity);
+      return supplier.copyWith(
+        id: savedId,
+        supplierName: entity.supplierName,
+        companyName: entity.companyName,
+        contactNumber: entity.contactNumber,
+        companyContact: entity.companyContact ?? '',
+        email: entity.email,
+        address: entity.address,
+      );
     });
-
-    return supplier.copyWith(id: savedId);
   }
 
   Future<SupplierRecord?> toggleSupplierStatus(SupplierRecord supplier) async {

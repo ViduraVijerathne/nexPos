@@ -201,6 +201,63 @@ void main() {
       expect((await isar.supplierEntitys.get(saved.id))!.isActive, isTrue);
     });
     test(
+      'supplier save serializes email uniqueness and returns stored values',
+      () async {
+        const supplier = SupplierRecord(
+          id: 0,
+          supplierName: ' Supplier ',
+          companyName: ' Company ',
+          contactNumber: ' 123 ',
+          companyContact: '',
+          email: ' supplier@example.com ',
+          address: ' Town ',
+          isActive: true,
+          grns: [],
+        );
+        final results = await Future.wait<Object?>([
+          for (var i = 0; i < 2; i++)
+            const SupplierLocalRepository()
+                .saveSupplier(supplier)
+                .then<Object?>(
+                  (value) => value,
+                  onError: (Object error) => error,
+                ),
+        ]);
+        expect(results.whereType<SupplierRecord>(), hasLength(1));
+        expect(
+          results.whereType<SupplierLocalRepositoryException>(),
+          hasLength(1),
+        );
+        expect(await isar.supplierEntitys.count(), 1);
+        final saved = results.whereType<SupplierRecord>().single;
+        expect(saved.supplierName, 'Supplier');
+        expect(saved.email, 'supplier@example.com');
+        expect(saved.contactNumber, '123');
+      },
+    );
+    test('editing a deleted supplier cannot recreate it', () async {
+      const supplier = SupplierRecord(
+        id: 0,
+        supplierName: 'Supplier',
+        companyName: '',
+        contactNumber: '',
+        companyContact: '',
+        email: 'supplier@example.com',
+        address: '',
+        isActive: true,
+        grns: [],
+      );
+      final saved = await const SupplierLocalRepository().saveSupplier(
+        supplier,
+      );
+      await isar.writeTxn(() => isar.supplierEntitys.delete(saved.id));
+      await expectLater(
+        const SupplierLocalRepository().saveSupplier(saved),
+        throwsA(isA<SupplierLocalRepositoryException>()),
+      );
+      expect(await isar.supplierEntitys.count(), 0);
+    });
+    test(
       'supplier payments reject NaN and infinity before database access',
       () async {
         const supplier = SupplierRecord(

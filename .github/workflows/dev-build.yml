@@ -1,0 +1,119 @@
+name: Build Android, Windows and macOS
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.35.7"
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Run regression tests
+        run: flutter test --no-pub
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: test
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            runner: ubuntu-24.04
+            artifact: nexpos-android
+            path: |
+              build/app/outputs/flutter-apk/app-release.apk
+              build/app/outputs/bundle/release/app-release.aab
+
+          - platform: windows
+            runner: windows-2022
+            artifact: nexpos-windows
+            path: build/windows/x64/runner/Release/
+
+          - platform: macos
+            runner: macos-15-intel
+            artifact: nexpos-macos
+            path: build/nexpos-macos.zip
+
+    runs-on: ${{ matrix.runner }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Enable desktop builds
+        if: matrix.platform != 'android'
+        run: flutter config --enable-windows-desktop --enable-macos-desktop
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build Android APK and AAB
+        if: matrix.platform == 'android'
+        run: |
+          flutter build apk --release --no-pub
+          flutter build appbundle --release --no-pub
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        run: flutter build windows --release --no-pub
+
+      - name: Build macOS
+        if: matrix.platform == 'macos'
+        run: |
+          flutter build macos --release --no-pub
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/macos/Build/Products/Release/nex_pos_desktop.app" \
+            "build/nexpos-macos.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 14

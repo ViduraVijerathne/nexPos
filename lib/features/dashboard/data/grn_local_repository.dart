@@ -174,6 +174,11 @@ class GrnLocalRepository implements GrnRepository {
 
       if (addToStock) {
         for (final item in record.items) {
+          if (await isar.stockEntitys.getByBarcode(item.stockBarcode) != null) {
+            throw GrnLocalRepositoryException(
+              'A stock item with this barcode already exists',
+            );
+          }
           final stock = StockEntity()
             ..barcode = item.stockBarcode
             ..productName = item.product
@@ -214,36 +219,38 @@ class GrnLocalRepository implements GrnRepository {
     required double amount,
     required String method,
   }) async {
-    final isar = await AppDatabase.instance;
-    final entity = await isar.grnEntitys
-        .filter()
-        .codeEqualTo(grnId)
-        .findFirst();
-    if (entity == null) {
-      return null;
-    }
-
-    if (amount <= 0 || amount > entity.dueAmount) {
+    if (!amount.isFinite || amount <= 0) {
       throw GrnLocalRepositoryException('Invalid payment amount');
     }
-
-    final payment = GrnPaymentEmbedded()
-      ..paidAt = DateTime.now()
-      ..amount = amount
-      ..method = method
-      ..remainingBalance = (entity.dueAmount - amount).clamp(
-        0,
-        double.infinity,
-      );
-
-    entity
-      ..paidAmount += amount
-      ..paymentHistory = <GrnPaymentEmbedded>[payment, ...entity.paymentHistory]
-      ..updatedAt = DateTime.now();
-
-    await isar.writeTxn(() async {
+    final isar = await AppDatabase.instance;
+    final entity = await isar.writeTxn<GrnEntity?>(() async {
+      final entity = await isar.grnEntitys
+          .filter()
+          .codeEqualTo(grnId)
+          .findFirst();
+      if (entity == null) return null;
+      if (amount > entity.dueAmount) {
+        throw GrnLocalRepositoryException('Invalid payment amount');
+      }
+      final payment = GrnPaymentEmbedded()
+        ..paidAt = DateTime.now()
+        ..amount = amount
+        ..method = method
+        ..remainingBalance = (entity.dueAmount - amount).clamp(
+          0,
+          double.infinity,
+        );
+      entity
+        ..paidAmount += amount
+        ..paymentHistory = <GrnPaymentEmbedded>[
+          payment,
+          ...entity.paymentHistory,
+        ]
+        ..updatedAt = DateTime.now();
       await isar.grnEntitys.put(entity);
+      return entity;
     });
+    if (entity == null) return null;
     final savedRecord = _mapGrnEntityToRecord(entity);
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.grn,
@@ -262,22 +269,29 @@ class GrnLocalRepository implements GrnRepository {
 
   Future<GrnRecord?> addPendingItemsToStock(String grnId) async {
     final isar = await AppDatabase.instance;
-    final entity = await isar.grnEntitys
-        .filter()
-        .codeEqualTo(grnId)
-        .findFirst();
-    if (entity == null) {
-      return null;
-    }
+    var addedCount = 0;
+    final entity = await isar.writeTxn<GrnEntity?>(() async {
+      final entity = await isar.grnEntitys
+          .filter()
+          .codeEqualTo(grnId)
+          .findFirst();
+      if (entity == null) {
+        return null;
+      }
 
-    final pendingItems = entity.items.where((item) => !item.inStock).toList();
-    if (pendingItems.isEmpty) {
-      return _mapGrnEntityToRecord(entity);
-    }
+      final pendingItems = entity.items.where((item) => !item.inStock).toList();
+      addedCount = pendingItems.length;
+      if (pendingItems.isEmpty) {
+        return entity;
+      }
 
-    final now = DateTime.now();
-    await isar.writeTxn(() async {
+      final now = DateTime.now();
       for (final item in pendingItems) {
+        if (await isar.stockEntitys.getByBarcode(item.stockBarcode) != null) {
+          throw GrnLocalRepositoryException(
+            'A stock item with this barcode already exists',
+          );
+        }
         final stock = StockEntity()
           ..barcode = item.stockBarcode
           ..productName = item.productName
@@ -296,8 +310,11 @@ class GrnLocalRepository implements GrnRepository {
 
       entity.updatedAt = now;
       await isar.grnEntitys.put(entity);
+      return entity;
     });
+    if (entity == null) return null;
     final savedRecord = _mapGrnEntityToRecord(entity);
+    if (addedCount == 0) return savedRecord;
     await ChangeLogService.instance.logChange(
       entityType: ChangeLogEntityType.grn,
       entityId: savedRecord.id,
@@ -305,7 +322,7 @@ class GrnLocalRepository implements GrnRepository {
       title: 'Added pending GRN items to stock for ${savedRecord.id}',
       details: {
         'supplier': savedRecord.supplier,
-        'itemCount': pendingItems.length,
+        'itemCount': addedCount,
       },
     );
     return savedRecord;

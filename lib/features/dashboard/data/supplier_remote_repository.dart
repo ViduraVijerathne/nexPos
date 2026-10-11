@@ -264,6 +264,9 @@ class SupplierRemoteRepository implements SupplierRepository {
     required double amount,
     required String method,
   }) async {
+    if (!amount.isFinite || amount <= 0) {
+      throw SupplierRemoteRepositoryException('Invalid payment amount');
+    }
     final snapshot = await _grnsRef
         .where('code', isEqualTo: grnId)
         .limit(1)

@@ -122,43 +122,51 @@ class CustomerLocalRepository implements CustomerRepository {
   Future<CustomerRecord> saveCustomer(CustomerRecord customer) async {
     final isar = await AppDatabase.instance;
 
-    final trimmedEmail = customer.email.trim();
-    if (trimmedEmail.isNotEmpty) {
-      final existingByEmail = await isar.customerEntitys
-          .filter()
-          .emailEqualTo(trimmedEmail, caseSensitive: false)
-          .findFirst();
-      if (existingByEmail != null && existingByEmail.id != customer.id) {
+    return isar.writeTxn<CustomerRecord>(() async {
+      final trimmedEmail = customer.email.trim();
+      if (trimmedEmail.isNotEmpty) {
+        final existingByEmail = await isar.customerEntitys
+            .filter()
+            .emailEqualTo(trimmedEmail, caseSensitive: false)
+            .findFirst();
+        if (existingByEmail != null && existingByEmail.id != customer.id) {
+          throw CustomerLocalRepositoryException(
+            'A customer with this email already exists',
+          );
+        }
+      }
+
+      final existing = customer.id <= 0
+          ? null
+          : await isar.customerEntitys.get(customer.id);
+      if (customer.id > 0 && existing == null) {
         throw CustomerLocalRepositoryException(
-          'A customer with this email already exists',
+          'Customer no longer exists. Reload before editing.',
         );
       }
-    }
+      final now = DateTime.now();
 
-    final existing = customer.id <= 0
-        ? null
-        : await isar.customerEntitys.get(customer.id);
-    final now = DateTime.now();
+      final entity = CustomerEntity()
+        ..id = customer.id > 0 ? customer.id : Isar.autoIncrement
+        ..name = customer.name.trim()
+        ..email = trimmedEmail
+        ..phone = customer.phone.trim()
+        ..address = customer.address.trim()
+        ..joinDate = existing?.joinDate ?? now
+        ..createdAt = existing?.createdAt ?? now
+        ..updatedAt = existing == null ? null : now;
 
-    final entity = CustomerEntity()
-      ..id = customer.id > 0 ? customer.id : Isar.autoIncrement
-      ..name = customer.name.trim()
-      ..email = trimmedEmail
-      ..phone = customer.phone.trim()
-      ..address = customer.address.trim()
-      ..joinDate = existing?.joinDate ?? now
-      ..createdAt = existing?.createdAt ?? now
-      ..updatedAt = existing == null ? null : now;
+      final savedId = await isar.customerEntitys.put(entity);
 
-    late final int savedId;
-    await isar.writeTxn(() async {
-      savedId = await isar.customerEntitys.put(entity);
+      return customer.copyWith(
+        id: savedId,
+        name: entity.name,
+        email: entity.email,
+        phone: entity.phone,
+        address: entity.address,
+        joinDate: _formatDate(existing?.joinDate ?? now),
+      );
     });
-
-    return customer.copyWith(
-      id: savedId,
-      joinDate: _formatDate(existing?.joinDate ?? now),
-    );
   }
 
   Future<void> _seedIfNeeded(Isar isar) async {

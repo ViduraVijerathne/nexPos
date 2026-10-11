@@ -63,7 +63,8 @@ class AppToast {
       duration: duration,
     );
 
-    _toasts.value = List<AppToastData>.from(_toasts.value)..add(toast);
+    final next = List<AppToastData>.from(_toasts.value)..add(toast);
+    _toasts.value = next.length > 3 ? next.sublist(next.length - 3) : next;
   }
 }
 

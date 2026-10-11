@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 class SubscriptionPricing {
   const SubscriptionPricing({
@@ -103,11 +104,16 @@ class SubscriptionDashboardSnapshot {
 }
 
 class SubscriptionUsageService {
-  SubscriptionUsageService._();
+  SubscriptionUsageService({FirebaseFirestore? firestore})
+    : _injectedFirestore = firestore;
 
-  static final SubscriptionUsageService instance = SubscriptionUsageService._();
+  final FirebaseFirestore? _injectedFirestore;
+  FirebaseFirestore get _firestore =>
+      _injectedFirestore ?? FirebaseFirestore.instance;
+  static final SubscriptionUsageService instance = SubscriptionUsageService();
 
   static const List<String> _trackedCollections = <String>[
+    'expenses',
     'products',
     'categories',
     'suppliers',
@@ -121,6 +127,7 @@ class SubscriptionUsageService {
 
   SubscriptionPricing? _pricingCache;
   DateTime? _pricingLoadedAt;
+  final Map<String, DateTime> _storageRefreshedAt = {};
 
   Future<void> recordRead({
     required String shopId,
@@ -186,7 +193,7 @@ class SubscriptionUsageService {
     final pricing = await _loadPricing();
     await _refreshStorageUsage(shopId, pricing: pricing);
 
-    final shopRef = FirebaseFirestore.instance.collection('shops').doc(shopId);
+    final shopRef = _firestore.collection('shops').doc(shopId);
     final monthKey = _monthKey(DateTime.now());
     final currentSnapshot = await shopRef
         .collection('subscription_usage')
@@ -257,66 +264,40 @@ class SubscriptionUsageService {
       return;
     }
 
-    final pricing = await _loadPricing();
     final monthKey = _monthKey(DateTime.now());
-    final usageRef = FirebaseFirestore.instance
-        .collection('shops')
-        .doc(shopId)
-        .collection('subscription_usage')
-        .doc(monthKey);
-
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final snapshot = await transaction.get(usageRef);
-      final current = _normalizeUsageDocument(
-        monthKey: monthKey,
-        raw: snapshot.data() ?? const <String, dynamic>{},
-        pricing: pricing,
+    final moduleKey = _normalizeModuleKey(module);
+    try {
+      // Atomic increments avoid reading the usage document for every search.
+      // Display costs are derived from these counters with current pricing.
+      await _firestore
+          .collection('shops')
+          .doc(shopId)
+          .collection('subscription_usage')
+          .doc(monthKey)
+          .set({
+            'monthKey': monthKey,
+            'monthSort': int.parse(monthKey.replaceAll('-', '')),
+            'reads': FieldValue.increment(reads),
+            'writes': FieldValue.increment(writes),
+            'deletes': FieldValue.increment(deletes),
+            'networkBytes': FieldValue.increment(networkBytes),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'modules': {
+              moduleKey: {
+                'label': module,
+                'reads': FieldValue.increment(reads),
+                'writes': FieldValue.increment(writes),
+                'deletes': FieldValue.increment(deletes),
+                'networkBytes': FieldValue.increment(networkBytes),
+              },
+            },
+          }, SetOptions(merge: true));
+    } catch (_) {
+      // A committed sale must never be reported as failed by usage logging.
+      debugPrint(
+        'Usage tracking could not be saved; the business operation succeeded.',
       );
-      final normalizedModule = _normalizeModuleKey(module);
-      final moduleBreakdown = <String, Map<String, dynamic>>{
-        for (final item in current.moduleBreakdown)
-          _normalizeModuleKey(item.module): <String, dynamic>{
-            'label': item.module,
-            'reads': item.reads,
-            'writes': item.writes,
-            'deletes': item.deletes,
-            'networkBytes': item.networkBytes,
-          },
-      };
-
-      final moduleData = moduleBreakdown.putIfAbsent(
-        normalizedModule,
-        () => <String, dynamic>{
-          'label': module,
-          'reads': 0,
-          'writes': 0,
-          'deletes': 0,
-          'networkBytes': 0,
-        },
-      );
-
-      moduleData['reads'] = (moduleData['reads'] as int? ?? 0) + reads;
-      moduleData['writes'] = (moduleData['writes'] as int? ?? 0) + writes;
-      moduleData['deletes'] = (moduleData['deletes'] as int? ?? 0) + deletes;
-      moduleData['networkBytes'] =
-          (moduleData['networkBytes'] as int? ?? 0) + networkBytes;
-
-      final next = _normalizeUsageDocument(
-        monthKey: monthKey,
-        raw: <String, dynamic>{
-          'reads': current.reads + reads,
-          'writes': current.writes + writes,
-          'deletes': current.deletes + deletes,
-          'networkBytes': current.networkBytes + networkBytes,
-          'storageBytes': current.storageBytes,
-          'modules': moduleBreakdown,
-          'createdAt': current.updatedAt,
-        },
-        pricing: pricing,
-      );
-
-      transaction.set(usageRef, _toFirestoreMap(next), SetOptions(merge: true));
-    });
+    }
   }
 
   Future<void> _refreshStorageUsage(
@@ -327,7 +308,11 @@ class SubscriptionUsageService {
       return;
     }
 
-    final firestore = FirebaseFirestore.instance;
+    final refreshedAt = _storageRefreshedAt[shopId];
+    if (refreshedAt != null &&
+        DateTime.now().difference(refreshedAt) < const Duration(minutes: 15))
+      return;
+    final firestore = _firestore;
     final shopRef = firestore.collection('shops').doc(shopId);
     final monthKey = _monthKey(DateTime.now());
     final usageRef = shopRef.collection('subscription_usage').doc(monthKey);
@@ -344,40 +329,8 @@ class SubscriptionUsageService {
       }
     }
 
-    final existingSnapshot = await usageRef.get();
-    final current = _normalizeUsageDocument(
-      monthKey: monthKey,
-      raw: existingSnapshot.data() ?? const <String, dynamic>{},
-      pricing: pricing,
-    );
-    if (current.storageBytes == storageBytes) {
-      return;
-    }
-
-    final next = _normalizeUsageDocument(
-      monthKey: monthKey,
-      raw: <String, dynamic>{
-        'reads': current.reads,
-        'writes': current.writes,
-        'deletes': current.deletes,
-        'networkBytes': current.networkBytes,
-        'storageBytes': storageBytes,
-        'modules': {
-          for (final module in current.moduleBreakdown)
-            _normalizeModuleKey(module.module): <String, dynamic>{
-              'label': module.module,
-              'reads': module.reads,
-              'writes': module.writes,
-              'deletes': module.deletes,
-              'networkBytes': module.networkBytes,
-            },
-        },
-        'createdAt': current.updatedAt,
-      },
-      pricing: pricing,
-    );
-
-    await usageRef.set(_toFirestoreMap(next), SetOptions(merge: true));
+    await usageRef.set({'storageBytes': storageBytes}, SetOptions(merge: true));
+    _storageRefreshedAt[shopId] = DateTime.now();
   }
 
   Future<SubscriptionPricing> _loadPricing() async {
@@ -389,7 +342,7 @@ class SubscriptionUsageService {
       return cached;
     }
 
-    final pricingCollection = FirebaseFirestore.instance.collection('pricing');
+    final pricingCollection = _firestore.collection('pricing');
     final firebasePricing = await pricingCollection
         .doc('firebase_pricing')
         .get();
@@ -492,40 +445,6 @@ class SubscriptionUsageService {
       updatedAt:
           _readDateTime(raw['updatedAt'] ?? raw['createdAt']) ?? DateTime.now(),
     );
-  }
-
-  Map<String, dynamic> _toFirestoreMap(_NormalizedUsageDocument usage) {
-    return <String, dynamic>{
-      'monthKey': usage.monthKey,
-      'monthSort': int.tryParse(usage.monthKey.replaceAll('-', '')) ?? 0,
-      'billingMonthLabel': _monthLabel(_parseMonthKey(usage.monthKey)),
-      'periodLabel': _periodLabel(usage.monthKey),
-      'reads': usage.reads,
-      'writes': usage.writes,
-      'deletes': usage.deletes,
-      'networkBytes': usage.networkBytes,
-      'storageBytes': usage.storageBytes,
-      'readsCostLkr': usage.readsCostLkr,
-      'writesCostLkr': usage.writesCostLkr,
-      'deletesCostLkr': usage.deletesCostLkr,
-      'networkCostLkr': usage.networkCostLkr,
-      'storageCostLkr': usage.storageCostLkr,
-      'mainSubscriptionLkr': usage.mainSubscriptionLkr,
-      'totalDueLkr': usage.totalDueLkr,
-      'updatedAt': usage.updatedAt,
-      'modules': {
-        for (final module in usage.moduleBreakdown)
-          _normalizeModuleKey(module.module): <String, dynamic>{
-            'label': module.module,
-            'reads': module.reads,
-            'writes': module.writes,
-            'deletes': module.deletes,
-            'networkBytes': module.networkBytes,
-            'costLkr': module.costLkr,
-          },
-      },
-      'status': 'Pending',
-    };
   }
 
   SubscriptionBillingHistoryRecord _mapHistoryRecord(

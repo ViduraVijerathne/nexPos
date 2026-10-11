@@ -15,7 +15,10 @@ class AppDatabase {
       return Future<Isar>.value(existing);
     }
 
-    return _openFuture ??= _open();
+    return _openFuture ??= _open().catchError((Object error, StackTrace stack) {
+      _openFuture = null;
+      Error.throwWithStackTrace(error, stack);
+    });
   }
 
   static Future<Isar> _open() async {

@@ -1,9 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/services/async_value_cache.dart';
+
 import '../../subscription/services/subscription_usage_service.dart';
 import '../models/models.dart';
 import '../../settings/services/app_settings_service.dart';
 import 'pos_repository.dart';
+import 'sale_validation.dart';
 
 class PosRemoteRepositoryException implements Exception {
   PosRemoteRepositoryException(this.message);
@@ -15,7 +18,58 @@ class PosRemoteRepositoryException implements Exception {
 }
 
 class PosRemoteRepository implements PosRepository {
-  PosRemoteRepository({required this.shopId});
+  PosRemoteRepository({
+    required this.shopId,
+    FirebaseFirestore? firestore,
+    SubscriptionUsageService? usageService,
+  }) : _injectedFirestore = firestore,
+       _usage = usageService ?? SubscriptionUsageService.instance;
+
+  final FirebaseFirestore? _injectedFirestore;
+  FirebaseFirestore get _firestore =>
+      _injectedFirestore ?? FirebaseFirestore.instance;
+  final SubscriptionUsageService _usage;
+  final _stockCache = AsyncValueCache<List<_CachedDocument>>(
+    maxAge: const Duration(seconds: 30),
+  );
+  final _productCache = AsyncValueCache<List<_CachedDocument>>(
+    maxAge: const Duration(minutes: 5),
+  );
+  final _customerCache = AsyncValueCache<List<_CachedDocument>>(
+    maxAge: const Duration(minutes: 1),
+  );
+  final _salesCache = AsyncValueCache<List<_CachedDocument>>(
+    maxAge: const Duration(minutes: 5),
+  );
+  final _sequenceReady = AsyncValueCache<bool>(
+    maxAge: const Duration(days: 365),
+  );
+
+  DocumentReference<Map<String, dynamic>> get _shopRef =>
+      _firestore.collection('shops').doc(shopId);
+
+  Future<List<_CachedDocument>> _readDocuments(
+    CollectionReference<Map<String, dynamic>> ref,
+  ) async {
+    final snapshot = await ref.get();
+    await _usage.recordRead(
+      shopId: shopId,
+      module: 'pos',
+      documentCount: snapshot.docs.length,
+      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    );
+    return snapshot.docs
+        .map((doc) => _CachedDocument(doc.id, doc.data()))
+        .toList();
+  }
+
+  @override
+  void invalidateCatalog() {
+    _stockCache.invalidate();
+    _productCache.invalidate();
+    _salesCache.invalidate();
+    _customerCache.invalidate();
+  }
 
   static const PosCustomerOption walkInCustomer = PosCustomerOption(
     id: null,
@@ -28,29 +82,17 @@ class PosRemoteRepository implements PosRepository {
 
   final String shopId;
 
-  CollectionReference<Map<String, dynamic>> get _stocksRef => FirebaseFirestore
-      .instance
-      .collection('shops')
-      .doc(shopId)
-      .collection('stocks');
+  CollectionReference<Map<String, dynamic>> get _stocksRef =>
+      _firestore.collection('shops').doc(shopId).collection('stocks');
 
   CollectionReference<Map<String, dynamic>> get _productsRef =>
-      FirebaseFirestore.instance
-          .collection('shops')
-          .doc(shopId)
-          .collection('products');
+      _firestore.collection('shops').doc(shopId).collection('products');
 
   CollectionReference<Map<String, dynamic>> get _customersRef =>
-      FirebaseFirestore.instance
-          .collection('shops')
-          .doc(shopId)
-          .collection('customers');
+      _firestore.collection('shops').doc(shopId).collection('customers');
 
   CollectionReference<Map<String, dynamic>> get _invoicesRef =>
-      FirebaseFirestore.instance
-          .collection('shops')
-          .doc(shopId)
-          .collection('invoices');
+      _firestore.collection('shops').doc(shopId).collection('invoices');
 
   @override
   Future<void> initialize() async {
@@ -67,26 +109,16 @@ class PosRemoteRepository implements PosRepository {
     String? category,
     PosCatalogLoadMode loadMode = PosCatalogLoadMode.defaultOrder,
   }) async {
-    final stockSnapshot = await _stocksRef.get();
-    final productSnapshot = await _productsRef.get();
-    final invoiceSnapshot = await _invoicesRef.get();
-    await SubscriptionUsageService.instance.recordRead(
-      shopId: shopId,
-      module: 'pos',
-      documentCount:
-          stockSnapshot.docs.length +
-          productSnapshot.docs.length +
-          invoiceSnapshot.docs.length,
-      payload: <Object?>[
-        stockSnapshot.docs.map((doc) => doc.data()).toList(),
-        productSnapshot.docs.map((doc) => doc.data()).toList(),
-        invoiceSnapshot.docs.map((doc) => doc.data()).toList(),
-      ],
-    );
+    final snapshots = await Future.wait([
+      _stockCache.get(() => _readDocuments(_stocksRef)),
+      _productCache.get(() => _readDocuments(_productsRef)),
+    ]);
+    final stockDocs = snapshots[0];
+    final productDocs = snapshots[1];
 
     final productsByName = <String, List<Map<String, dynamic>>>{};
     final productsByBarcode = <String, Map<String, dynamic>>{};
-    for (final doc in productSnapshot.docs) {
+    for (final doc in productDocs) {
       final data = doc.data();
       final nameKey = data['name']?.toString().trim().toLowerCase() ?? '';
       if (nameKey.isNotEmpty) {
@@ -105,10 +137,14 @@ class PosRemoteRepository implements PosRepository {
     final appliedLoadMode = normalizedQuery.isEmpty
         ? loadMode
         : PosCatalogLoadMode.defaultOrder;
-    final salesByProductKey = _buildRemoteSalesMap(invoiceSnapshot.docs);
+    final salesByProductKey = appliedLoadMode == PosCatalogLoadMode.mostSelling
+        ? _buildRemoteSalesMap(
+            await _salesCache.get(() => _readDocuments(_invoicesRef)),
+          )
+        : <String, int>{};
 
     final items =
-        stockSnapshot.docs
+        stockDocs
             .where((doc) {
               final data = doc.data();
               final isActive =
@@ -188,8 +224,8 @@ class PosRemoteRepository implements PosRepository {
 
     final categories = <String>{
       'All',
-      ...items
-          .map((item) => item.category)
+      ...productDocs
+          .map((doc) => doc.data()['category']?.toString() ?? 'Uncategorized')
           .where((value) => value.trim().isNotEmpty),
     }.toList();
 
@@ -215,17 +251,13 @@ class PosRemoteRepository implements PosRepository {
 
   @override
   Future<List<PosCustomerOption>> searchCustomers(String query) async {
-    final snapshot = await _customersRef.get();
-    await SubscriptionUsageService.instance.recordRead(
-      shopId: shopId,
-      module: 'pos',
-      documentCount: snapshot.docs.length,
-      payload: snapshot.docs.map((doc) => doc.data()).toList(),
+    final customerDocs = await _customerCache.get(
+      () => _readDocuments(_customersRef),
     );
     final normalized = query.trim().toLowerCase();
 
     final docs =
-        snapshot.docs.where((doc) {
+        customerDocs.where((doc) {
           if (normalized.isEmpty) {
             return true;
           }
@@ -266,19 +298,21 @@ class PosRemoteRepository implements PosRepository {
     required double discountAmount,
     required double taxAmount,
   }) async {
-    if (items.isEmpty) {
-      throw PosRemoteRepositoryException('Add at least one item to the cart');
+    final validationError = validateSaleInput(
+      items: items,
+      amountPaid: amountPaid,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
+      discountAmount: discountAmount,
+      taxAmount: taxAmount,
+    );
+    if (validationError != null) {
+      throw PosRemoteRepositoryException(validationError);
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
     final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
-    final total = (subtotal - sanitizedDiscount) + taxAmount;
-    if (amountPaid < total) {
-      throw PosRemoteRepositoryException(
-        'Paid amount must be equal to or greater than total',
-      );
-    }
-
+    final total = roundMoney((subtotal - sanitizedDiscount) + taxAmount);
     final stockIds = items
         .map((item) => item.stockCloudId)
         .whereType<String>()
@@ -290,8 +324,15 @@ class PosRemoteRepository implements PosRepository {
       );
     }
 
-    final invoiceNumber = await _generateNextInvoiceNumber();
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await _ensureInvoiceSequence();
+    final remainingStock = <String, int>{};
+    final invoiceNumber = await _firestore.runTransaction<String>((
+      transaction,
+    ) async {
+      final shopSnapshot = await transaction.get(_shopRef);
+      final nextNumber =
+          ((shopSnapshot.data()?['invoiceSequence'] as num?)?.toInt() ?? 0) + 1;
+      final invoiceNumber = 'INV-${nextNumber.toString().padLeft(6, '0')}';
       final stockRefs = {
         for (final stockId in stockIds) stockId: _stocksRef.doc(stockId),
       };
@@ -329,6 +370,7 @@ class PosRemoteRepository implements PosRepository {
         final snapshot = stockSnapshots[item.stockCloudId]!;
         final data = snapshot.data() ?? <String, dynamic>{};
         final availableQty = (data['availableQuantity'] as num?)?.toInt() ?? 0;
+        remainingStock[item.stockCloudId!] = availableQty - item.quantity;
         transaction.update(ref, {
           'availableQuantity': availableQty - item.quantity,
           'updatedAt': DateTime.now(),
@@ -367,12 +409,29 @@ class PosRemoteRepository implements PosRepository {
         'createdAt': DateTime.now(),
         'updatedAt': DateTime.now(),
       });
+      transaction.set(_shopRef, {
+        'invoiceSequence': nextNumber,
+      }, SetOptions(merge: true));
+      return invoiceNumber;
     });
-    await SubscriptionUsageService.instance.recordTransaction(
+    _stockCache.update(
+      (docs) => docs
+          .map(
+            (doc) => remainingStock.containsKey(doc.id)
+                ? _CachedDocument(doc.id, {
+                    ...doc.data(),
+                    'availableQuantity': remainingStock[doc.id],
+                  })
+                : doc,
+          )
+          .toList(),
+    );
+    _salesCache.invalidate();
+    await _usage.recordTransaction(
       shopId: shopId,
       module: 'pos',
-      reads: stockIds.length,
-      writes: stockIds.length + 1,
+      reads: stockIds.length + 1,
+      writes: stockIds.length + 2,
       payload: <String, dynamic>{
         'invoiceNumber': invoiceNumber,
         'itemCount': items.length,
@@ -391,25 +450,38 @@ class PosRemoteRepository implements PosRepository {
     );
   }
 
-  Future<String> _generateNextInvoiceNumber() async {
-    final invoices = await _invoicesRef.get();
-    await SubscriptionUsageService.instance.recordRead(
-      shopId: shopId,
-      module: 'pos',
-      documentCount: invoices.docs.length,
-      payload: invoices.docs.map((doc) => doc.data()).toList(),
-    );
-    var maxNumber = 0;
-    for (final invoice in invoices.docs) {
-      final value = invoice.data()['invoiceNumber']?.toString().trim() ?? '';
-      final match = RegExp(r'^INV-(\d+)$').firstMatch(value);
-      final parsed = int.tryParse(match?.group(1) ?? '');
-      if (parsed != null && parsed > maxNumber) {
-        maxNumber = parsed;
+  Future<void> _ensureInvoiceSequence() async {
+    await _sequenceReady.get(() async {
+      final shop = await _shopRef.get();
+      await _usage.recordRead(shopId: shopId, module: 'pos', documentCount: 1);
+      if (shop.data()?['invoiceSequence'] is num) return true;
+      // One-time migration for shops with existing invoices. Future bills read
+      // and increment one shop counter inside the same stock transaction.
+      final invoices = await _readDocuments(_invoicesRef);
+      var maxNumber = 0;
+      for (final invoice in invoices) {
+        final match = RegExp(
+          r'^INV-(\d+)$',
+        ).firstMatch(invoice.data()['invoiceNumber']?.toString().trim() ?? '');
+        final parsed = int.tryParse(match?.group(1) ?? '');
+        if (parsed != null && parsed > maxNumber) maxNumber = parsed;
       }
-    }
-    final next = maxNumber + 1;
-    return 'INV-${next.toString().padLeft(6, '0')}';
+      await _firestore.runTransaction((transaction) async {
+        final current = await transaction.get(_shopRef);
+        if (current.data()?['invoiceSequence'] is! num) {
+          transaction.set(_shopRef, {
+            'invoiceSequence': maxNumber,
+          }, SetOptions(merge: true));
+        }
+      });
+      await _usage.recordTransaction(
+        shopId: shopId,
+        module: 'pos',
+        reads: 1,
+        writes: 1,
+      );
+      return true;
+    });
   }
 
   DateTime _readSortDate(Map<String, dynamic> data) {
@@ -447,9 +519,7 @@ class PosRemoteRepository implements PosRepository {
     return namedProducts.first;
   }
 
-  Map<String, int> _buildRemoteSalesMap(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> invoiceDocs,
-  ) {
+  Map<String, int> _buildRemoteSalesMap(List<_CachedDocument> invoiceDocs) {
     final sales = <String, int>{};
     for (final doc in invoiceDocs) {
       final items = doc.data()['items'] as List<dynamic>? ?? const <dynamic>[];
@@ -521,4 +591,11 @@ class PosRemoteRepository implements PosRepository {
       right.stockBarcode.toLowerCase(),
     );
   }
+}
+
+class _CachedDocument {
+  const _CachedDocument(this.id, this._data);
+  final String id;
+  final Map<String, dynamic> _data;
+  Map<String, dynamic> data() => _data;
 }

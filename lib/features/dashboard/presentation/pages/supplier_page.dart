@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/adaptive_data_layout.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/toast/app_toast.dart';
@@ -288,7 +289,7 @@ class _SupplierPageState extends State<SupplierPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          AdaptiveRow(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Expanded(child: _SupplierHeader()),
@@ -332,7 +333,7 @@ class _SupplierPageState extends State<SupplierPage> {
           ),
         ],
       ),
-    );
+    ).withAdaptivePageViewport();
   }
 }
 
@@ -834,7 +835,7 @@ class _SupplierTableCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).withAdaptiveTable();
   }
 }
 

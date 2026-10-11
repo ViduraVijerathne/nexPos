@@ -132,13 +132,21 @@ class DaySessionService {
       toDate: DateTime.now(),
     );
     final drawerExpenseTotal = expenseReport.expenses
-        .where((expense) => expense.paidFromDrawer)
+        .where(
+          (expense) =>
+              expense.paidFromDrawer &&
+              expense.status == ExpenseStatus.active &&
+              !expense.createdAt.isBefore(startedAt),
+        )
         .fold<double>(0, (sum, expense) => sum + expense.amount);
 
-    final cashSales = invoices.fold<double>(
-      0,
-      (sum, invoice) => sum + invoice.cashPaidAmount,
-    );
+    final cashSales = invoices.fold<double>(0, (sum, invoice) {
+      // Stored cash is the tendered amount, including change returned.
+      final change = (invoice.paidAmount - invoice.amount)
+          .clamp(0, invoice.cashPaidAmount)
+          .toDouble();
+      return sum + invoice.cashPaidAmount - change;
+    });
     final cardSales = invoices.fold<double>(
       0,
       (sum, invoice) => sum + invoice.cardPaidAmount,

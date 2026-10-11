@@ -59,6 +59,7 @@ class TouchUiSettings {
 }
 
 enum PosInvoicePrintMode {
+  none('No Receipt (Fast Checkout)'),
   preview('Show Preview Before Printing'),
   instant('Print Instantly');
 

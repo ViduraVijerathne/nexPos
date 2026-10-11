@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../../settings/services/app_settings_service.dart';
 import 'customer_local_repository.dart';
 import 'pos_repository.dart';
+import 'sale_validation.dart';
 import 'stock_local_repository.dart';
 
 class PosLocalRepositoryException implements Exception {
@@ -28,6 +29,9 @@ class PosLocalRepository implements PosRepository {
     email: '',
     isWalkIn: true,
   );
+
+  @override
+  void invalidateCatalog() {}
 
   Future<void> initialize() async {
     await const StockLocalRepository().initialize();
@@ -52,13 +56,14 @@ class PosLocalRepository implements PosRepository {
     };
 
     final activeStocks = await isar.stockEntitys.where().findAll();
-    final invoices = await isar.invoiceEntitys.where().findAll();
     final normalizedQuery = searchQuery?.trim().toLowerCase() ?? '';
     final normalizedCategory = category?.trim() ?? 'All';
     final appliedLoadMode = normalizedQuery.isEmpty
         ? loadMode
         : PosCatalogLoadMode.defaultOrder;
-    final salesByProductKey = _buildLocalSalesMap(invoices);
+    final salesByProductKey = appliedLoadMode == PosCatalogLoadMode.mostSelling
+        ? _buildLocalSalesMap(await isar.invoiceEntitys.where().findAll())
+        : <String, int>{};
 
     final items =
         activeStocks
@@ -124,8 +129,8 @@ class PosLocalRepository implements PosRepository {
 
     final categories = <String>{
       'All',
-      ...items
-          .map((item) => item.category)
+      ...products
+          .map((product) => product.category)
           .where((value) => value.trim().isNotEmpty),
     }.toList();
 
@@ -203,67 +208,78 @@ class PosLocalRepository implements PosRepository {
     required double discountAmount,
     required double taxAmount,
   }) async {
-    if (items.isEmpty) {
-      throw PosLocalRepositoryException('Add at least one item to the cart');
+    final validationError = validateSaleInput(
+      items: items,
+      amountPaid: amountPaid,
+      cashPaidAmount: cashPaidAmount,
+      cardPaidAmount: cardPaidAmount,
+      discountAmount: discountAmount,
+      taxAmount: taxAmount,
+    );
+    if (validationError != null) {
+      throw PosLocalRepositoryException(validationError);
     }
 
     final subtotal = items.fold<double>(0, (sum, item) => sum + item.subtotal);
     final sanitizedDiscount = discountAmount.clamp(0, subtotal).toDouble();
-    final total = (subtotal - sanitizedDiscount) + taxAmount;
-    if (amountPaid < total) {
-      throw PosLocalRepositoryException(
-        'Paid amount must be equal to or greater than total',
-      );
-    }
-
+    final total = roundMoney((subtotal - sanitizedDiscount) + taxAmount);
     final isar = await AppDatabase.instance;
-    final stockIds = items
-        .map((item) => item.stockId)
-        .whereType<int>()
-        .toList();
-    final stocks = await isar.stockEntitys.getAll(stockIds);
-    final stocksById = <int, StockEntity>{
-      for (final stock in stocks.whereType<StockEntity>()) stock.id: stock,
-    };
-
-    for (final item in items) {
-      final stock = stocksById[item.stockId];
-      if (stock == null || stock.status != StockEntityStatus.active) {
-        throw PosLocalRepositoryException(
-          'One or more stock items are no longer available',
-        );
-      }
-      if (stock.availableQuantity < item.quantity) {
-        throw PosLocalRepositoryException(
-          'Not enough available quantity for ${item.productName}',
-        );
-      }
-    }
-
-    final invoiceNumber = await _generateNextInvoiceNumber(isar);
-    final invoice = InvoiceEntity()
-      ..invoiceNumber = invoiceNumber
-      ..customerName = customer.name
-      ..customerCode = customer.isWalkIn ? 'walk-in' : customer.phone
-      ..customerDbId = customer.id
-      ..issuedAt = DateTime.now()
-      ..discountAmount = sanitizedDiscount
-      ..cashPaidAmount = cashPaidAmount
-      ..cardPaidAmount = cardPaidAmount
-      ..totalAmount = total
-      ..status = InvoiceEntityStatus.paid
-      ..paymentMethod = paymentMethod
-      ..cashierName = cashierName
-      ..items = items.map((item) {
-        final line = InvoiceLineItemEmbedded()
-          ..name = item.productName
-          ..quantity = item.quantity
-          ..unitPrice = item.unitPrice;
-        return line;
-      }).toList()
-      ..createdAt = DateTime.now();
-
+    late final String invoiceNumber;
     await isar.writeTxn(() async {
+      final stockIds = items
+          .map((item) => item.stockId)
+          .whereType<int>()
+          .toList();
+      final stocks = await isar.stockEntitys.getAll(stockIds);
+      final stocksById = <int, StockEntity>{
+        for (final stock in stocks.whereType<StockEntity>()) stock.id: stock,
+      };
+
+      final requiredQuantities = <int?, int>{};
+      for (final item in items) {
+        requiredQuantities.update(
+          item.stockId,
+          (quantity) => quantity + item.quantity,
+          ifAbsent: () => item.quantity,
+        );
+      }
+      for (final item in items) {
+        final stock = stocksById[item.stockId];
+        if (stock == null || stock.status != StockEntityStatus.active) {
+          throw PosLocalRepositoryException(
+            'One or more stock items are no longer available',
+          );
+        }
+        if (stock.availableQuantity < requiredQuantities[item.stockId]!) {
+          throw PosLocalRepositoryException(
+            'Not enough available quantity for ${item.productName}',
+          );
+        }
+      }
+
+      invoiceNumber = await _generateNextInvoiceNumber(isar);
+      final invoice = InvoiceEntity()
+        ..invoiceNumber = invoiceNumber
+        ..customerName = customer.name
+        ..customerCode = customer.isWalkIn ? 'walk-in' : customer.phone
+        ..customerDbId = customer.id
+        ..issuedAt = DateTime.now()
+        ..discountAmount = sanitizedDiscount
+        ..cashPaidAmount = cashPaidAmount
+        ..cardPaidAmount = cardPaidAmount
+        ..totalAmount = total
+        ..status = InvoiceEntityStatus.paid
+        ..paymentMethod = paymentMethod
+        ..cashierName = cashierName
+        ..items = items.map((item) {
+          final line = InvoiceLineItemEmbedded()
+            ..name = item.productName
+            ..quantity = item.quantity
+            ..unitPrice = item.unitPrice;
+          return line;
+        }).toList()
+        ..createdAt = DateTime.now();
+
       for (final item in items) {
         final stock = stocksById[item.stockId]!;
         stock
